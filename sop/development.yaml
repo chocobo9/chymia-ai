@@ -1,0 +1,101 @@
+id: development
+domain: engineering
+label: Development SOP
+description: Feature development lifecycle — hint bulletin board + post-hoc trace evaluation (not a pre-gate).
+
+stages:
+  - id: kickoff
+    label: 立项
+    suggested_skill: feat-lifecycle
+    hard_rules:
+      - id: kickoff-ac-checklist
+        text: Feature spec 必须有 AC + 需求点 checklist
+        severity: blocker
+        predicate:
+          type: manual_only
+          reason: Spec completeness is reviewed manually; no structured artifact yet.
+    pitfalls:
+      - id: kickoff-no-user-confirmation
+        text: 没有用户确认就直接开始实现
+        severity: warn
+        predicate:
+          type: manual_only
+          reason: User confirmation is conversational intent, not a structured event.
+
+  - id: impl
+    label: 实现
+    suggested_skill: writing-plans
+    hard_rules:
+      - id: impl-main-sync-before-worktree
+        text: worktree 开之前必须 main 双向同步 (ahead=0 behind=0)
+        severity: blocker
+        predicate:
+          type: git_state_predicate
+          checks: [ahead_zero, behind_zero]
+      - id: impl-redis-port-check
+        text: Redis 开发实例必须使用 6398 端口配置
+        severity: blocker
+        predicate:
+          type: manual_only
+          reason: Env port policy is checked via env-check helper in CI; not in frozen SopPredicate union.
+    pitfalls:
+      - id: impl-skip-design-gate
+        text: 跳过 Design Gate 直接写代码
+        severity: warn
+        predicate:
+          type: manual_only
+          reason: Design Gate evidence is feature-specific; no structured artifact yet.
+
+  - id: quality_gate
+    label: 自检
+    suggested_skill: quality-gate
+    hard_rules:
+      - id: quality-gate-vision-coverage
+        text: 自检报告必须包含愿景覆盖度
+        severity: blocker
+        predicate:
+          type: manual_only
+          reason: Vision coverage has no machine-checkable report artifact yet.
+    pitfalls:
+      - id: quality-gate-full-test-evidence
+        text: 声称完成但没跑全量测试
+        severity: blocker
+        predicate:
+          type: command_pattern
+          must_match: vitest run|pnpm test|npm test
+
+  - id: review
+    label: Review
+    suggested_skill: request-review
+    hard_rules:
+      - id: review-no-self-review
+        text: 同一个体不能 review 自己的代码
+        severity: blocker
+        predicate:
+          type: handle_check
+          constraint: reviewer_not_author
+    pitfalls:
+      - id: review-missing-request
+        text: 未发送 review 请求就声称已 review
+        severity: warn
+        predicate:
+          type: command_pattern
+          must_match: request review|请 review
+
+  - id: merge
+    label: 合入
+    suggested_skill: merge-gate
+    hard_rules:
+      - id: merge-github-squash-only
+        text: 必须用 gh pr merge --squash（禁止本地 squash）
+        severity: blocker
+        predicate:
+          type: command_pattern
+          must_match: gh pr merge .*--squash
+    pitfalls:
+      - id: merge-without-pr-view
+        text: 合入前未确认 PR 状态
+        severity: warn
+        predicate:
+          type: command_pattern
+          must_match: gh pr view

@@ -1,0 +1,5 @@
+behaviors:
+  - behavior: "写代码前先确认 spec 和测试计划"
+    scope: all
+  - behavior: "review 反馈必须逐项回应，禁止表演性同意"
+    scope: all

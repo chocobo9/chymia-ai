@@ -1,0 +1,7 @@
+constraints:
+  - rule: "禁止直接 merge 到 main 分支"
+    severity: block
+    scope: all
+  - rule: "同一 agent 不能 review 自己的代码"
+    severity: block
+    scope: all

@@ -1,0 +1,9 @@
+name: 开发流程链
+trigger: "开个新功能"
+steps:
+  - action: feat-lifecycle
+  - action: writing-plans
+  - action: worktree
+  - action: tdd
+    params:
+      mode: red-green-refactor

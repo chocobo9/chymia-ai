@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+coverage/
+playwright-report/
+test-results/
+*.log
+*.tsbuildinfo
+.DS_Store
+.state.txt
+.harness_probe.txt
+# transient test databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+.tmp/
+# Third-party reference source (full Clowder codebase, ~117M) — used only as a
+# WHY/edge-case reference per CLAUDE.md §0.3; NOT this project's deliverable and
+# not ours to publish. Excluded from the repo.
+reference/
+# Orchestrator-internal scaffolding (build state, gate output, handoff log) — NOT for upload.
+.harness/
+# Project governance / task spec — internal, not published.
+CLAUDE.md
+PROJECT_SPEC.md
+# Design docs describing Clowder internals/architecture — not published.
+docs/

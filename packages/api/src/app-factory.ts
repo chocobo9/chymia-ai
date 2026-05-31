@@ -1,0 +1,340 @@
+// M8 app-factory — the whole DI wiring as a single callable factory.
+//
+// Source: clowder-design-supplement.md §D (constructor injection, no global
+// singletons). buildApp() constructs every concrete service, wires the
+// InvokeAgentFn seam (M7 system prompt + history context → M3 invokeSingleAgent),
+// builds the AgentRouter (M4), mounts the Fastify app + Socket.io server, and
+// registers all routes. Tests call buildApp({ agentServices, db }) to inject a
+// Fake provider + temp db; index.ts only calls buildApp().api.listen().
+//
+// NOTE on the supplement-D listing: it is the IDEALIZED Clowder shape and lists
+// constructors that don't exist as written here (threadStore param of AgentRouter,
+// SkillLoader, FastifyApi). We trust the real frozen constructors instead:
+//   - AgentRouter takes { registry, invoke, history } — agent invocation is the
+//     INJECTED InvokeAgentFn seam, so M2/M3/M7 wiring lives in THIS factory.
+//   - SqliteThreadStore is M8's approved store (progress.md deviation).
+
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import Database from 'better-sqlite3';
+import type { Database as DatabaseType } from 'better-sqlite3';
+import Fastify, { type FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
+import { Server as SocketIoServer } from 'socket.io';
+import type { AgentMessage, AgentId } from '@clowder/shared';
+
+import type { AgentService } from '@clowder/api/providers/base';
+import { AgentRegistryImpl } from '@clowder/api/routing/agent-registry';
+import {
+  AgentRouter,
+  type InvokeAgentArgs,
+  type InvokeAgentFn,
+  type RouteLogger,
+} from '@clowder/api/routing/agent-router';
+import { InvocationRegistry } from '@clowder/api/invocation/invocation-registry';
+import { SessionStore } from '@clowder/api/invocation/session-store';
+import { SessionMutex } from '@clowder/api/invocation/session-mutex';
+import { invokeSingleAgent } from '@clowder/api/invocation/invoke-single-agent';
+import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
+import { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
+import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
+import { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-store';
+import { buildSystemPrompt } from '@clowder/api/context/system-prompt-builder';
+import { buildHierarchicalContext } from '@clowder/api/context/hierarchical-context';
+import type { EvidenceRecaller } from '@clowder/api/context/evidence-recall';
+import type { ResolveAgentConfig } from '@clowder/api/context/context-assembler';
+import { loadAgentConfigs } from '@clowder/api/config/agent-config-loader';
+import { SocketManager } from '@clowder/api/infrastructure/socket-manager';
+import type { AppServices } from '@clowder/api/infrastructure/app-services';
+import { registerThreadRoutes } from '@clowder/api/routes/thread-routes';
+import { registerMessageRoutes } from '@clowder/api/routes/message-routes';
+import { registerAgentRoutes } from '@clowder/api/routes/agent-routes';
+import { registerEvidenceRoutes } from '@clowder/api/routes/evidence-routes';
+import { registerCallbackRoutes } from '@clowder/api/routes/callback-routes';
+
+/** Env var names the CLI/MCP server reads to call back into this API (§C3). */
+export const CALLBACK_ENV_KEYS = {
+  apiUrl: 'CLOWDER_API_URL',
+  invocationId: 'CLOWDER_INVOCATION_ID',
+  callbackToken: 'CLOWDER_CALLBACK_TOKEN',
+} as const;
+
+/** Overrides accepted by {@link buildApp}. All optional — production passes none. */
+export interface BuildAppOverrides {
+  /** Inject AgentService instances (e.g. a Fake provider) keyed by agent id. */
+  readonly agentServices?: Record<string, AgentService>;
+  /** Inject a Database (e.g. ':memory:' or a temp file) instead of opening one. */
+  readonly db?: DatabaseType;
+  /** Override the agents.yaml roster path. */
+  readonly agentsConfigPath?: string;
+  /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
+  readonly fileRoot?: string;
+  /** Base URL the MCP server uses to reach this API (forwarded as callbackEnv). */
+  readonly apiBaseUrl?: string;
+  /** Default agent id for the registry fallback. Defaults to the first config. */
+  readonly defaultAgentId?: AgentId;
+  /** Injectable clock (deterministic tests). Defaults to Date.now. */
+  readonly now?: () => number;
+  /**
+   * Structured logger ({@link RouteLogger} seam) for non-fatal route notes.
+   * Production passes none → defaults to {@link NOOP_LOGGER} (silent, matching
+   * the AgentRouter's own silent default). Tests inject a capturing logger to
+   * assert best-effort failures (e.g. a tool-event-feed append) are logged.
+   */
+  readonly logger?: RouteLogger;
+}
+
+/** The wired application surface returned by {@link buildApp}. */
+export interface BuiltApp {
+  readonly api: FastifyInstance;
+  readonly router: AgentRouter;
+  readonly stores: {
+    readonly messageStore: SqliteMessageStore;
+    readonly threadStore: SqliteThreadStore;
+    readonly toolEventLog: SqliteToolEventLog;
+    readonly evidenceStore: SqliteEvidenceStore;
+  };
+  readonly io: SocketIoServer;
+  readonly registry: AgentRegistryImpl;
+  readonly invocations: InvocationRegistry;
+  readonly socket: SocketManager;
+  /** The session archive store (补充 E) — Cycle 2 callbacks/MCP tools wrap it. */
+  readonly sessionStore: SessionStore;
+  /** Close DB + HTTP + Socket.io (test/shutdown teardown). */
+  readonly close: () => Promise<void>;
+}
+
+/** Default in-process DB path when no Database is injected. */
+const DEFAULT_DB_PATH = 'clowder.db';
+
+/**
+ * Silent default logger — used when no {@link RouteLogger} is injected. Matches
+ * the AgentRouter's own behavior (silent when omitted), so wiring this default
+ * does not change observable behavior; it only gives routes a non-undefined sink
+ * to log best-effort failures through (instead of swallowing them silently).
+ */
+const NOOP_LOGGER: RouteLogger = () => {};
+
+/**
+ * Build the entire application from configuration + optional overrides.
+ * Pure construction — opens no network listener (callers do `api.listen`).
+ */
+export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
+  const now = overrides.now ?? Date.now;
+  const db: DatabaseType = overrides.db ?? new Database(DEFAULT_DB_PATH);
+  const logger: RouteLogger = overrides.logger ?? NOOP_LOGGER;
+
+  // --- Stores (DI Database; idempotent migrations run in each store ctor) ----
+  const messageStore = new SqliteMessageStore(db);
+  const threadStore = new SqliteThreadStore(db, { now });
+  const toolEventLog = new SqliteToolEventLog(db);
+  const evidenceStore = new SqliteEvidenceStore(db);
+  // Session archive (补充 E): transcript composition reads the message store +
+  // tool-event log, so they are injected as the SessionStore's reader ports.
+  const sessionStore = new SessionStore(db, {
+    messageReader: messageStore,
+    toolEventReader: toolEventLog,
+    now,
+  });
+  const sessionMutex = new SessionMutex();
+  const invocations = new InvocationRegistry({ now });
+
+  // --- Agent roster + registry (services injected; fakes win in tests) -------
+  const configs = loadAgentConfigs(overrides.agentsConfigPath);
+  const services = resolveAgentServices(overrides.agentServices);
+  const registry = new AgentRegistryImpl(configs, services, {
+    ...(overrides.defaultAgentId !== undefined
+      ? { defaultAgentId: overrides.defaultAgentId }
+      : {}),
+  });
+
+  const resolveConfig: ResolveAgentConfig = (id) => registry.get(id);
+  const apiBaseUrl = overrides.apiBaseUrl ?? `http://127.0.0.1`;
+
+  // --- The InvokeAgentFn seam: the load-bearing M4↔(M7,M3) integration -------
+  const invoke = buildInvokeAgentFn({
+    registry,
+    messageStore,
+    threadStore,
+    evidenceStore,
+    sessionStore,
+    sessionMutex,
+    invocations,
+    resolveConfig,
+    apiBaseUrl,
+    now,
+  });
+
+  const router = new AgentRouter({ registry, invoke, history: messageStore, logger });
+
+  // --- HTTP + Socket.io ------------------------------------------------------
+  const api = Fastify({ logger: false });
+  const io = new SocketIoServer(api.server, {
+    cors: { origin: true },
+  });
+  const socket = new SocketManager(io);
+
+  const appServices: AppServices = {
+    router,
+    registry,
+    invocations,
+    messageStore,
+    threadStore,
+    toolEventLog,
+    evidenceStore,
+    sessionStore,
+    socket,
+    logger,
+    now,
+  };
+
+  const fileRoot = overrides.fileRoot ?? process.cwd();
+
+  // CORS must be registered before routes; Socket.io has its own cors above.
+  void api.register(cors, { origin: true });
+  registerThreadRoutes(api, appServices);
+  registerMessageRoutes(api, appServices);
+  registerAgentRoutes(api, appServices);
+  registerEvidenceRoutes(api, appServices);
+  registerCallbackRoutes(api, appServices, { fileRoot });
+
+  const close = async (): Promise<void> => {
+    io.close();
+    await api.close();
+    db.close();
+  };
+
+  return {
+    api,
+    router,
+    stores: { messageStore, threadStore, toolEventLog, evidenceStore },
+    io,
+    registry,
+    invocations,
+    socket,
+    sessionStore,
+    close,
+  };
+}
+
+/** Dependencies of the InvokeAgentFn closure. */
+interface InvokeDeps {
+  readonly registry: AgentRegistryImpl;
+  readonly messageStore: SqliteMessageStore;
+  readonly threadStore: SqliteThreadStore;
+  readonly evidenceStore: SqliteEvidenceStore;
+  readonly sessionStore: SessionStore;
+  readonly sessionMutex: SessionMutex;
+  readonly invocations: InvocationRegistry;
+  readonly resolveConfig: ResolveAgentConfig;
+  readonly apiBaseUrl: string;
+  readonly now: () => number;
+}
+
+/**
+ * Build the InvokeAgentFn that M4's AgentRouter calls for one agent turn:
+ *   1. build the system prompt from args.context (M7 buildSystemPrompt)
+ *   2. assemble the conversation-history context (M7 buildHierarchicalContext)
+ *      and compose the effective prompt
+ *   3. mint an InvocationRecord (so MCP callbacks authenticate) + callbackEnv
+ *   4. drive M3 invokeSingleAgent with the resolved AgentService, yielding events
+ */
+function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
+  const recaller: EvidenceRecaller = {
+    search: (query, options) => deps.evidenceStore.search(query, options),
+  };
+
+  return async function* invoke(args: InvokeAgentArgs): AsyncIterable<AgentMessage> {
+    const { agentId, threadId, prompt, context } = args;
+
+    const systemPrompt = buildSystemPrompt(context, deps.resolveConfig);
+
+    // History context (smart window engages past the cold-mention thresholds).
+    const history = await deps.messageStore.getByThread(threadId);
+    const thread = await deps.threadStore.get(threadId);
+    const hierarchical = await buildHierarchicalContext({
+      messages: history,
+      threadTitle: thread?.title ?? '',
+      currentUserMessage: prompt,
+      evidenceStore: recaller,
+      threadId,
+      resolveConfig: deps.resolveConfig,
+    });
+
+    const effectivePrompt =
+      hierarchical.contextText.length > 0
+        ? `${hierarchical.contextText}\n\n---\n\n${prompt}`
+        : prompt;
+
+    // Mint the invocation record so MCP callbacks for this turn authenticate.
+    const record = deps.invocations.create({
+      userId: 'user',
+      agentId,
+      threadId,
+    });
+    const callbackEnv: Record<string, string> = {
+      [CALLBACK_ENV_KEYS.apiUrl]: deps.apiBaseUrl,
+      [CALLBACK_ENV_KEYS.invocationId]: record.invocationId,
+      [CALLBACK_ENV_KEYS.callbackToken]: record.callbackToken,
+    };
+
+    const agentService: AgentService = deps.registry.getService(agentId);
+
+    // Capture this turn's active session id (补充 E E3.3) so each emitted event
+    // can be stamped with it — the route layer then tags the persisted agent
+    // reply + tool events with session_id, grouping them into the session
+    // transcript. `onSessionId` fires on resume and/or session_init; latest wins.
+    let activeSessionId: string | undefined;
+
+    // Stamp this turn's invocationId (§4.2) AND session_id (补充 E) onto every
+    // emitted event so downstream sinks — the M5 ToolEventLog live-feed + the
+    // reply persist in message-routes — can correlate a tool_use to its
+    // invocation and group it into its session. We enrich events as they flow
+    // out, preserving any id a provider already set.
+    for await (const event of invokeSingleAgent({
+      agentService,
+      sessionStore: deps.sessionStore,
+      sessionMutex: deps.sessionMutex,
+      agentId,
+      threadId,
+      prompt: effectivePrompt,
+      ...(systemPrompt.length > 0 ? { systemPrompt } : {}),
+      callbackEnv,
+      now: deps.now,
+      onSessionId: (sessionId) => {
+        activeSessionId = sessionId;
+      },
+      ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    })) {
+      const withInvocation =
+        event.invocationId === undefined
+          ? { ...event, invocationId: record.invocationId }
+          : event;
+      yield activeSessionId !== undefined && withInvocation.sessionId === undefined
+        ? { ...withInvocation, sessionId: activeSessionId }
+        : withInvocation;
+    }
+  };
+}
+
+/**
+ * Resolve the id→AgentService map for the registry. Injected services (test
+ * fakes) are passed through; a config WITHOUT an injected service is still
+ * registered as a config (a route can list it) but is unrunnable until a real
+ * provider is wired — that omission surfaces as registry.getService() throwing,
+ * which is the correct "unrunnable agent" signal rather than a silent stub.
+ */
+function resolveAgentServices(
+  injected: Record<string, AgentService> | undefined,
+): Record<string, AgentService> {
+  const out: Record<string, AgentService> = {};
+  if (injected !== undefined) {
+    for (const [id, svc] of Object.entries(injected)) {
+      out[id] = svc;
+    }
+  }
+  return out;
+}
+
+/** The directory this factory lives in (for resolving package-relative paths). */
+export const APP_FACTORY_DIR: string = resolve(dirname(fileURLToPath(import.meta.url)));

@@ -1,0 +1,17 @@
+{
+  "name": "@clowder/adapters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  },
+  "dependencies": {
+    "@clowder/shared": "workspace:*",
+    "fast-xml-parser": "^4.5.1",
+    "grammy": "^1.32.0"
+  }
+}

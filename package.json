@@ -1,0 +1,33 @@
+{
+  "name": "clowder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"packages/**/*.ts\" \"tests/**/*.ts\" --max-warnings 0",
+    "test": "vitest run",
+    "test:e2e:ui": "playwright test tests/e2e/ui/"
+  },
+  "devDependencies": {
+    "@clowder/adapters": "workspace:*",
+    "@clowder/api": "workspace:*",
+    "@clowder/mcp-server": "workspace:*",
+    "@clowder/shared": "workspace:*",
+    "@clowder/skills": "workspace:*",
+    "@clowder/web": "workspace:*",
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^20.17.0",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
+    "socket.io-client": "^4.8.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
