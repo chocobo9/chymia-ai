@@ -3,7 +3,7 @@
 // Drives the REAL McpServer (createServer) through a real MCP Client over an
 // InMemoryTransport, plus a recording CallbackClient so we can assert the exact
 // body each tool sends WITHOUT a backend. Attacks:
-//   - tools/list: all 8 tools, each with a real input schema; required params
+//   - tools/list: all 9 tools, each with a real input schema; required params
 //     enforced (invalid args → clean validation error, server stays alive).
 //   - graceful degradation through the SERVER (all env missing + partial env →
 //     clean isError, never an unhandled rejection / crash).
@@ -26,6 +26,8 @@ const EXPECTED_TOOLS = [
   'list_session_chain',
   'read_session_digest',
   'read_session_events',
+  // SOP-Cycle-1 (additive): the agent self-advance SOP tool (告示牌 producer).
+  'sop_advance_stage',
 ].sort();
 
 interface ToolTextResult {
@@ -61,7 +63,7 @@ async function connect(serverClient: CallbackClient): Promise<{ client: Client; 
 }
 
 describe('tools/list — registration surface + schemas (edge)', () => {
-  it('registers exactly the 8 tools, each with a non-empty description and an inputSchema', async () => {
+  it('registers exactly the 9 tools, each with a non-empty description and an inputSchema', async () => {
     const { client, close } = await connect(new CallbackClient({ env: {} }));
     const listed = await client.listTools();
 
@@ -121,7 +123,7 @@ describe('invalid args → clean validation error (edge)', () => {
     }
     // After a rejected call, the server is still alive and serves a valid call.
     const listed = await client.listTools();
-    expect(listed.tools).toHaveLength(8);
+    expect(listed.tools).toHaveLength(9);
     expect(typeof threw).toBe('boolean');
     await close();
   });

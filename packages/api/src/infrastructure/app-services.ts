@@ -16,6 +16,7 @@ import type { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-
 import type { SqlitePlatformMappingStore } from '@clowder/api/stores/platform-mapping-store';
 import type { SessionStore } from '@clowder/api/invocation/session-store';
 import type { SocketManager } from '@clowder/api/infrastructure/socket-manager';
+import type { SopService } from '@clowder/api/sop/sop-service';
 
 /**
  * The wired service bundle shared by all routes. Immutable references — routes
@@ -41,6 +42,12 @@ export interface AppServices {
    * (list_session_chain / read_session_digest / read_session_events).
    */
   readonly sessionStore: SessionStore;
+  /**
+   * M12 SOP service — the 告示牌 producer/consumer wiring. Routes use it to
+   * validate a stageId before writing it (thread-routes PATCH setter, the
+   * sop_advance_stage callback); the invoke seam reads it for the prompt hint.
+   */
+  readonly sopService: SopService;
   readonly socket: SocketManager;
   /**
    * Structured logger for non-fatal route notes (the same {@link RouteLogger}

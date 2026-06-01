@@ -12,6 +12,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppServices } from '@clowder/api/infrastructure/app-services';
+import { advanceStageWithEval } from '@clowder/api/sop/advance-stage.js';
 
 /** Body schema for POST /api/threads (all fields optional). */
 const CreateThreadBodySchema = z
@@ -26,10 +27,19 @@ const CreateThreadBodySchema = z
 const ThreadParamsSchema = z.object({ id: z.string().min(1) });
 
 /**
+ * Body schema for PATCH /api/threads/:id/sop-stage. `stageId: null` clears the
+ * stage (no SOP hint); a non-null stageId must be a KNOWN stage of the SOP
+ * definition (validated against the SopService below).
+ */
+const SetSopStageBodySchema = z
+  .object({ stageId: z.string().min(1).nullable() })
+  .strict();
+
+/**
  * Register Thread CRUD routes on `app` using the wired {@link AppServices}.
  */
 export function registerThreadRoutes(app: FastifyInstance, services: AppServices): void {
-  const { threadStore, socket } = services;
+  const { threadStore, socket, sopService } = services;
 
   app.post('/api/threads', async (request, reply) => {
     const parsed = CreateThreadBodySchema.safeParse(request.body ?? {});
@@ -56,6 +66,39 @@ export function registerThreadRoutes(app: FastifyInstance, services: AppServices
       return reply.code(404).send({ error: 'thread_not_found' });
     }
     return reply.send(thread);
+  });
+
+  // M12 告示牌 (human setter): set or clear a thread's SOP stage. A non-null
+  // stageId must be a known stage of the SOP definition (unknown → 400). On
+  // success the stage is persisted and a thread_update is broadcast so connected
+  // clients refresh, mirroring create/delete.
+  app.patch('/api/threads/:id/sop-stage', async (request, reply) => {
+    const params = ThreadParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.code(400).send({ error: 'invalid_params' });
+    }
+    const body = SetSopStageBodySchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
+    }
+    const { stageId } = body.data;
+    if (stageId !== null && !sopService.hasStage(stageId)) {
+      return reply.code(400).send({ error: 'unknown_sop_stage', stageId });
+    }
+    const existing = await threadStore.get(params.data.id);
+    if (existing === null) {
+      return reply.code(404).send({ error: 'thread_not_found' });
+    }
+    // SOP-Cycle-2: route through the shared advance helper so the OUTGOING stage
+    // (the one being left) is evaluated post-hoc and any violation surfaces as an
+    // ADVISORY socket/log signal. The transition + this response are unchanged —
+    // the eval is additive, advisory ("只提示不拦截"), and best-effort (never throws).
+    await advanceStageWithEval(services, params.data.id, stageId);
+    const updated = await threadStore.get(params.data.id);
+    if (updated !== null) {
+      await socket.broadcastThreadUpdate(updated.id, updated);
+    }
+    return reply.send(updated);
   });
 
   app.delete('/api/threads/:id', async (request, reply) => {

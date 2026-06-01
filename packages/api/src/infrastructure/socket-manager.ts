@@ -13,7 +13,7 @@
 // (supplement D) — the Server + helpers are injected, nothing global.
 
 import type { Server as SocketIoServer, Socket } from 'socket.io';
-import type { AgentMessage, AgentState, Thread } from '@clowder/shared';
+import type { AgentMessage, AgentState, SopViolationPayload, Thread } from '@clowder/shared';
 import { ThreadSequencer } from './thread-sequencer.js';
 import { BroadcastRateMonitor } from './broadcast-rate-monitor.js';
 
@@ -30,6 +30,8 @@ export const SERVER_EVENTS = {
   threadUpdate: 'thread_update',
   agentStatus: 'agent_status',
   error: 'error',
+  /** M12 SOP-Cycle-2 advisory: a thread left a stage with open SOP violations. */
+  sopViolation: 'sop_violation',
 } as const;
 
 /** Payload shape for the join/leave/cancel client events. */
@@ -128,6 +130,18 @@ export class SocketManager {
   broadcastError(threadId: string, message: string): Promise<void> {
     return this.sequencer.enqueue(threadId, () => {
       this.io.to(threadId).emit(SERVER_EVENTS.error, { message });
+    });
+  }
+
+  /**
+   * Broadcast an advisory SOP violation (M12 SOP-Cycle-2) to a thread room. Fired
+   * when a thread leaves a stage whose post-hoc trace evaluation found open
+   * violations — advisory only ("只提示不拦截"), never a gate. Ordered like the
+   * other lifecycle broadcasts (not rate-limited; it is a once-per-transition event).
+   */
+  broadcastSopViolation(threadId: string, payload: SopViolationPayload): Promise<void> {
+    return this.sequencer.enqueue(threadId, () => {
+      this.io.to(threadId).emit(SERVER_EVENTS.sopViolation, payload);
     });
   }
 

@@ -9,6 +9,10 @@ export interface SopService {
   loadDefinition(path: string): SopDefinition;
   getSuggestedSkill(stageId: string): string | undefined;
   getStageHint(stageId: string): string;
+  /** All known stage ids, in definition order. Used to validate a setter's stageId. */
+  getStageIds(): string[];
+  /** Whether `stageId` is a known stage of the loaded definition. */
+  hasStage(stageId: string): boolean;
   evaluateTrace(stageId: string, trace: SopTraceInput): SopEvalResult;
 }
 
@@ -34,6 +38,14 @@ export class SopServiceImpl implements SopService {
     if (stage === undefined) return '';
     const skill = stage.suggestedSkill ? ` suggested skill: ${stage.suggestedSkill}` : '';
     return `${stage.label}（${stage.id}）—${skill}`.trim();
+  }
+
+  getStageIds(): string[] {
+    return this.definition.stages.map((s) => s.id);
+  }
+
+  hasStage(stageId: string): boolean {
+    return this.definition.stages.some((s) => s.id === stageId);
   }
 
   evaluateTrace(stageId: string, trace: SopTraceInput): SopEvalResult {

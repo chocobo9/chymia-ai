@@ -14,6 +14,7 @@
 //   POST /api/callback/list_session_chain   → the authed thread's session chain
 //   POST /api/callback/read_session_digest  → a session's digest (thread-owned)
 //   POST /api/callback/read_session_events  → a session's transcript (thread-owned)
+//   POST /api/callback/sop_advance_stage    → agent proposes its thread's next SOP stage
 //
 // Every callback is gated by buildCallbackAuthPreHandler (X-Invocation-Id +
 // X-Callback-Token → M3 InvocationRegistry.verify; any failure → 401). On
@@ -40,6 +41,7 @@ import {
   buildCallbackAuthPreHandler,
   getInvocationRecord,
 } from '@clowder/api/routes/callback-auth.js';
+import { advanceStageWithEval } from '@clowder/api/sop/advance-stage.js';
 
 const EVIDENCE_KINDS = [
   'feature',
@@ -121,6 +123,15 @@ const SessionIdBodySchema = z
   })
   .strict();
 
+// sop_advance_stage carries only the proposed stageId. The threadId it advances
+// comes from the VERIFIED record (an agent advances ITS OWN thread's stage) — the
+// body must not smuggle a threadId. `.strict()` rejects any extra field.
+const SopAdvanceStageBodySchema = z
+  .object({
+    stageId: z.string().min(1),
+  })
+  .strict();
+
 export interface CallbackRoutesOptions {
   /**
    * Filesystem root that read_file / search_files are sandboxed to. Paths
@@ -175,6 +186,7 @@ export function registerCallbackRoutes(
     invocations,
     sessionStore,
     registry,
+    sopService,
     now,
   } = services;
   const preHandler = buildCallbackAuthPreHandler(invocations);
@@ -389,6 +401,32 @@ export function registerCallbackRoutes(
     }
     const events = await sessionStore.getTranscript(body.data.sessionId);
     return reply.send({ sessionId: body.data.sessionId, events });
+  });
+
+  app.post('/api/callback/sop_advance_stage', { preHandler }, async (request, reply) => {
+    const record = getInvocationRecord(request);
+    if (record === undefined) {
+      return reply.code(401).send({ error: 'unauthorized', reason: 'no_record' });
+    }
+    const body = SopAdvanceStageBodySchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
+    }
+    // The stage must exist in the SOP definition; an unknown stage is a clean 400.
+    if (!sopService.hasStage(body.data.stageId)) {
+      return reply.code(400).send({ error: 'unknown_sop_stage', stageId: body.data.stageId });
+    }
+    // Identity is non-spoofable: the thread advanced is the VERIFIED record's
+    // thread, never a body-supplied one. Effect surfaces on this thread's NEXT
+    // invocation's SOP hint (告示牌, not a gate).
+    //
+    // SOP-Cycle-2: route through the shared advance helper (same as the PATCH
+    // setter) so the OUTGOING stage is evaluated post-hoc and any violation
+    // surfaces as an ADVISORY socket/log signal. The transition + this 200
+    // response are unchanged — the eval is additive, advisory, and best-effort
+    // (never throws). The advancing agent (record.agentId) is the trace's author.
+    await advanceStageWithEval(services, record.threadId, body.data.stageId, record.agentId);
+    return reply.send({ stageId: body.data.stageId });
   });
 }
 

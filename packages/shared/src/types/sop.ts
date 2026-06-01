@@ -50,3 +50,26 @@ export interface SopDefinition {
   label: string;
   stages: SopStage[];
 }
+
+/**
+ * SopViolation — 一条被违反的 SOP 规则（后置评估的产物）。
+ * Source: §5.6 SopEvalResult.violations。提升到 shared 以便 C2 socket 协议复用
+ * 同一形状（advisory `sop_violation` payload），而不是另起一个平行类型。
+ */
+export interface SopViolation {
+  ruleId: string;
+  text: string;
+  severity: SopRuleSeverity;
+}
+
+/**
+ * SopViolationPayload — C2 server→client `sop_violation` 事件载荷（M12 SOP-Cycle-2）。
+ * Source: clowder-design-supplement.md §C2（server→client 事件）。当一个 thread 离开
+ * 某个真实 SOP 阶段时，后置评估若发现非 skipped 的违规，则把它作为 advisory（只提示不
+ * 拦截）广播到该 thread 的房间。`stageId` 是被【离开】的阶段。
+ */
+export interface SopViolationPayload {
+  threadId: string;
+  stageId: string;
+  violations: SopViolation[];
+}

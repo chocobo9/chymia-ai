@@ -25,6 +25,14 @@ import { TOOL_EVENTS_TABLE, createToolEventsTable } from './migrations/003-tool-
  */
 const DEFAULT_THINKING_MODE: ThreadThinkingMode = 'debug';
 
+/**
+ * Default SOP stage for a newly created PROJECT thread (one with a projectPath).
+ * Value 'kickoff' is the first stage id of sop/development.yaml (M12 告示牌).
+ * Sanctioned by Makima for SOP-Cycle-1: project threads start at kickoff so the
+ * SOP hint is populated from turn one; non-project threads get no stage (undefined).
+ */
+const DEFAULT_PROJECT_SOP_STAGE = 'kickoff';
+
 /** Valid thinking modes (frozen M1 union) — narrows the raw TEXT column. */
 const THINKING_MODES: readonly ThreadThinkingMode[] = ['debug', 'play'];
 
@@ -62,6 +70,12 @@ export interface CreateThreadInput {
   readonly title?: string;
   readonly projectPath?: string;
   readonly thinkingMode?: ThreadThinkingMode;
+  /**
+   * Explicit SOP stage. When omitted AND `projectPath` is set, the thread
+   * defaults to {@link DEFAULT_PROJECT_SOP_STAGE} (Makima-sanctioned, M12). A
+   * non-project thread with no explicit stage stays unstaged (undefined).
+   */
+  readonly sopStageId?: string;
 }
 
 /**
@@ -202,6 +216,11 @@ export class SqliteThreadStore {
   async create(input: CreateThreadInput = {}): Promise<Thread> {
     const ts = this.now();
     const id = input.id ?? this.generateId();
+    // M12 告示牌: a project thread (has a projectPath) with no explicit stage
+    // defaults to 'kickoff'; a non-project thread stays unstaged (undefined).
+    const sopStageId =
+      input.sopStageId ??
+      (input.projectPath !== undefined ? DEFAULT_PROJECT_SOP_STAGE : undefined);
     const thread: Thread = {
       id,
       ...(input.title !== undefined ? { title: input.title } : {}),
@@ -209,6 +228,7 @@ export class SqliteThreadStore {
       createdAt: ts,
       lastActiveAt: ts,
       participants: [],
+      ...(sopStageId !== undefined ? { sopStageId } : {}),
       thinkingMode: input.thinkingMode ?? DEFAULT_THINKING_MODE,
     };
     this.insertRow(thread);

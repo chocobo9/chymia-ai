@@ -43,6 +43,7 @@ import { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-store
 import { SqlitePlatformMappingStore } from '@clowder/api/stores/platform-mapping-store';
 import { buildSystemPrompt } from '@clowder/api/context/system-prompt-builder';
 import { buildHierarchicalContext } from '@clowder/api/context/hierarchical-context';
+import { SopServiceImpl, type SopService } from '@clowder/api/sop/sop-service';
 import type { EvidenceRecaller } from '@clowder/api/context/evidence-recall';
 import type { ResolveAgentConfig } from '@clowder/api/context/context-assembler';
 import { loadAgentConfigs } from '@clowder/api/config/agent-config-loader';
@@ -100,6 +101,13 @@ export interface BuildAppOverrides {
    * assert best-effort failures (e.g. a tool-event-feed append) are logged.
    */
   readonly logger?: RouteLogger;
+  /**
+   * Path to the SOP definition (M12 告示牌) the SopService loads. Defaults to the
+   * repo `sop/development.yaml` resolved relative to {@link APP_FACTORY_DIR}
+   * ({@link DEFAULT_SOP_DEFINITION_PATH}) — externalized, never a hardcoded
+   * absolute path (CLAUDE.md §2.1). Tests may point this at a fixture.
+   */
+  readonly sopDefinitionPath?: string;
 }
 
 /**
@@ -201,6 +209,13 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   const resolveConfig: ResolveAgentConfig = (id) => registry.get(id);
   const apiBaseUrl = overrides.apiBaseUrl ?? `http://127.0.0.1`;
 
+  // M12 SOP 告示牌 producer/consumer wiring: load the definition once and share
+  // the service across the invoke seam (reads thread.sopStageId → prompt hint),
+  // the thread-routes PATCH setter, and the sop_advance_stage callback.
+  const sopService: SopService = new SopServiceImpl(
+    overrides.sopDefinitionPath ?? DEFAULT_SOP_DEFINITION_PATH,
+  );
+
   // --- The InvokeAgentFn seam: the load-bearing M4↔(M7,M3) integration -------
   const invoke = buildInvokeAgentFn({
     registry,
@@ -214,12 +229,13 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     apiBaseUrl,
     now,
     logger,
+    sopService,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),
   });
 
-  const router = new AgentRouter({ registry, invoke, history: messageStore, logger });
+  const router = new AgentRouter({ registry, invoke, history: messageStore, logger, now });
 
   // --- HTTP + Socket.io ------------------------------------------------------
   const api = Fastify({ logger: false });
@@ -241,6 +257,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     socket,
     logger,
     now,
+    sopService,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),
@@ -319,6 +336,12 @@ interface InvokeDeps {
    */
   readonly logger: RouteLogger;
   /**
+   * M12 SOP service — reads `thread.sopStageId` → a prompt hint (告示牌). Used
+   * best-effort: a read failure is logged and skipped, never thrown (SOP must
+   * never break a turn).
+   */
+  readonly sopService: SopService;
+  /**
    * Fallback CLI working directory when a thread has no `projectPath`. Optional:
    * when omitted (and the thread has no projectPath) the invocation passes NO
    * workingDirectory, preserving the prior behavior.
@@ -342,11 +365,31 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
   return async function* invoke(args: InvokeAgentArgs): AsyncIterable<AgentMessage> {
     const { agentId, threadId, prompt, context } = args;
 
-    const systemPrompt = buildSystemPrompt(context, deps.resolveConfig);
-
     // History context (smart window engages past the cold-mention thresholds).
     const history = await deps.messageStore.getByThread(threadId);
     const thread = await deps.threadStore.get(threadId);
+
+    // M12 SOP 告示牌 (consumer): resolve the thread's stage to a prompt hint,
+    // best-effort. A missing/unknown stage → empty hint → treated as undefined
+    // (no SOP line). A read failure is logged and skipped — SOP must never break
+    // a turn. The context is enriched IMMUTABLY (spread) before the system prompt.
+    let sopStageHint: string | undefined;
+    try {
+      sopStageHint = thread?.sopStageId
+        ? deps.sopService.getStageHint(thread.sopStageId) || undefined
+        : undefined;
+    } catch (err) {
+      deps.logger({
+        level: 'warn',
+        message: `sop hint resolution failed: ${err instanceof Error ? err.message : String(err)}`,
+        threadId,
+        agentId,
+      });
+    }
+    const effectiveContext =
+      sopStageHint !== undefined ? { ...context, sopStageHint } : context;
+    const systemPrompt = buildSystemPrompt(effectiveContext, deps.resolveConfig);
+
     const hierarchical = await buildHierarchicalContext({
       messages: history,
       threadTitle: thread?.title ?? '',
@@ -510,3 +553,18 @@ function resolveAgentServices(
 
 /** The directory this factory lives in (for resolving package-relative paths). */
 export const APP_FACTORY_DIR: string = resolve(dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * Default SOP definition path: the repo `sop/development.yaml`. APP_FACTORY_DIR
+ * is `packages/api/src`, so the repo root is three levels up. Externalized
+ * (overridable via {@link BuildAppOverrides.sopDefinitionPath}); no hardcoded
+ * absolute path lives in source (CLAUDE.md §2.1).
+ */
+export const DEFAULT_SOP_DEFINITION_PATH: string = resolve(
+  APP_FACTORY_DIR,
+  '..',
+  '..',
+  '..',
+  'sop',
+  'development.yaml',
+);

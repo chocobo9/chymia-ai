@@ -8,7 +8,7 @@
 // round-trip: tool call → callback-client HTTP POST → real /api/callback/
 // evidence_search → real EvidenceStore → results back to the tool caller.
 //
-// Also asserts tools/list exposes all 8 registered tools.
+// Also asserts tools/list exposes all 9 registered tools.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
@@ -21,7 +21,7 @@ import { createServer } from '@clowder/mcp-server/index';
 
 const CODEX = createAgentId('codex-gpt');
 
-/** Every tool the MCP server must register (arch §5.7 + 补充 E). */
+/** Every tool the MCP server must register (arch §5.7 + 补充 E + M12 SOP). */
 const EXPECTED_TOOLS = [
   'evidence_search',
   'evidence_upsert',
@@ -31,6 +31,8 @@ const EXPECTED_TOOLS = [
   'list_session_chain',
   'read_session_digest',
   'read_session_events',
+  // SOP-Cycle-1 (additive): the agent self-advance SOP tool (告示牌 producer).
+  'sop_advance_stage',
 ] as const;
 
 interface ToolTextResult {
@@ -45,7 +47,7 @@ function parseToolJson(result: ToolTextResult): unknown {
 }
 
 describe('M10 MCP server (happy path)', () => {
-  it('tools/list returns all 8 registered tools', async () => {
+  it('tools/list returns all 9 registered tools', async () => {
     // No env / no API needed — pure registration surface.
     const server = createServer(new CallbackClient({ env: {} }));
     const client = new Client({ name: 'test-client', version: '0.0.0' });

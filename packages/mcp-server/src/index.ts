@@ -7,11 +7,12 @@
 // POST to an API callback endpoint authenticated by env-carried invocationId +
 // callbackToken) + 补充 E (session tools).
 //
-// Eight tools over six callback endpoints (all backed by frozen M8 callbacks):
+// Nine tools over seven callback endpoints (all backed by frozen M8 callbacks):
 //   evidence_search / evidence_upsert  (evidence-tools)
 //   post_message                       (message-tools)
 //   read_file / search_files           (file-tools)
 //   list_session_chain / read_session_digest / read_session_events (session-tools)
+//   sop_advance_stage                  (sop-tools)
 //
 // Graceful degradation: the server constructs and starts even WITHOUT callback
 // env vars — a tool call then returns a clean error (NO_CONFIG_ERROR) rather
@@ -32,6 +33,7 @@ import { buildEvidenceTools } from './tools/evidence-tools.js';
 import { buildMessageTools } from './tools/message-tools.js';
 import { buildFileTools } from './tools/file-tools.js';
 import { buildSessionTools } from './tools/session-tools.js';
+import { buildSopTools } from './tools/sop-tools.js';
 import type { ToolDef } from './tools/tool-def.js';
 
 /** Server identity advertised to the MCP client. */
@@ -47,6 +49,7 @@ export function buildAllTools(client: CallbackClient): ToolDef[] {
     ...buildMessageTools(client),
     ...buildFileTools(client),
     ...buildSessionTools(client),
+    ...buildSopTools(client),
   ];
 }
 
