@@ -17,6 +17,30 @@ const PATH_KEYS = ['path', 'file_path', 'filePath', 'filename', 'file', 'target'
 /** Common keys that carry a unified-diff / patch payload. */
 const DIFF_KEYS = ['diff', 'patch', 'unified_diff', 'unifiedDiff'] as const;
 
+/** Keys that tend to carry the most telling one-liner for a tool (path > query > command > …). */
+const DETAIL_KEYS = [
+  'path',
+  'file_path',
+  'filePath',
+  'filename',
+  'file',
+  'pattern',
+  'query',
+  'command',
+  'cmd',
+  'url',
+  'description',
+] as const;
+
+/** Max characters shown inline as a tool row's detail before truncation (Clowder: TEXT_PREVIEW_MAX_CHARS). */
+export const TOOL_DETAIL_MAX_CHARS = 48;
+
+/** Collapse runs of whitespace to single spaces and truncate to a one-liner preview. */
+function toOneLine(value: string, max: number): string {
+  const flat = value.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
 function firstString(
   input: Record<string, unknown>,
   keys: readonly string[],
@@ -89,4 +113,21 @@ export function renderForToolBlock(block: StreamingToolBlock): BlockRender {
   }
   const inputJson = input === undefined ? '' : JSON.stringify(input, null, 2);
   return { kind: 'tool', toolName: block.toolName, inputJson };
+}
+
+/**
+ * Derive a compact, truncated one-liner detail for a tool row from its REAL
+ * input — preferring a telling key (path/pattern/query/command/url/…), else a
+ * compact JSON preview. Returns '' when the tool carries no input, so the row
+ * shows just its name (never fabricates a detail). Truncated to
+ * TOOL_DETAIL_MAX_CHARS with an ellipsis.
+ */
+export function toolDetailPreview(block: StreamingToolBlock): string {
+  const input = block.toolInput;
+  if (input === undefined) return '';
+  const keyed = firstString(input, DETAIL_KEYS);
+  if (keyed !== undefined) return toOneLine(keyed, TOOL_DETAIL_MAX_CHARS);
+  const keys = Object.keys(input);
+  if (keys.length === 0) return '';
+  return toOneLine(JSON.stringify(input), TOOL_DETAIL_MAX_CHARS);
 }

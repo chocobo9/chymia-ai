@@ -4,8 +4,8 @@
 // (choco-core.jsx). All blocks are presentational; they render REAL data passed
 // from AgentMessage (no fabricated content). Named exports only.
 
-import { useState, type ReactElement } from 'react';
-import { IconChevron, IconTerminal } from './icons.js';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { IconChevron, IconCheck, IconWrench } from './icons.js';
 import { StreamDots } from './primitives.js';
 
 /* ---------------- Think ---------------- */
@@ -97,51 +97,135 @@ export function Diff({ file, added, removed, lines }: DiffProps): ReactElement {
   );
 }
 
-/* ---------------- Tool ---------------- */
+/* ---------------- Tool group + rows ---------------- */
 
-export interface ToolProps {
-  /** Tool name (e.g. write_file, run_tests). */
+/** One tool call, normalized for the compact row + its revealable JSON body. */
+export interface ToolRowData {
+  /** Stable key (toolUseId or a derived fallback). */
+  readonly key: string;
+  /** Tool name (e.g. write_file, run_tests, Grep). */
   readonly toolName: string;
-  /** Optional short tag (e.g. the provider/runner). */
-  readonly tag?: string;
-  /** Pretty-printed JSON input (already stringified), or empty if none. */
+  /** Compact, already-truncated one-liner detail (≤ TOOL_DETAIL_MAX_CHARS), or ''. */
+  readonly detail: string;
+  /** Pretty-printed JSON input (already stringified), or '' if none. */
   readonly inputJson: string;
-  /** True while the tool is still running (running indicator vs ✓ 完成). */
+}
+
+interface ToolRowProps {
+  readonly row: ToolRowData;
+  /** True while the turn is still streaming (spinner vs ✓ check). */
   readonly running: boolean;
-  /** Accent color for the icon/dots. */
   readonly accent?: string;
 }
 
-/** Collapsible tool-call block. Preserves the tool-use testids. */
-export function Tool({ toolName, tag, inputJson, running, accent }: ToolProps): ReactElement {
+/**
+ * A compact one-liner tool row: [status ✓/spinner] [wrench] [name] [short detail],
+ * with the full JSON input revealed behind a per-row chevron (Clowder rowExpanded).
+ * Carries data-testid="tool-use-block" (one per call) so the suite's per-tool
+ * assertions keep working; the revealed body keeps data-testid="tool-use-input".
+ */
+function ToolRow({ row, running, accent }: ToolRowProps): ReactElement {
   const [open, setOpen] = useState(false);
+  const canExpand = row.inputJson.length > 0;
+  return (
+    <div className={`tool-row${open ? ' open' : ''}`} data-testid="tool-use-block">
+      <button
+        type="button"
+        className="tool-row-h"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={`tool-row-st${running ? ' running' : ''}`} aria-hidden="true">
+          {running ? <StreamDots accent={accent} /> : <IconCheck />}
+        </span>
+        <span className="tool-row-ic" aria-hidden="true">
+          <IconWrench />
+        </span>
+        <span className="tool-row-name">{row.toolName}</span>
+        {row.detail.length > 0 && <span className="tool-row-detail">{row.detail}</span>}
+        {canExpand && (
+          <span className="tool-row-chev" aria-hidden="true">
+            <IconChevron />
+          </span>
+        )}
+      </button>
+      {open && canExpand && (
+        <pre className="tool-row-b" data-testid="tool-use-input">
+          {row.inputJson}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+export interface ToolGroupProps {
+  /** The tool calls to group (already excludes diffs, which render on their own). */
+  readonly rows: readonly ToolRowData[];
+  /**
+   * True while the turn is still streaming. Drives the DEFAULT open state
+   * (Clowder: useState(isStreaming)) — expanded live so you watch progress,
+   * then auto-collapsed once the turn completes (unless the user toggled it).
+   */
+  readonly isStreaming: boolean;
+  readonly accent?: string;
+}
+
+/**
+ * Collapsible tool-call GROUP (Clowder-faithful): one header row
+ * ("N 工具调用" + chevron) wrapping compact tool rows instead of a wall of
+ * full-width blocks. Default-open mirrors `isStreaming`; on the streaming→done
+ * transition it auto-collapses (so a finished 16-tool turn shows one compact
+ * line), but a manual toggle wins from then on.
+ */
+export function ToolGroup({ rows, isStreaming, accent }: ToolGroupProps): ReactElement {
+  const [open, setOpen] = useState(isStreaming);
+  const userToggled = useRef(false);
+  const prevStreaming = useRef(isStreaming);
+
+  useEffect(() => {
+    if (!prevStreaming.current && isStreaming) {
+      // (Re)entered streaming — expand live and forget any prior manual toggle.
+      userToggled.current = false;
+      setOpen(true);
+    } else if (prevStreaming.current && !isStreaming && !userToggled.current) {
+      // Turn just completed — auto-collapse the now-static group.
+      setOpen(false);
+    }
+    prevStreaming.current = isStreaming;
+  }, [isStreaming]);
+
+  const count = rows.length;
   return (
     <div
-      className="tool"
-      data-testid="tool-use-block"
+      className={`tool-group${open ? ' open' : ''}`}
+      data-testid="tool-group"
       style={accent === undefined ? undefined : ({ '--ac': accent } as React.CSSProperties)}
     >
-      <button type="button" className="tool-h" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="tool-ic">
-          <IconTerminal />
+      <button
+        type="button"
+        className="tool-group-h"
+        aria-expanded={open}
+        data-testid="tool-group-toggle"
+        onClick={() => {
+          userToggled.current = true;
+          setOpen((v) => !v);
+        }}
+      >
+        <span className="tool-group-ic" aria-hidden="true">
+          <IconWrench />
         </span>
-        <span className="tool-name">工具调用: {toolName}</span>
-        {tag !== undefined && tag.length > 0 && <span className="tool-tag">{tag}</span>}
-        <span className={`tool-st${running ? ' running' : ''}`}>
-          {running ? (
-            <>
-              <StreamDots accent={accent} />
-              运行中
-            </>
-          ) : (
-            <>✓ 完成</>
-          )}
+        <span className="tool-group-sum">{count} 工具调用</span>
+        {!open && <span className="tool-group-hint">已折叠</span>}
+        <span className="tool-group-chev" aria-hidden="true">
+          <IconChevron />
         </span>
       </button>
-      {open && inputJson.length > 0 && (
-        <pre className="tool-b" data-testid="tool-use-input">
-          {inputJson}
-        </pre>
+      {open && (
+        <div className="tool-group-b">
+          {rows.map((row) => (
+            <ToolRow key={row.key} row={row} running={isStreaming} accent={accent} />
+          ))}
+        </div>
       )}
     </div>
   );

@@ -6,7 +6,7 @@
 
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { render, screen, cleanup, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThreadList } from '../../packages/web/src/components/ThreadList.js';
 import { ChatInput } from '../../packages/web/src/components/ChatInput.js';
@@ -117,7 +117,7 @@ describe('AgentMessage (render, happy path)', () => {
     expect(screen.getByTestId('agent-text')).toHaveTextContent('TODO API 已实现，含 zod 校验。');
   });
 
-  it('renders a collapsible tool_use block that reveals its JSON input', async () => {
+  it('folds tool_use calls into a collapsible group; expanding reveals a compact row whose JSON shows on click', async () => {
     render(
       <AgentMessage
         view={{
@@ -130,9 +130,15 @@ describe('AgentMessage (render, happy path)', () => {
         }}
       />,
     );
+    // Completed turn → the tool GROUP is auto-collapsed (Clowder-faithful): the
+    // summary shows, the per-tool rows are hidden until the group is opened.
+    expect(screen.getByText(/1 工具调用/)).toBeInTheDocument();
+    expect(screen.queryByTestId('tool-use-block')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('tool-group-toggle'));
     const block = screen.getByTestId('tool-use-block');
     expect(within(block).getByText(/write_file/)).toBeInTheDocument();
-    // Collapsed by default — input hidden until toggled.
+    // Row collapsed by default — input hidden until the row is toggled.
     expect(screen.queryByTestId('tool-use-input')).not.toBeInTheDocument();
 
     await userEvent.click(within(block).getByRole('button'));
@@ -260,9 +266,12 @@ describe('ChatContainer (render, happy path)', () => {
     });
     render(<ChatContainer />);
 
-    // Not streaming, yet the Think + Tool blocks render (recovered from extra).
+    // Not streaming, yet the Think block + the (auto-collapsed) tool GROUP render
+    // from the persisted extra. Expanding the group surfaces the tool row.
     expect(screen.queryByTestId('streaming-indicator')).not.toBeInTheDocument();
     expect(screen.getByTestId('thinking-block')).toBeInTheDocument();
+    expect(screen.getByText(/1 工具调用/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('tool-group-toggle'));
     const tool = screen.getByTestId('tool-use-block');
     expect(within(tool).getByText(/write_file/)).toBeInTheDocument();
     expect(screen.getByTestId('agent-text')).toHaveTextContent('我已经实现了 TODO API');

@@ -104,6 +104,22 @@ export function IconStop(): ReactElement {
   );
 }
 
+export function IconCheck(): ReactElement {
+  return (
+    <Ic size={14} strokeWidth={2.4}>
+      <path d="M20 6L9 17l-5-5" />
+    </Ic>
+  );
+}
+
+export function IconWrench(): ReactElement {
+  return (
+    <Ic size={14}>
+      <path d="M14.7 6.3a4 4 0 00-5.4 5l-5 5a1.5 1.5 0 002.1 2.1l5-5a4 4 0 005-5.4l-2.3 2.3a1 1 0 01-1.4 0l-.4-.4a1 1 0 010-1.4z" />
+    </Ic>
+  );
+}
+
 export function IconTerminal(): ReactElement {
   return (
     <Ic size={15}>

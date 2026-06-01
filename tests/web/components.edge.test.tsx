@@ -147,9 +147,11 @@ describe('AgentMessage rendering safety (adversarial)', () => {
         view={viewWith({ toolBlocks: [{ toolUseId: 'tu1', toolName: 'grep', toolInput: bigInput }] })}
       />,
     );
+    // Completed turn → tool group auto-collapsed; expand it to reach the row.
+    await userEvent.click(screen.getByTestId('tool-group-toggle'));
     const block = screen.getByTestId('tool-use-block');
     expect(within(block).getByText(/grep/)).toBeInTheDocument();
-    expect(screen.queryByTestId('tool-use-input')).not.toBeInTheDocument(); // collapsed
+    expect(screen.queryByTestId('tool-use-input')).not.toBeInTheDocument(); // row collapsed
 
     await userEvent.click(within(block).getByRole('button'));
     const pre = screen.getByTestId('tool-use-input');
@@ -160,7 +162,10 @@ describe('AgentMessage rendering safety (adversarial)', () => {
 
   it('a tool_use block with undefined toolInput shows the name but no JSON pre even when expanded', async () => {
     render(<AgentMessage view={viewWith({ toolBlocks: [{ toolName: 'list_dir' }] })} />);
+    await userEvent.click(screen.getByTestId('tool-group-toggle'));
     const block = screen.getByTestId('tool-use-block');
+    // The row has no expand affordance when there is no input, but clicking its
+    // header still must not surface a JSON pre.
     await userEvent.click(within(block).getByRole('button'));
     expect(screen.queryByTestId('tool-use-input')).not.toBeInTheDocument();
     expect(within(block).getByText(/list_dir/)).toBeInTheDocument();
@@ -192,7 +197,7 @@ describe('AgentMessage rendering safety (adversarial)', () => {
     expect(screen.queryByTestId('tool-use-block')).not.toBeInTheDocument();
   });
 
-  it('multiple tool_use blocks each render independently with stable keys', () => {
+  it('multiple tool_use calls fold into one group; expanding it shows a row per call with stable keys', async () => {
     render(
       <AgentMessage
         view={viewWith({
@@ -203,6 +208,11 @@ describe('AgentMessage rendering safety (adversarial)', () => {
         })}
       />,
     );
+    // Folded: one group summarizing both calls (no per-tool wall when collapsed).
+    expect(screen.getByText(/2 工具调用/)).toBeInTheDocument();
+    expect(screen.queryAllByTestId('tool-use-block')).toHaveLength(0);
+
+    await userEvent.click(screen.getByTestId('tool-group-toggle'));
     expect(screen.getAllByTestId('tool-use-block')).toHaveLength(2);
   });
 });

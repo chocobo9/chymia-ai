@@ -25,7 +25,7 @@
 
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, act, waitFor, within } from '@testing-library/react';
+import { render, screen, cleanup, act, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../../packages/web/src/App.js';
 import { ChatContainer } from '../../packages/web/src/components/ChatContainer.js';
@@ -387,8 +387,11 @@ describe('Bug 3a — tool/diff blocks on a completed reply (from extra.toolEvent
     });
     render(<ChatContainer />);
 
-    // Completed (not streaming) yet the tool block renders from the persisted extra.
+    // Completed (not streaming) → the tool GROUP renders from the persisted extra,
+    // auto-collapsed; expanding it surfaces exactly one row (tool_result ignored).
     expect(screen.queryByTestId('streaming-indicator')).not.toBeInTheDocument();
+    expect(screen.getByText(/1 工具调用/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('tool-group-toggle'));
     const toolBlocks = screen.getAllByTestId('tool-use-block');
     expect(toolBlocks).toHaveLength(1); // exactly one — tool_result ignored
     expect(within(toolBlocks[0]!).getByText(/run_tests/)).toBeInTheDocument();
@@ -457,7 +460,10 @@ describe('Bug 3a — tool/diff blocks on a completed reply (from extra.toolEvent
     });
     // Render must not throw on the malformed bag.
     expect(() => render(<ChatContainer />)).not.toThrow();
-    // The two valid-typed tool_use entries become blocks; junk entries are skipped.
+    // The two valid-typed tool_use entries become rows in the (collapsed) group;
+    // junk entries are skipped. Expand the group to count the surviving rows.
+    expect(screen.getByText(/2 工具调用/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('tool-group-toggle'));
     const blocks = screen.getAllByTestId('tool-use-block');
     expect(blocks).toHaveLength(2);
     expect(screen.getByText(/lint/)).toBeInTheDocument();
