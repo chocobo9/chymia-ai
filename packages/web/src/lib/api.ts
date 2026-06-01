@@ -1,0 +1,170 @@
+// M9 HTTP API client — thin typed wrapper over the M8 REST surface (§C1).
+//
+// Frozen routes (do NOT re-derive):
+//   GET    /api/threads                       → { threads: Thread[] }
+//   POST   /api/threads                       → Thread (201)
+//   GET    /api/threads/:id                   → Thread
+//   DELETE /api/threads/:id                   → { deleted, id }
+//   GET    /api/threads/:id/messages          → { messages: StoredMessage[] }
+//   POST   /api/threads/:id/messages          → { userMessage, replies }  (SYNCHRONOUS)
+//   GET    /api/agents                        → { agents: AgentListEntry[] }
+//   GET    /api/agents/:id/status             → { id, status }
+//   POST   /api/evidence/search               → EvidenceSearchResult
+//
+// CRITICAL (G8): POST /messages resolves only AFTER the agent finishes. The UI
+// renders incrementally from `agent_event` socket frames during the turn; this
+// client's POST result is used only to reconcile the final persisted state.
+
+import type {
+  AgentColor,
+  ClientId,
+  AgentStatus,
+  StoredMessage,
+  Thread,
+  EvidenceSearchOptions,
+  EvidenceSearchResult,
+} from '@clowder/shared';
+import { webConfig } from './config.js';
+
+/**
+ * AgentRosterEntry — the per-agent payload returned by GET /api/agents (§C6).
+ * Mirrors the M8 agent-routes AgentListEntry shape exactly.
+ */
+export interface AgentRosterEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly displayName: string;
+  readonly clientId: ClientId;
+  readonly color: AgentColor;
+  readonly mentionPatterns: readonly string[];
+  readonly strengths: readonly string[];
+  readonly status: AgentStatus;
+}
+
+/** Body for POST /api/threads. */
+export interface CreateThreadInput {
+  readonly title?: string;
+  readonly projectPath?: string;
+  readonly thinkingMode?: Thread['thinkingMode'];
+}
+
+/** Body for POST /api/threads/:id/messages. */
+export interface SendMessageInput {
+  readonly content: string;
+  readonly userId?: string;
+}
+
+/** Synchronous result of POST /api/threads/:id/messages (resolves post-turn). */
+export interface SendMessageResult {
+  readonly userMessage: StoredMessage;
+  readonly replies: readonly StoredMessage[];
+}
+
+/** Raised when an API call returns a non-2xx status. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** The injectable fetch surface (lets tests pass a fake without globals). */
+export type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
+
+export interface ApiClientOptions {
+  readonly baseUrl?: string;
+  readonly fetchFn?: FetchFn;
+}
+
+async function parseJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new ApiError(res.status, text.length > 0 ? text : `HTTP ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
+/**
+ * ApiClient — all HTTP calls the web app makes. Constructed with an optional
+ * baseUrl + fetch (defaults: webConfig.apiUrl + the global fetch), so it is
+ * trivially testable by injecting a fake fetch.
+ */
+export class ApiClient {
+  private readonly baseUrl: string;
+  private readonly fetchFn: FetchFn;
+
+  constructor(options: ApiClientOptions = {}) {
+    this.baseUrl = options.baseUrl ?? webConfig.apiUrl;
+    this.fetchFn = options.fetchFn ?? ((input, init) => fetch(input, init));
+  }
+
+  private url(path: string): string {
+    return `${this.baseUrl}${path}`;
+  }
+
+  private jsonInit(method: string, body?: unknown): RequestInit {
+    return {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    };
+  }
+
+  async listThreads(): Promise<readonly Thread[]> {
+    const res = await this.fetchFn(this.url('/api/threads'));
+    const data = await parseJson<{ threads: Thread[] }>(res);
+    return data.threads;
+  }
+
+  async createThread(input: CreateThreadInput = {}): Promise<Thread> {
+    const res = await this.fetchFn(this.url('/api/threads'), this.jsonInit('POST', input));
+    return parseJson<Thread>(res);
+  }
+
+  async getThread(id: string): Promise<Thread> {
+    const res = await this.fetchFn(this.url(`/api/threads/${id}`));
+    return parseJson<Thread>(res);
+  }
+
+  async deleteThread(id: string): Promise<void> {
+    const res = await this.fetchFn(this.url(`/api/threads/${id}`), this.jsonInit('DELETE'));
+    await parseJson<{ deleted: boolean; id: string }>(res);
+  }
+
+  async getMessages(threadId: string, limit?: number): Promise<readonly StoredMessage[]> {
+    const query = limit === undefined ? '' : `?limit=${limit}`;
+    const res = await this.fetchFn(this.url(`/api/threads/${threadId}/messages${query}`));
+    const data = await parseJson<{ messages: StoredMessage[] }>(res);
+    return data.messages;
+  }
+
+  async sendMessage(threadId: string, input: SendMessageInput): Promise<SendMessageResult> {
+    const res = await this.fetchFn(
+      this.url(`/api/threads/${threadId}/messages`),
+      this.jsonInit('POST', input),
+    );
+    return parseJson<SendMessageResult>(res);
+  }
+
+  async listAgents(): Promise<readonly AgentRosterEntry[]> {
+    const res = await this.fetchFn(this.url('/api/agents'));
+    const data = await parseJson<{ agents: AgentRosterEntry[] }>(res);
+    return data.agents;
+  }
+
+  async searchEvidence(
+    query: string,
+    options: EvidenceSearchOptions = {},
+  ): Promise<EvidenceSearchResult> {
+    const res = await this.fetchFn(
+      this.url('/api/evidence/search'),
+      this.jsonInit('POST', { query, ...options }),
+    );
+    return parseJson<EvidenceSearchResult>(res);
+  }
+}
+
+/** Shared default client bound to the resolved web config. */
+export const apiClient = new ApiClient();

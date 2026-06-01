@@ -13,6 +13,7 @@ import type { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-stor
 import type { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
 import type { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
 import type { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-store';
+import type { SqlitePlatformMappingStore } from '@clowder/api/stores/platform-mapping-store';
 import type { SessionStore } from '@clowder/api/invocation/session-store';
 import type { SocketManager } from '@clowder/api/infrastructure/socket-manager';
 
@@ -29,6 +30,12 @@ export interface AppServices {
   /** A6 tool-event log — the second (durable) sink for tool calls (M5 live-wire). */
   readonly toolEventLog: SqliteToolEventLog;
   readonly evidenceStore: SqliteEvidenceStore;
+  /**
+   * A10 platform-mapping store — platform channelId/userId ↔ internal thread/user
+   * id resolution. SHARED by the M13/M14 adapters (via the submitPlatformMessage
+   * ingress) so both resolve identically. Web-only flows do not touch it.
+   */
+  readonly platformMappingStore: SqlitePlatformMappingStore;
   /**
    * 补充 E session archive — read surface the session callbacks wrap
    * (list_session_chain / read_session_digest / read_session_events).

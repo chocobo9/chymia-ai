@@ -119,4 +119,32 @@ describe('gemini-parser (unit, happy path)', () => {
     // Assert
     expect(messages.map((m) => m.type)).toEqual(['session_init', 'thinking', 'text', 'tool_use']);
   });
+
+  // ── Doubling-bug audit (#6) — Gemini VERDICT: NOT susceptible. ──
+  // Gemini CLI stream-json emits reply text via a SINGLE event path (`content`), with NO
+  // separate "incremental deltas + final consolidated block" shape (the `result/success`
+  // terminator carries NO text). There is therefore no second source that could repeat the
+  // reply. `thought` is a distinct `thinking` channel, never echoed as `content`. The test
+  // below LOCKS the single-emit behavior so a future event-model change can't reintroduce
+  // doubling.
+  describe('doubling audit: single emit per content text (no delta + final-block shape)', () => {
+    it('emits each content text exactly once and the terminating result adds no text', () => {
+      // Arrange — a realistic turn: thought, the reply content, then a success result.
+      const reply = '建议采用 Postgres：并发写入与事务一致性优于 SQLite。';
+      const lines = [
+        JSON.stringify({ type: 'init', session_id: 'gemini-doubling', model: 'gemini-2.5-pro' }),
+        JSON.stringify({ type: 'thought', text: '比较读写并发与事务需求' }),
+        JSON.stringify({ type: 'content', text: reply }),
+        JSON.stringify({ type: 'result', status: 'success' }),
+      ];
+
+      // Act
+      const { messages } = run(lines);
+
+      // Assert — exactly one text message; result/success contributes nothing (no doubling).
+      const texts = messages.filter((m) => m.type === 'text');
+      expect(texts).toHaveLength(1);
+      expect(texts.map((m) => m.content).join('')).toBe(reply);
+    });
+  });
 });

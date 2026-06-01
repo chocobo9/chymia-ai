@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
 import { resolve } from 'node:path'
 
 const pkg = (p: string): string => resolve(import.meta.dirname, p)
 
 export default defineConfig({
+  plugins: [react()],
   resolve: {
     alias: [
       { find: /^@clowder\/shared$/, replacement: pkg('packages/shared/src/index.ts') },
@@ -21,7 +23,8 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ['tests/**/*.test.ts'],
+    globals: true,
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     exclude: ['tests/e2e/ui/**', 'node_modules/**', 'dist/**'],
     environment: 'node',
     passWithNoTests: true,

@@ -129,6 +129,100 @@ describe('claude-parser (unit, happy path)', () => {
     expect(messages[1].toolName).toBe('Bash');
   });
 
+  it('does NOT double text: suppresses the assistant text block when deltas already streamed it (--include-partial-messages)', () => {
+    // Arrange — real Claude shape with --include-partial-messages: incremental text_delta
+    // frames, THEN the consolidated `assistant` event repeating the SAME full text.
+    const lines = [
+      JSON.stringify({
+        type: 'stream_event',
+        event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '我是 ' } },
+      }),
+      JSON.stringify({
+        type: 'stream_event',
+        event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Claude，运行于演示平台。' } },
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: '我是 Claude，运行于演示平台。' }] },
+      }),
+    ];
+
+    // Act
+    const { messages } = run(lines);
+
+    // Assert — only the two streamed deltas survive; the assistant full-text block is suppressed
+    // (no doubling). Concatenated deltas reconstruct the full text exactly once.
+    expect(messages.map((m) => m.type)).toEqual(['text', 'text']);
+    expect(messages.map((m) => m.content).join('')).toBe('我是 Claude，运行于演示平台。');
+  });
+
+  it('does NOT double text across MULTIPLE turns: each turn streams deltas then a final block (state resets per turn)', () => {
+    // Arrange — two turns, each: text_delta(s) → consolidated assistant text block.
+    // After turn 1's assistant event resets streamedText, turn 2's deltas re-arm
+    // suppression so turn 2's final block is also dropped. No turn doubles.
+    const lines = [
+      // turn 1
+      JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '第一轮：' } } }),
+      JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '已建表。' } } }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '第一轮：已建表。' }] } }),
+      // turn 2
+      JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '第二轮：' } } }),
+      JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '已加索引。' } } }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '第二轮：已加索引。' }] } }),
+    ];
+
+    // Act
+    const { messages, state } = run(lines);
+
+    // Assert — only the four streamed deltas survive; both consolidated blocks suppressed.
+    expect(messages.map((m) => m.type)).toEqual(['text', 'text', 'text', 'text']);
+    expect(messages.map((m) => m.content).join('')).toBe('第一轮：已建表。第二轮：已加索引。');
+    expect(state.streamedText).toBe(false); // reset after the last assistant event
+  });
+
+  it('keeps tool_use but suppresses text in a SAME-turn multi-block assistant event after deltas streamed', () => {
+    // Arrange — deltas stream the reply text, then a single assistant event carries
+    // BOTH the consolidated text (must be dropped) AND a tool_use block (must survive).
+    const lines = [
+      JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '我来运行测试。' } } }),
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: '我来运行测试。' },
+            { type: 'tool_use', id: 'toolu_77', name: 'Bash', input: { command: 'npx vitest run' } },
+          ],
+        },
+      }),
+    ];
+
+    // Act
+    const { messages } = run(lines);
+
+    // Assert — streamed text once + the tool_use; the consolidated text block is dropped.
+    expect(messages.map((m) => m.type)).toEqual(['text', 'tool_use']);
+    expect(messages[0].content).toBe('我来运行测试。');
+    expect(messages[1].toolName).toBe('Bash');
+    expect(messages[1].toolInput).toEqual({ command: 'npx vitest run' });
+  });
+
+  it('still emits assistant text when it was NOT streamed via deltas (no false suppression)', () => {
+    // Arrange — assistant text with NO preceding text_delta (e.g. partials off) must survive.
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: '直接给出的完整回复' }] },
+    });
+
+    // Act
+    const { messages } = run([line]);
+
+    // Assert
+    expect(messages).toHaveLength(1);
+    expect(messages[0].type).toBe('text');
+    expect(messages[0].content).toBe('直接给出的完整回复');
+  });
+
   it('accumulates thinking_delta and flushes one thinking message on content_block_stop', () => {
     // Arrange
     const d1 = JSON.stringify({

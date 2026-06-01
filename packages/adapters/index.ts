@@ -1,3 +1,3 @@
-// Barrel for @clowder/adapters. Adapter modules (wechat/, telegram/) are added
-// by M13/M14 in Wave 6 and re-exported here at that point.
-export {}
+// Barrel for @clowder/adapters. Adapter modules (wechat/, telegram/) built in Wave 6.
+export * from './wechat/index.js'
+export * from './telegram/index.js'

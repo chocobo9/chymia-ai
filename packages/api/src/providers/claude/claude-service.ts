@@ -20,8 +20,8 @@ import {
 const CLAUDE_CLI_COMMAND = 'claude';
 /**
  * 固定 spawn 参数。来源 extraction §2.2：
- * -p（print/非交互）、--output-format stream-json、--include-partial-messages（增量 text_delta）、
- * --verbose、--permission-mode bypassPermissions（非交互自动批准）。
+ * -p（print/非交互）、--output-format stream-json、--include-partial-messages（增量 text_delta）、--verbose。
+ * permission mode 单独可注入（见 CLAUDE_PERMISSION_MODE_FLAG / ClaudeServiceDeps.permissionMode）。
  */
 const CLAUDE_BASE_ARGS: readonly string[] = [
   '-p',
@@ -29,9 +29,51 @@ const CLAUDE_BASE_ARGS: readonly string[] = [
   'stream-json',
   '--include-partial-messages',
   '--verbose',
-  '--permission-mode',
-  'bypassPermissions',
 ];
+/** permission mode flag，来源 extraction §2.2（原固定 bypassPermissions，现可注入） */
+export const CLAUDE_PERMISSION_MODE_FLAG = '--permission-mode';
+/**
+ * 合法 permission mode 全集 —— **从真实 `claude --help` 校验固定**，不凭记忆。
+ * source: `claude --help` `--permission-mode <mode>` (choices: "acceptEdits",
+ * "auto", "bypassPermissions", "default", "dontAsk", "plan")，已在
+ * `.harness/permmode-dev-help.txt` 验证（实际 CLI 接受 6 个值，比常见的 4 个更宽）。
+ * 这是「配置即数据」：唯一可信来源是这条导出的 readonly 元组，不在代码各处硬编码字面量。
+ */
+export const PERMISSION_MODES = [
+  'acceptEdits',
+  'auto',
+  'bypassPermissions',
+  'default',
+  'dontAsk',
+  'plan',
+] as const;
+
+/** 合法 permission mode 的字面量联合类型（编译期守护字面量调用方）。 */
+export type ClaudePermissionMode = (typeof PERMISSION_MODES)[number];
+
+/**
+ * 运行期 fail-fast 校验：来自 config/env 的 `string` 值在喂给 CLI 前必须落在合法全集内。
+ * **不 trim、不强转** —— 空串 ''、纯空白、未知值一律抛错（`?? DEFAULT` 只兜 undefined/null，
+ * 不兜 ''）。错误信息点名坏值 + 全部合法值，便于排障。
+ * 用 asserts 签名，校验通过后调用点的 `string` 自动收窄为 ClaudePermissionMode。
+ */
+export function assertValidPermissionMode(
+  value: string,
+): asserts value is ClaudePermissionMode {
+  if (!(PERMISSION_MODES as readonly string[]).includes(value)) {
+    throw new Error(
+      `Invalid Claude permission mode ${JSON.stringify(value)}; ` +
+        `allowed values: ${PERMISSION_MODES.join(', ')}`,
+    );
+  }
+}
+
+/**
+ * 默认 permission mode。历史默认 'bypassPermissions'（非交互自动批准所有工具）；现做成
+ * 可注入（ClaudeServiceDeps.permissionMode），受控/沙箱场景可改用 'default' / 'plan' 等
+ * 不自动批准工具的安全模式。默认保持 'bypassPermissions' 以不改变既有行为。
+ */
+export const CLAUDE_DEFAULT_PERMISSION_MODE: ClaudePermissionMode = 'bypassPermissions';
 /** session resume flag，来源 extraction §2.2 */
 const CLAUDE_RESUME_FLAG = '--resume';
 /** model 选择 flag，来源 extraction §2.2 */
@@ -57,6 +99,12 @@ export interface ClaudeServiceDeps {
   readonly defaultModel?: string;
   /** 默认超时（ms），可被 InvokeOptions.timeoutMs 覆盖 */
   readonly defaultTimeoutMs?: number;
+  /**
+   * 覆盖 permission mode（默认 'bypassPermissions'；受控/沙箱场景可设 'default' / 'plan' 等不自动批准工具的模式）。
+   * 类型收紧为 ClaudePermissionMode：字面量调用方编译期即被守护；config/env 来源的 `string`
+   * 仍在 buildArgs/constructor 经 assertValidPermissionMode 运行期兜底。
+   */
+  readonly permissionMode?: ClaudePermissionMode;
   /** 时间源（测试确定性） */
   readonly now?: () => number;
 }
@@ -72,12 +120,22 @@ function describeContentBlocks(blocks: readonly MessageContent[] | undefined): s
   return textParts.length > 0 ? `\n${textParts.join('\n')}` : '';
 }
 
-function buildArgs(
+/**
+ * 构造 `claude` CLI 参数数组（纯函数，导出供单测断言 permission-mode / resume / model 注入）。
+ * permissionMode 由调用方传入（service 已应用默认 'bypassPermissions' 或注入覆盖值）。
+ */
+export function buildArgs(
   prompt: string,
   options: InvokeOptions | undefined,
   defaultModel: string,
+  permissionMode: string,
 ): string[] {
+  // 选点校验：buildArgs 是唯一真正 emit `--permission-mode` 的地方，所有构参路径
+  // （含直接调用方/测试）都过这里，因此这是 fail-fast 的「保证点」。typo（如 'plna'）/
+  // 空串在这里被拦下，绝不静默落到 CLI 而被默默降级、关掉本意的沙箱。
+  assertValidPermissionMode(permissionMode);
   const args = [...CLAUDE_BASE_ARGS];
+  args.push(CLAUDE_PERMISSION_MODE_FLAG, permissionMode);
   if (options?.sessionId) {
     args.push(CLAUDE_RESUME_FLAG, options.sessionId);
   }
@@ -103,6 +161,7 @@ export class ClaudeAgentService implements AgentService {
   private readonly command: string;
   private readonly defaultModel: string;
   private readonly defaultTimeoutMs: number;
+  private readonly permissionMode: string;
   private readonly now: () => number;
 
   constructor(deps: ClaudeServiceDeps) {
@@ -110,6 +169,11 @@ export class ClaudeAgentService implements AgentService {
     this.command = deps.command ?? CLAUDE_CLI_COMMAND;
     this.defaultModel = deps.defaultModel ?? CLAUDE_DEFAULT_MODEL;
     this.defaultTimeoutMs = deps.defaultTimeoutMs ?? CLAUDE_DEFAULT_TIMEOUT_MS;
+    const permissionMode = deps.permissionMode ?? CLAUDE_DEFAULT_PERMISSION_MODE;
+    // 构造期也校验：misconfig 在 service 创建时即失败（更友好），不必等到 invoke。
+    // buildArgs 内的校验仍是最终保证（覆盖绕过 constructor 的直接调用方）。
+    assertValidPermissionMode(permissionMode);
+    this.permissionMode = permissionMode;
     this.now = deps.now ?? Date.now;
   }
 
@@ -123,7 +187,7 @@ export class ClaudeAgentService implements AgentService {
     options?: InvokeOptions,
   ): AsyncIterable<AgentMessage> {
     const model = options?.model ?? this.defaultModel;
-    const args = buildArgs(prompt, options, this.defaultModel);
+    const args = buildArgs(prompt, options, this.defaultModel, this.permissionMode);
     const { lines, exit } = spawnCliLineStream({
       command: this.command,
       args,

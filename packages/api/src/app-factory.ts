@@ -21,7 +21,7 @@ import type { Database as DatabaseType } from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { Server as SocketIoServer } from 'socket.io';
-import type { AgentMessage, AgentId } from '@clowder/shared';
+import type { AgentMessage, AgentId, IncomingPlatformMessage, StoredMessage } from '@clowder/shared';
 
 import type { AgentService } from '@clowder/api/providers/base';
 import { AgentRegistryImpl } from '@clowder/api/routing/agent-registry';
@@ -39,6 +39,7 @@ import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
 import { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
 import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
 import { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-store';
+import { SqlitePlatformMappingStore } from '@clowder/api/stores/platform-mapping-store';
 import { buildSystemPrompt } from '@clowder/api/context/system-prompt-builder';
 import { buildHierarchicalContext } from '@clowder/api/context/hierarchical-context';
 import type { EvidenceRecaller } from '@clowder/api/context/evidence-recall';
@@ -48,6 +49,7 @@ import { SocketManager } from '@clowder/api/infrastructure/socket-manager';
 import type { AppServices } from '@clowder/api/infrastructure/app-services';
 import { registerThreadRoutes } from '@clowder/api/routes/thread-routes';
 import { registerMessageRoutes } from '@clowder/api/routes/message-routes';
+import { handleThreadMessage } from '@clowder/api/routes/message-handler';
 import { registerAgentRoutes } from '@clowder/api/routes/agent-routes';
 import { registerEvidenceRoutes } from '@clowder/api/routes/evidence-routes';
 import { registerCallbackRoutes } from '@clowder/api/routes/callback-routes';
@@ -69,6 +71,16 @@ export interface BuildAppOverrides {
   readonly agentsConfigPath?: string;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
+  /**
+   * Default local workspace directory agents operate in (their CLI `cwd`) when a
+   * thread has no `projectPath`. Externalized via `CHOCO_WORKSPACE` by the
+   * composition root (main.ts). DELIBERATELY has NO default here: when both this
+   * and `thread.projectPath` are absent, the resolved `workingDirectory` stays
+   * `undefined` (the pre-existing behavior — providers then spawn with no cwd),
+   * so existing tests that pass neither see no regression. Do NOT reuse
+   * `fileRoot`'s `process.cwd()` default for this.
+   */
+  readonly defaultWorkspace?: string;
   /** Base URL the MCP server uses to reach this API (forwarded as callbackEnv). */
   readonly apiBaseUrl?: string;
   /** Default agent id for the registry fallback. Defaults to the first config. */
@@ -82,6 +94,19 @@ export interface BuildAppOverrides {
    * assert best-effort failures (e.g. a tool-event-feed append) are logged.
    */
   readonly logger?: RouteLogger;
+}
+
+/**
+ * Replies collected for one platform-ingress message — what an adapter sends
+ * back to the platform conversation (the platform user is not on the websocket).
+ */
+export interface PlatformIngressResult {
+  /** Internal threadId the platform conversation resolved to (A10 resolveThread). */
+  readonly threadId: string;
+  /** Internal userId the platform user resolved to (A10 resolveUser). */
+  readonly userId: string;
+  /** One persisted StoredMessage per agent that replied (in agent stream order). */
+  readonly replies: StoredMessage[];
 }
 
 /** The wired application surface returned by {@link buildApp}. */
@@ -98,8 +123,24 @@ export interface BuiltApp {
   readonly registry: AgentRegistryImpl;
   readonly invocations: InvocationRegistry;
   readonly socket: SocketManager;
+  /**
+   * A10 platform-mapping store — SHARED by the M13 (WeChat) + M14 (Telegram)
+   * adapters to resolve platform ids ↔ internal thread/user ids identically.
+   */
+  readonly platformMappingStore: SqlitePlatformMappingStore;
   /** The session archive store (补充 E) — Cycle 2 callbacks/MCP tools wrap it. */
   readonly sessionStore: SessionStore;
+  /**
+   * Platform ingress (G3): the entry an adapter calls for ONE inbound platform
+   * message. Resolves the platform channelId/userId → internal thread/user id
+   * (A10), then drives the SAME pipeline as the HTTP POST /messages route
+   * (handleThreadMessage) and RETURNS the collected agent replies so the adapter
+   * can sendMessage them back to the platform. M13 (webhook) and M14 (long-poll)
+   * call this identically.
+   */
+  readonly submitPlatformMessage: (
+    incoming: IncomingPlatformMessage,
+  ) => Promise<PlatformIngressResult>;
   /** Close DB + HTTP + Socket.io (test/shutdown teardown). */
   readonly close: () => Promise<void>;
 }
@@ -129,6 +170,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   const threadStore = new SqliteThreadStore(db, { now });
   const toolEventLog = new SqliteToolEventLog(db);
   const evidenceStore = new SqliteEvidenceStore(db);
+  // A10 platform-mapping store (idempotent migration 004 runs in its ctor). Shared
+  // by M13/M14 adapters via submitPlatformMessage below.
+  const platformMappingStore = new SqlitePlatformMappingStore(db, { now });
   // Session archive (补充 E): transcript composition reads the message store +
   // tool-event log, so they are injected as the SessionStore's reader ports.
   const sessionStore = new SessionStore(db, {
@@ -163,6 +207,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     resolveConfig,
     apiBaseUrl,
     now,
+    ...(overrides.defaultWorkspace !== undefined
+      ? { defaultWorkspace: overrides.defaultWorkspace }
+      : {}),
   });
 
   const router = new AgentRouter({ registry, invoke, history: messageStore, logger });
@@ -182,6 +229,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     threadStore,
     toolEventLog,
     evidenceStore,
+    platformMappingStore,
     sessionStore,
     socket,
     logger,
@@ -198,6 +246,27 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   registerEvidenceRoutes(api, appServices);
   registerCallbackRoutes(api, appServices, { fileRoot });
 
+  // G3 platform ingress: resolve A10 ids then drive the shared message pipeline,
+  // returning the collected replies for the adapter to send back to the platform.
+  const submitPlatformMessage = async (
+    incoming: IncomingPlatformMessage,
+  ): Promise<PlatformIngressResult> => {
+    const threadId = await platformMappingStore.resolveThread(
+      incoming.adapterName,
+      incoming.channelId,
+    );
+    const userId = await platformMappingStore.resolveUser(
+      incoming.adapterName,
+      incoming.platformUserId,
+    );
+    const { replies } = await handleThreadMessage(appServices, {
+      threadId,
+      userId,
+      content: incoming.text,
+    });
+    return { threadId, userId, replies };
+  };
+
   const close = async (): Promise<void> => {
     io.close();
     await api.close();
@@ -212,7 +281,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     registry,
     invocations,
     socket,
+    platformMappingStore,
     sessionStore,
+    submitPlatformMessage,
     close,
   };
 }
@@ -229,6 +300,12 @@ interface InvokeDeps {
   readonly resolveConfig: ResolveAgentConfig;
   readonly apiBaseUrl: string;
   readonly now: () => number;
+  /**
+   * Fallback CLI working directory when a thread has no `projectPath`. Optional:
+   * when omitted (and the thread has no projectPath) the invocation passes NO
+   * workingDirectory, preserving the prior behavior.
+   */
+  readonly defaultWorkspace?: string;
 }
 
 /**
@@ -280,6 +357,13 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
 
     const agentService: AgentService = deps.registry.getService(agentId);
 
+    // Resolve the CLI working directory for this turn: the thread's own
+    // projectPath wins, else the injected defaultWorkspace, else undefined.
+    // When undefined we OMIT the field (matching the `...(x !== undefined)` idiom
+    // below) so providers spawn with no explicit cwd — the pre-wire behavior, so
+    // threads without a projectPath and no defaultWorkspace don't regress.
+    const workingDirectory = thread?.projectPath ?? deps.defaultWorkspace;
+
     // Capture this turn's active session id (补充 E E3.3) so each emitted event
     // can be stamped with it — the route layer then tags the persisted agent
     // reply + tool events with session_id, grouping them into the session
@@ -299,6 +383,7 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       threadId,
       prompt: effectivePrompt,
       ...(systemPrompt.length > 0 ? { systemPrompt } : {}),
+      ...(workingDirectory !== undefined ? { workingDirectory } : {}),
       callbackEnv,
       now: deps.now,
       onSessionId: (sessionId) => {

@@ -1,0 +1,176 @@
+// M9 useSocket — owns the Socket.io connection and wires the four server→client
+// events (§C2) into the Zustand stores.
+//
+//   agent_event   (AgentMessage)  → chatStore.applyAgentEvent / clearStreaming
+//   thread_update (Thread)        → chatStore.upsertThread
+//   agent_status  (AgentState)    → agentStore.applyAgentStatus
+//   error         ({message})     → onError callback (surfaced by the UI)
+//
+// The client joins exactly one room at a time (the active thread), so an
+// incoming agent_event belongs to that room — AgentMessage is flat and carries
+// no threadId (the room is the scope). We therefore resolve the thread from a
+// `getActiveThreadId` accessor. On the active thread changing we leave the old
+// room and join the new one (client→server join_thread / leave_thread).
+//
+// The socket is created via an injectable connector so tests can pass a mock
+// socket.io-client without touching the network.
+
+import { useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
+import type { AgentMessage, AgentState, Thread } from '@clowder/shared';
+import { webConfig } from '../lib/config.js';
+import { useChatStore } from '../stores/chat-store.js';
+import { useAgentStore } from '../stores/agent-store.js';
+
+/** Client→server event names (must match M8 SocketManager CLIENT_EVENTS). */
+export const CLIENT_EVENTS = {
+  joinThread: 'join_thread',
+  leaveThread: 'leave_thread',
+  cancel: 'cancel',
+} as const;
+
+/** Server→client event names (must match M8 SocketManager SERVER_EVENTS). */
+export const SERVER_EVENTS = {
+  agentEvent: 'agent_event',
+  threadUpdate: 'thread_update',
+  agentStatus: 'agent_status',
+  error: 'error',
+} as const;
+
+/** Minimal socket surface the hook depends on (eases mocking). */
+export interface SocketLike {
+  on(event: string, listener: (...args: unknown[]) => void): unknown;
+  off(event: string, listener?: (...args: unknown[]) => void): unknown;
+  emit(event: string, ...args: unknown[]): unknown;
+  disconnect(): unknown;
+}
+
+/** Factory for a socket connection (default: socket.io-client to socketUrl). */
+export type SocketConnector = (url: string) => SocketLike;
+
+const defaultConnector: SocketConnector = (url) =>
+  io(url, { transports: ['websocket'], autoConnect: true }) as unknown as SocketLike;
+
+export interface RegisterListenersOptions {
+  /** Returns the thread the events should be scoped to (the joined room). */
+  readonly getActiveThreadId: () => string | null;
+  readonly onError?: (message: string) => void;
+}
+
+/**
+ * registerSocketListeners — attach the server→client handlers that dispatch into
+ * the stores. Exported so it can be unit-tested directly against a mock socket
+ * without React. Returns a disposer that removes the listeners.
+ */
+export function registerSocketListeners(
+  socket: SocketLike,
+  options: RegisterListenersOptions,
+): () => void {
+  const { getActiveThreadId, onError } = options;
+
+  const onAgentEvent = (...args: unknown[]): void => {
+    const event = args[0] as AgentMessage;
+    const threadId = getActiveThreadId();
+    if (threadId === null) return;
+    const chat = useChatStore.getState();
+    if (event.type === 'done' || event.type === 'error') {
+      chat.clearStreaming(threadId);
+      return;
+    }
+    chat.applyAgentEvent(threadId, event);
+  };
+
+  const onThreadUpdate = (...args: unknown[]): void => {
+    const thread = args[0] as Thread;
+    if (thread !== null && typeof thread === 'object' && 'id' in thread) {
+      useChatStore.getState().upsertThread(thread);
+    }
+  };
+
+  const onAgentStatus = (...args: unknown[]): void => {
+    const state = args[0] as AgentState;
+    if (state !== null && typeof state === 'object' && 'id' in state) {
+      useAgentStore.getState().applyAgentStatus(state);
+    }
+  };
+
+  const onErrorEvent = (...args: unknown[]): void => {
+    const payload = args[0] as { message?: string };
+    onError?.(payload?.message ?? 'socket error');
+  };
+
+  socket.on(SERVER_EVENTS.agentEvent, onAgentEvent);
+  socket.on(SERVER_EVENTS.threadUpdate, onThreadUpdate);
+  socket.on(SERVER_EVENTS.agentStatus, onAgentStatus);
+  socket.on(SERVER_EVENTS.error, onErrorEvent);
+
+  return () => {
+    socket.off(SERVER_EVENTS.agentEvent, onAgentEvent);
+    socket.off(SERVER_EVENTS.threadUpdate, onThreadUpdate);
+    socket.off(SERVER_EVENTS.agentStatus, onAgentStatus);
+    socket.off(SERVER_EVENTS.error, onErrorEvent);
+  };
+}
+
+export interface UseSocketOptions {
+  readonly activeThreadId: string | null;
+  readonly connector?: SocketConnector;
+  readonly url?: string;
+  readonly onError?: (message: string) => void;
+}
+
+/**
+ * useSocket — connect on mount, (re)join the active thread room, dispatch
+ * incoming events to the stores, and clean up on unmount. Returns a `cancel`
+ * function the UI can call to abort the current turn.
+ */
+export function useSocket(options: UseSocketOptions): { cancel: () => void } {
+  const { activeThreadId, onError } = options;
+  const connector = options.connector ?? defaultConnector;
+  const url = options.url ?? webConfig.socketUrl;
+
+  const socketRef = useRef<SocketLike | null>(null);
+  const joinedThreadRef = useRef<string | null>(null);
+  // Keep the latest active thread readable from the (stable) listeners.
+  const activeThreadRef = useRef<string | null>(activeThreadId);
+  activeThreadRef.current = activeThreadId;
+
+  // Connect once (per connector/url) and register store-dispatching listeners.
+  useEffect(() => {
+    const socket = connector(url);
+    socketRef.current = socket;
+    const dispose = registerSocketListeners(socket, {
+      getActiveThreadId: () => activeThreadRef.current,
+      onError,
+    });
+    return () => {
+      dispose();
+      socket.disconnect();
+      socketRef.current = null;
+      joinedThreadRef.current = null;
+    };
+  }, [connector, url, onError]);
+
+  // Join/leave rooms as the active thread changes.
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (socket === null) return;
+    const previous = joinedThreadRef.current;
+    if (previous !== null && previous !== activeThreadId) {
+      socket.emit(CLIENT_EVENTS.leaveThread, { threadId: previous });
+    }
+    if (activeThreadId !== null && activeThreadId !== previous) {
+      socket.emit(CLIENT_EVENTS.joinThread, { threadId: activeThreadId });
+    }
+    joinedThreadRef.current = activeThreadId;
+  }, [activeThreadId]);
+
+  const cancel = (): void => {
+    const socket = socketRef.current;
+    if (socket !== null && activeThreadRef.current !== null) {
+      socket.emit(CLIENT_EVENTS.cancel, { threadId: activeThreadRef.current });
+    }
+  };
+
+  return { cancel };
+}

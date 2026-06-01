@@ -32,11 +32,17 @@ export interface ParserState {
   readonly model?: string;
   /** 当前正在累积的 thinking 文本（跨多个 thinking_delta） */
   readonly thinkingBuffer: string;
+  /**
+   * 本轮是否已通过 stream_event/text_delta 增量发出过文本（--include-partial-messages 开启时）。
+   * 为真时，随后 assistant 事件 content[] 里的整块 text 是同一文本的合并版，必须跳过以免重复
+   * （否则持久化/渲染会翻倍）。assistant 事件处理后重置为 false。
+   */
+  readonly streamedText: boolean;
 }
 
 /** 创建初始状态 */
 export function createClaudeParserState(): ParserState {
-  return { thinkingBuffer: '' };
+  return { thinkingBuffer: '', streamedText: false };
 }
 
 /** 单次 transform 的结果：要 emit 的消息 + 新状态 */
@@ -103,7 +109,7 @@ function transformStreamEvent(
       }
       return {
         messages: [makeMessage(deps, 'text', { content: text }, state.model)],
-        state,
+        state: { ...state, streamedText: true },
       };
     }
     if (deltaType === 'thinking_delta') {
@@ -142,7 +148,8 @@ function transformAssistant(
 ): ParseResult {
   const message = asRecord(event.message);
   const model = asString(message?.model) ?? state.model;
-  const nextState: ParserState = model ? { ...state, model } : state;
+  // 本轮 assistant 事件处理完即重置 streamedText（下一轮重新判定）。
+  const nextState: ParserState = { ...state, ...(model ? { model } : {}), streamedText: false };
 
   const content = asArray(message?.content);
   if (!content) {
@@ -157,6 +164,11 @@ function transformAssistant(
     }
     const blkType = asString(blk.type);
     if (blkType === 'text') {
+      // 该轮文本若已通过 stream_event/text_delta 增量发出，assistant content[] 的整块 text
+      // 是同一文本的合并版，跳过以免与增量重复（--include-partial-messages 行为）。
+      if (state.streamedText) {
+        continue;
+      }
       const text = asString(blk.text);
       if (text && text.length > 0) {
         messages.push(makeMessage(deps, 'text', { content: text }, model));

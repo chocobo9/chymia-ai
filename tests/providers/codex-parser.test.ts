@@ -143,4 +143,43 @@ describe('codex-parser (unit, happy path)', () => {
     // Assert
     expect(messages.map((m) => m.type)).toEqual(['session_init', 'text', 'tool_use', 'text']);
   });
+
+  // ── Doubling-bug audit (#6) — Codex VERDICT: NOT susceptible. ──
+  // Codex `exec --json` has NO incremental streaming text path (no delta-then-final shape,
+  // unlike Claude's --include-partial-messages). Reply text arrives ONLY via the final
+  // consolidated `item.completed` / `agent_message`. The only repeat risk is Codex
+  // re-emitting an IDENTICAL final message, which `lastAgentMessage` de-dups. The tests
+  // below LOCK that single-emit behavior so a future event-model change cannot silently
+  // reintroduce text doubling.
+  describe('doubling audit: single emit per final text (no streaming-delta path)', () => {
+    it('emits the consolidated agent_message text exactly once (single source of text)', () => {
+      // Arrange — a complete reply turn: tool activity, then ONE final agent_message.
+      const reply = '我已在 src/db/schema.ts 建好数据表，并补充了迁移脚本。';
+      const lines = [
+        JSON.stringify({ type: 'thread.started', thread_id: 'codex-thread-doubling' }),
+        JSON.stringify({ type: 'item.started', item: { type: 'command_execution', command: 'cat src/db/schema.ts' } }),
+        JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: reply } }),
+      ];
+
+      // Act
+      const { messages } = run(lines);
+
+      // Assert — exactly one text message; concatenation equals the reply once (not doubled).
+      const texts = messages.filter((m) => m.type === 'text');
+      expect(texts).toHaveLength(1);
+      expect(texts.map((m) => m.content).join('')).toBe(reply);
+    });
+
+    it('a repeated identical final agent_message stays single (de-dup guards the only repeat path)', () => {
+      // Arrange — Codex re-emits the SAME final message (the only doubling vector here).
+      const reply = '审查完成：建议为分页接口补充上限校验。';
+      const same = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: reply } });
+
+      // Act
+      const { messages } = run([same, same]);
+
+      // Assert — concatenated text equals the reply exactly once.
+      expect(messages.filter((m) => m.type === 'text').map((m) => m.content).join('')).toBe(reply);
+    });
+  });
 });
