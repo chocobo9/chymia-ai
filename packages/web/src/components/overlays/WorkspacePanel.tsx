@@ -1,0 +1,161 @@
+// WorkspacePanel (Workspace) — a docked right surface opened from the header
+// panel button (and the StatusBar's 查看日志 / expand affordances). Five tabs
+// matching the Claude-Design:
+//   开发 (FILES/CHANGES/GIT/TERM) · 记忆 · 调度 · 任务 · 社区.
+//
+// WIRING (live vs honest-empty):
+//   • 记忆 — LIVE: queries GET evidence search (WorkspaceMemory).
+//   • 开发 / 调度 / 任务 / 社区 — HONEST PLACEHOLDER: there is no file-listing /
+//     git / scheduler / tasks / community backend, so we render the design's
+//     STRUCTURE with a clearly-marked "未接入 / 即将上线" note. We do NOT present
+//     the design's mock FILES / SCHED / issues arrays as if they were live.
+//
+// Ported visual from choco-wsp.jsx WorkspacePanel + directions.css `.wsp-*`.
+
+import { useState, type ReactElement } from 'react';
+import type { ApiClient } from '../../lib/api.js';
+import { useOverlayDismiss } from '../../hooks/useOverlayDismiss.js';
+import {
+  IconClose,
+  IconMenu,
+  IconSearch,
+  IconLock,
+  IconCode,
+  IconMemory,
+  IconClock,
+  IconCheckSquare,
+  IconCommunity,
+} from '../choco/icons.js';
+import { WorkspaceMemory } from './WorkspaceMemory.js';
+
+/** The five workspace tabs. */
+export type WorkspaceTab = 'dev' | 'mem' | 'sched' | 'tasks' | 'comm';
+
+const TABS: readonly { readonly id: WorkspaceTab; readonly label: string; readonly icon: ReactElement }[] =
+  [
+    { id: 'dev', label: '开发', icon: <IconCode /> },
+    { id: 'mem', label: '记忆', icon: <IconMemory /> },
+    { id: 'sched', label: '调度', icon: <IconClock /> },
+    { id: 'tasks', label: '任务', icon: <IconCheckSquare /> },
+    { id: 'comm', label: '社区', icon: <IconCommunity /> },
+  ];
+
+interface SoonProps {
+  readonly title: string;
+  readonly note: string;
+}
+
+/** Honest "not yet wired" placeholder shared by the unbacked tabs. */
+function SoonPane(props: SoonProps): ReactElement {
+  return (
+    <div className="wsp-soon" data-testid="wsp-soon">
+      <span className="wsp-soon-badge">未接入</span>
+      <div className="wsp-soon-t">{props.title}</div>
+      <div className="wsp-soon-s">{props.note}</div>
+    </div>
+  );
+}
+
+function tabBody(tab: WorkspaceTab, client: ApiClient): ReactElement {
+  switch (tab) {
+    case 'mem':
+      return <WorkspaceMemory client={client} />;
+    case 'dev':
+      return (
+        <SoonPane
+          title="开发视图即将上线"
+          note="文件树 / 变更 / Git / 终端尚未接入后端的工作区 API，接通后这里会显示当前 worktree 的真实状态。"
+        />
+      );
+    case 'sched':
+      return (
+        <SoonPane
+          title="调度尚未接入"
+          note="定时任务调度器还没有后端支撑。接通后可在对话里 @ 任意 agent 创建定时任务，例如「每天早上 9 点检查新闻」。"
+        />
+      );
+    case 'tasks':
+      return (
+        <SoonPane
+          title="任务线即将上线"
+          note="跨多轮对话跟踪的长期事项会挂在这里，而不是埋回聊天里。任务后端接通后即可创建第一条任务线。"
+        />
+      );
+    case 'comm':
+      return (
+        <SoonPane
+          title="社区尚未接入"
+          note="Issues / Pull Requests 聚合需要外部仓库集成。接通 GitHub 后这里会显示真实的社区动态。"
+        />
+      );
+  }
+}
+
+export interface WorkspacePanelProps {
+  readonly onClose: () => void;
+  readonly client: ApiClient;
+  /** Initial tab (default 'dev'); the StatusBar expand can deep-link a tab. */
+  readonly startTab?: WorkspaceTab;
+}
+
+/** The docked Workspace panel. */
+export function WorkspacePanel(props: WorkspacePanelProps): ReactElement {
+  const { onClose, client, startTab = 'dev' } = props;
+  const [tab, setTab] = useState<WorkspaceTab>(startTab);
+
+  useOverlayDismiss(true, onClose);
+
+  return (
+    <div className="wsp-scrim" data-testid="workspace-panel-scrim" onClick={onClose}>
+      <div
+        className="wsp"
+        data-testid="workspace-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Workspace"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="wsp-head">
+          <span className="wsp-menu" aria-hidden="true">
+            <IconMenu />
+          </span>
+          <b>Workspace</b>
+          <span className="wsp-grow" />
+          <button type="button" className="icon-btn sm" aria-label="锁定面板" disabled title="即将上线">
+            <IconLock />
+          </button>
+          <button type="button" className="icon-btn sm" onClick={onClose} aria-label="关闭 Workspace">
+            <IconClose />
+          </button>
+        </div>
+
+        <div className="wsp-search">
+          <IconSearch />
+          <input placeholder="搜索全部…" aria-label="搜索 Workspace" disabled title="即将上线" />
+          <span className="wsp-all">All</span>
+        </div>
+
+        <div className="wsp-tabs" role="tablist" aria-label="Workspace 标签">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              className={tab === t.id ? 'on' : ''}
+              data-testid={`wsp-tab-${t.id}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.icon}
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="wsp-body" data-testid="workspace-panel-body">
+          {tabBody(tab, client)}
+        </div>
+      </div>
+    </div>
+  );
+}

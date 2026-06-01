@@ -25,6 +25,8 @@ export interface ThreadListProps {
   readonly onCreateThread: () => void;
   /** Select a thread (delegated so the container can load its history). */
   readonly onSelectThread: (threadId: string) => void;
+  /** Open the settings overlay (owner gear); optional so existing callers work. */
+  readonly onOpenSettings?: () => void;
 }
 
 function threadLabel(thread: Thread): string {
@@ -51,7 +53,7 @@ function participantInfo(
 
 /** Render the LEFT thread column. */
 export function ThreadList(props: ThreadListProps): ReactElement {
-  const { onCreateThread, onSelectThread } = props;
+  const { onCreateThread, onSelectThread, onOpenSettings } = props;
   const threads = useChatStore((s) => s.threads);
   const activeThreadId = useChatStore((s) => s.activeThreadId);
   const roster = useAgentStore((s) => s.roster);
@@ -105,7 +107,13 @@ export function ThreadList(props: ThreadListProps): ReactElement {
           </div>
         )}
       </nav>
-      <div className="cvo" title="设置（即将上线）">
+      <button
+        type="button"
+        className="cvo cvo-trigger"
+        data-testid="owner-gear"
+        aria-label="打开设置"
+        onClick={onOpenSettings}
+      >
         <div className="cvo-mark">U</div>
         <div className="cvo-who">
           <b>You</b>
@@ -114,7 +122,7 @@ export function ThreadList(props: ThreadListProps): ReactElement {
         <span className="cvo-gear" aria-hidden="true">
           <IconGear />
         </span>
-      </div>
+      </button>
     </div>
   );
 }

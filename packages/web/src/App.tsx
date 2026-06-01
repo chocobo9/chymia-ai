@@ -13,19 +13,28 @@
 // incrementally from agent_event socket frames meanwhile, then reconciles the
 // final persisted replies from the POST result.
 //
-// Deferred (rendered but no-op): the header bell (NotifInbox), panel button
-// (WorkspacePanel), and the owner gear (SettingsOverlay) — see frontend SCOPE.
+// Overlays opened from the shell: the header bell (NotifInbox), panel button
+// (WorkspacePanel), a grid button (MonitorGrid), and the owner gear
+// (SettingsOverlay) — see frontend SCOPE.
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { apiClient, ApiClient } from './lib/api.js';
 import { useChatStore } from './stores/chat-store.js';
 import { useAgentStore } from './stores/agent-store.js';
 import { useSocket, type SocketConnector } from './hooks/useSocket.js';
+import { useHealth } from './hooks/useHealth.js';
 import { ThreadList } from './components/ThreadList.js';
 import { ChatContainer } from './components/ChatContainer.js';
 import { ChatInput } from './components/ChatInput.js';
 import { AgentStatus } from './components/AgentStatus.js';
-import { IconBell, IconPanel, IconHash, IconStop } from './components/choco/icons.js';
+import { IconBell, IconPanel, IconHash, IconStop, IconGrid } from './components/choco/icons.js';
+import { NotifInbox, deriveNotifItems } from './components/overlays/NotifInbox.js';
+import { WorkspacePanel } from './components/overlays/WorkspacePanel.js';
+import { MonitorGrid } from './components/overlays/MonitorGrid.js';
+import { SettingsOverlay } from './components/overlays/SettingsOverlay.js';
+
+/** Which exclusive overlay surface (if any) is currently open. */
+type OverlaySurface = 'notif' | 'workspace' | 'monitor' | 'settings' | null;
 
 export interface AppProps {
   /** Injectable API client (defaults to the shared one); eases testing. */
@@ -52,6 +61,8 @@ export function App(props: AppProps = {}): ReactElement {
   const activeThreadId = useChatStore((s) => s.activeThreadId);
 
   const [error, setError] = useState<string | null>(null);
+  const [overlay, setOverlay] = useState<OverlaySurface>(null);
+  const [resolvedNotifs, setResolvedNotifs] = useState<ReadonlySet<string>>(new Set());
 
   const onError = useCallback((message: string) => setError(message), []);
   const { cancel } = useSocket({
@@ -59,6 +70,19 @@ export function App(props: AppProps = {}): ReactElement {
     connector: props.socketConnector,
     onError,
   });
+
+  // Probe /health whenever an overlay that surfaces connection state is open.
+  // Same-origin server hosts both the API and Socket.io, so an ok probe is an
+  // honest proxy for "the live socket backend is reachable".
+  const healthActive = overlay === 'notif' || overlay === 'monitor' || overlay === 'settings';
+  const health = useHealth(client, healthActive);
+  const socketConnected = health.state === 'ok';
+
+  const closeOverlay = useCallback(() => setOverlay(null), []);
+  const resolveNotif = useCallback(
+    (id: string) => setResolvedNotifs((prev) => new Set(prev).add(id)),
+    [],
+  );
 
   // Initial load: roster + threads.
   useEffect(() => {
@@ -138,6 +162,15 @@ export function App(props: AppProps = {}): ReactElement {
     [threads, activeThreadId],
   );
 
+  // Derived "waiting on you" count for the bell badge (real signals only:
+  // blocked/error agents + a down /health probe), minus locally-resolved ones.
+  const notifCount = useMemo(
+    () =>
+      deriveNotifItems(roster, statusById, health).filter((it) => !resolvedNotifs.has(it.id))
+        .length,
+    [roster, statusById, health, resolvedNotifs],
+  );
+
   const messageCount =
     activeThreadId === null ? 0 : messagesByThread[activeThreadId]?.length ?? 0;
 
@@ -168,17 +201,39 @@ export function App(props: AppProps = {}): ReactElement {
         </div>
         <button
           type="button"
-          className="icon-btn bell"
-          aria-label="待你处理（即将上线）"
-          disabled
+          className={`icon-btn bell${overlay === 'notif' ? ' on' : ''}`}
+          aria-label="待你处理"
+          aria-haspopup="dialog"
+          aria-expanded={overlay === 'notif'}
+          data-testid="bell-button"
+          onClick={() => setOverlay((o) => (o === 'notif' ? null : 'notif'))}
         >
           <IconBell />
+          {notifCount > 0 && (
+            <span className="bell-badge" data-testid="bell-badge">
+              {notifCount}
+            </span>
+          )}
         </button>
         <button
           type="button"
-          className="icon-btn"
-          aria-label="打开 Workspace（即将上线）"
-          disabled
+          className={`icon-btn${overlay === 'monitor' ? ' on' : ''}`}
+          aria-label="并行监看"
+          aria-haspopup="dialog"
+          aria-expanded={overlay === 'monitor'}
+          data-testid="monitor-button"
+          onClick={() => setOverlay((o) => (o === 'monitor' ? null : 'monitor'))}
+        >
+          <IconGrid />
+        </button>
+        <button
+          type="button"
+          className={`icon-btn${overlay === 'workspace' ? ' on' : ''}`}
+          aria-label="打开 Workspace"
+          aria-haspopup="dialog"
+          aria-expanded={overlay === 'workspace'}
+          data-testid="workspace-button"
+          onClick={() => setOverlay((o) => (o === 'workspace' ? null : 'workspace'))}
         >
           <IconPanel />
         </button>
@@ -189,6 +244,7 @@ export function App(props: AppProps = {}): ReactElement {
           <ThreadList
             onCreateThread={() => void createThread()}
             onSelectThread={(id) => void selectThread(id)}
+            onOpenSettings={() => setOverlay('settings')}
           />
         </aside>
 
@@ -230,6 +286,22 @@ export function App(props: AppProps = {}): ReactElement {
           <AgentStatus />
         </aside>
       </div>
+
+      {overlay === 'notif' && (
+        <NotifInbox
+          onClose={closeOverlay}
+          health={health}
+          onResolve={resolveNotif}
+          resolvedIds={resolvedNotifs}
+        />
+      )}
+      {overlay === 'workspace' && <WorkspacePanel onClose={closeOverlay} client={client} />}
+      {overlay === 'monitor' && (
+        <MonitorGrid onClose={closeOverlay} health={health} socketConnected={socketConnected} />
+      )}
+      {overlay === 'settings' && (
+        <SettingsOverlay onClose={closeOverlay} health={health} socketConnected={socketConnected} />
+      )}
     </div>
   );
 }

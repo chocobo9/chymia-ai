@@ -60,6 +60,15 @@ export interface SendMessageResult {
   readonly replies: readonly StoredMessage[];
 }
 
+/** Payload returned by GET /health (mirrors the M8 health-routes shape). */
+export interface HealthPayload {
+  readonly status: 'ok';
+  /** Process uptime in milliseconds. */
+  readonly uptimeMs: number;
+  /** Wall-clock time the health check was served (epoch ms). */
+  readonly timestamp: number;
+}
+
 /** Raised when an API call returns a non-2xx status. */
 export class ApiError extends Error {
   readonly status: number;
@@ -163,6 +172,12 @@ export class ApiClient {
       this.jsonInit('POST', { query, ...options }),
     );
     return parseJson<EvidenceSearchResult>(res);
+  }
+
+  /** GET /health — liveness probe used by the connection strip (degraded vs ok). */
+  async health(): Promise<HealthPayload> {
+    const res = await this.fetchFn(this.url('/health'));
+    return parseJson<HealthPayload>(res);
   }
 }
 

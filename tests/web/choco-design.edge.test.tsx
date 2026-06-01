@@ -436,18 +436,21 @@ describe('empty / honest states + deferred controls', () => {
     expect(screen.getByText(/0 session/)).toBeInTheDocument();
   });
 
-  it('deferred controls (bell, panel, owner gear, log link) are present but inert — no crash on click', async () => {
+  // RECONCILED (overlays dev wave): the bell + panel buttons were previously
+  // `disabled` placeholders ("…（即将上线）"). They are now REAL overlay triggers
+  // (NotifInbox / WorkspacePanel), so they are enabled and carry the final
+  // aria-labels. The shell-level *deferred* no-ops that remain are the StatusBar's
+  // ＋ 绑定外部 Session button and the 查看日志 link — assert those stay inert.
+  it('shell controls: bell/panel are real (enabled) triggers; remaining StatusBar affordances stay inert', async () => {
     await mountApp();
     await selectDefaultThread();
-    const bell = screen.getByLabelText('待你处理（即将上线）');
-    const panel = screen.getByLabelText('打开 Workspace（即将上线）');
-    expect(bell).toBeDisabled();
-    expect(panel).toBeDisabled();
-    // Clicking inert/deferred affordances must not throw or change route/state.
-    await userEvent.click(bell);
-    await userEvent.click(panel);
-    // The owner footer gear + 绑定外部 Session + 查看日志 are deferred no-ops.
+    const bell = screen.getByLabelText('待你处理');
+    const panel = screen.getByLabelText('打开 Workspace');
+    expect(bell).toBeEnabled();
+    expect(panel).toBeEnabled();
+    // The owner footer is now a real trigger but its label/text is preserved.
     expect(screen.getByText('project owner')).toBeInTheDocument();
+    // Still-deferred StatusBar affordances remain inert (no backend yet).
     const bind = screen.getByText('＋ 绑定外部 Session');
     expect(bind).toBeDisabled();
     await userEvent.click(screen.getByText('查看日志')); // disabled span, inert
