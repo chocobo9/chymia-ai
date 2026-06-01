@@ -22,6 +22,7 @@
 // (it is outside the eslint product glob: packages/**/*.ts + tests/**/*.ts).
 
 import { spawn } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,6 +43,11 @@ if (process.env.CHOCO_WORKSPACE === undefined) {
       `Set CHOCO_WORKSPACE=<dir> to point agents at your project.`,
   );
 }
+
+// Belt-and-suspenders: the API's composition root (main.ts) also ensures this
+// dir exists, but create it here too so the resolved agent cwd is valid no matter
+// which entry the user runs. (main.ts is the canonical fix; this covers `pnpm app`.)
+mkdirSync(workspace, { recursive: true });
 
 const childEnv = { ...process.env, CHOCO_WORKSPACE: workspace };
 

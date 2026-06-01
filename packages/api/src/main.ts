@@ -29,6 +29,7 @@
 //   LOG_DIR    Directory rolling log files are written under. Default ./data/logs/api.
 //   LOG_LEVEL  Minimum level emitted (trace…fatal). Default 'info'.
 
+import { mkdirSync } from 'node:fs';
 import { buildApp } from '@clowder/api/app-factory';
 import {
   buildAgentServicesFromRoster,
@@ -110,6 +111,16 @@ async function main(): Promise<void> {
         `Set CHOCO_WORKSPACE to a dedicated project directory.`,
     );
   }
+
+  // The workspace is BOTH the agent CLI cwd (defaultWorkspace) AND the read_file
+  // sandbox root (fileRoot). A configured-but-missing directory (e.g. launch.mjs's
+  // default `<repo>/.workspace`, which it does not create) makes the agent CLI
+  // spawn with a non-existent cwd → instant spawn failure (durationMs≈3-8,
+  // textChars=0, errors=1) and a new conversation never gets a reply. Ensure it
+  // exists before wiring services so EVERY launch path has a valid cwd/fileRoot.
+  mkdirSync(workspace, { recursive: true });
+  logger.info({ workspace }, 'workspace directory ensured');
+
   logger.info({ workspace, permissionMode, host, port }, 'api booting');
 
   const { api } = buildApp({
