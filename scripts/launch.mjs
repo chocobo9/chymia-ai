@@ -12,6 +12,12 @@
 //   CHOCO_PERMISSION_MODE  claude permission mode (default: acceptEdits)
 //   PORT / HOST            API listen port / host (default: 3000 / 0.0.0.0)
 //
+// Supervision (mirrors CatCafe's ServiceManager auto-retry idea): the API child
+// is RESTARTED on an unexpected exit, up to MAX_API_RESTARTS times, with each
+// restart logged. The web dev server is fail-fast (its death brings the platform
+// down) — only the long-running API is worth auto-recovering. SIGINT/SIGTERM and
+// exhausting the restart budget bring everything down cleanly.
+//
 // This launcher is a dev-ops script, NOT product code, so it may use console.*
 // (it is outside the eslint product glob: packages/**/*.ts + tests/**/*.ts).
 
@@ -20,6 +26,10 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+// Cap auto-restarts so a crash-loop (e.g. a bad config) eventually gives up
+// instead of spinning forever. After this many restarts the platform shuts down.
+const MAX_API_RESTARTS = 5;
 
 // Default workspace: a clearly-logged safe dir under the repo, so an unset
 // CHOCO_WORKSPACE never silently points real agents at an unexpected directory.
@@ -74,12 +84,13 @@ function shutdown(code) {
   if (shuttingDown) return;
   shuttingDown = true;
   for (const child of children) {
-    if (child.exitCode === null) child.kill('SIGTERM');
+    if (child && child.exitCode === null) child.kill('SIGTERM');
   }
   process.exit(code);
 }
 
-for (const { label, command, args } of procs) {
+/** Spawn one labelled child, wiring its prefixed stdout/stderr. */
+function spawnChild(label, command, args) {
   console.log(`[launch] starting ${label}: ${command} ${args.join(' ')}`);
   const child = spawn(command, args, {
     cwd: ROOT,
@@ -89,13 +100,46 @@ for (const { label, command, args } of procs) {
   });
   prefixStream(label, child.stdout, (l) => console.log(l));
   prefixStream(label, child.stderr, (l) => console.error(l));
+  return child;
+}
+
+const apiSpec = procs.find((p) => p.label === 'api');
+const webSpec = procs.find((p) => p.label === 'web');
+
+// API: supervised with capped auto-restart. A non-zero / unexpected exit while
+// not shutting down restarts the child (logged), up to MAX_API_RESTARTS.
+let apiRestarts = 0;
+function startApi() {
+  const child = spawnChild(apiSpec.label, apiSpec.command, apiSpec.args);
+  children[0] = child;
   child.on('exit', (code) => {
-    console.error(`[launch] ${label} exited with code ${code ?? 'null'}`);
-    // If either half dies, bring the whole platform down (fail-fast).
+    console.error(`[launch] api exited with code ${code ?? 'null'}`);
+    if (shuttingDown) return;
+    if (apiRestarts >= MAX_API_RESTARTS) {
+      console.error(
+        `[launch] api exceeded ${MAX_API_RESTARTS} restarts — giving up, shutting down`,
+      );
+      shutdown(code ?? 1);
+      return;
+    }
+    apiRestarts += 1;
+    console.error(`[launch] restarting api (attempt ${apiRestarts}/${MAX_API_RESTARTS})`);
+    startApi();
+  });
+}
+
+// Web: fail-fast — its death brings the whole platform down (dev server).
+function startWeb() {
+  const child = spawnChild(webSpec.label, webSpec.command, webSpec.args);
+  children[1] = child;
+  child.on('exit', (code) => {
+    console.error(`[launch] web exited with code ${code ?? 'null'}`);
     shutdown(code ?? 1);
   });
-  children.push(child);
 }
+
+startApi();
+startWeb();
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {

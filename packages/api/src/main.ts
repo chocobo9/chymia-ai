@@ -17,15 +17,28 @@
 //   PORT                   Listen port. Default 3000.
 //   HOST                   Bind host.  Default 0.0.0.0.
 //
-// This file uses the project logger seam (RouteLogger) — NOT console.log — for
-// its boot note, per CLAUDE.md §2.1. Run it via: npx tsx packages/api/src/main.ts
-// (the scripts/launch.mjs launcher does this for you alongside the web dev server).
+// This file is the operability EDGE: it constructs the REAL structured file
+// logger (createFileLogger — stdout + rolling file under LOG_DIR), installs the
+// process crash handlers (uncaught/unhandled → log + exit non-zero), and injects
+// the logger into buildApp via the existing RouteLogger seam so invocation audit
+// + invariant-probe warnings land in the log file. buildApp's own default logger
+// stays a no-op (tests write no files). NOT console.log, per CLAUDE.md §2.1. Run
+// via: npx tsx packages/api/src/main.ts (scripts/launch.mjs does this for you and
+// supervises/restarts this process on unexpected exit).
+//
+//   LOG_DIR    Directory rolling log files are written under. Default ./data/logs/api.
+//   LOG_LEVEL  Minimum level emitted (trace…fatal). Default 'info'.
 
 import { buildApp } from '@clowder/api/app-factory';
 import {
   buildAgentServicesFromRoster,
   resolvePermissionMode,
 } from '@clowder/api/runtime/agent-services';
+import {
+  createFileLogger,
+  routeLoggerFrom,
+  type StructuredLogger,
+} from '@clowder/api/infrastructure/logger';
 
 /** Default listen port when PORT is unset. */
 const DEFAULT_PORT = 3000;
@@ -53,40 +66,63 @@ function resolvePort(): number {
 }
 
 /**
- * Emit a structured boot note to stderr. NOT console.log (CLAUDE.md §2.1) — this
- * is the composition root's own diagnostic channel (distinct from the in-app
- * RouteLogger, which carries a per-request threadId). Boot notes have no threadId.
+ * Install process-level crash handlers that LOG the fault through the structured
+ * logger (so it lands in the rolling log file, not just a vanished stderr line)
+ * and exit non-zero so the launcher's supervisor restarts the API. Installed at
+ * the EDGE only (this composition root), never inside buildApp — tests must not
+ * register global process handlers.
  */
-function bootLog(level: 'info' | 'warn', message: string): void {
-  process.stderr.write(`[api] ${level}: ${message}\n`);
+function installCrashHandlers(logger: StructuredLogger): void {
+  const CRASH_EXIT_CODE = 1;
+  process.on('uncaughtException', (err: Error) => {
+    logger.error(
+      { kind: 'uncaughtException', name: err.name, stack: err.stack },
+      `uncaught exception: ${err.message}`,
+    );
+    process.exit(CRASH_EXIT_CODE);
+  });
+  process.on('unhandledRejection', (reason: unknown) => {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    const stack = reason instanceof Error ? reason.stack : undefined;
+    logger.error(
+      { kind: 'unhandledRejection', ...(stack !== undefined ? { stack } : {}) },
+      `unhandled rejection: ${message}`,
+    );
+    process.exit(CRASH_EXIT_CODE);
+  });
 }
 
 async function main(): Promise<void> {
+  // EDGE wiring: construct the REAL file logger here (NEVER in buildApp, whose
+  // default must stay a no-op so the test suite writes no log files).
+  const logger = createFileLogger();
+  installCrashHandlers(logger);
+
   const { dir: workspace, isDefault: workspaceIsDefault } = resolveWorkspace();
   const port = resolvePort();
   const host = process.env['HOST'] ?? DEFAULT_HOST;
   const permissionMode = resolvePermissionMode(process.env['CHOCO_PERMISSION_MODE']);
 
   if (workspaceIsDefault) {
-    bootLog(
-      'warn',
+    logger.warn(
+      { workspace },
       `CHOCO_WORKSPACE unset — agents will operate on ${workspace} (process cwd). ` +
         `Set CHOCO_WORKSPACE to a dedicated project directory.`,
     );
   }
-  bootLog(
-    'info',
-    `workspace=${workspace} permissionMode=${permissionMode} host=${host} port=${port}`,
-  );
+  logger.info({ workspace, permissionMode, host, port }, 'api booting');
 
   const { api } = buildApp({
     agentServices: buildAgentServicesFromRoster({ permissionMode }),
     fileRoot: workspace,
     defaultWorkspace: workspace,
+    // Inject the real logger via the EXISTING RouteLogger seam: route notes +
+    // invocation audit + invariant probe warnings now land in the rolling file.
+    logger: routeLoggerFrom(logger),
   });
 
   await api.listen({ port, host });
-  bootLog('info', `listening on http://${host}:${port}`);
+  logger.info({ host, port, url: `http://${host}:${port}` }, 'api listening');
 }
 
 void main();

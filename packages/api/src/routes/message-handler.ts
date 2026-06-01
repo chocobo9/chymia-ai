@@ -21,6 +21,10 @@ import { parseUserMentions } from '@clowder/api/routing/mention-parser';
 import type { RouteLogger } from '@clowder/api/routing/agent-router';
 import type { AppServices } from '@clowder/api/infrastructure/app-services';
 import type { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
+import {
+  checkReplyNotDuplicated,
+  checkToolWritePathInside,
+} from '@clowder/api/infrastructure/invariants';
 
 /** Default userId attributed to inbound user messages when none is supplied. */
 export const DEFAULT_USER_ID = 'user';
@@ -78,6 +82,7 @@ export async function handleThreadMessage(
   const { router, registry, messageStore, threadStore, toolEventLog, socket, logger, now } =
     services;
   const { threadId, userId, content } = input;
+  const { defaultWorkspace } = services;
 
   // 1. Auto-create the thread on first message (ported ensureThread idiom).
   await threadStore.ensureThread(threadId, deriveTitle(content));
@@ -137,6 +142,15 @@ export async function handleThreadMessage(
   // (M7 context depends on the latter). Best-effort: a feed failure must not
   // fail the user's request, so it is isolated from the response path.
   await persistToolEvents(toolEventLog, threadId, accumulators, logger);
+
+  // Operability probes (invariants 2 + 3): inspect each agent's reply for verbatim
+  // self-duplication and each tool write for a workspace escape, emitting WARN via
+  // the injected logger. Silent in tests (NOOP_LOGGER) unless a logger is injected.
+  // The expected workspace is the thread's projectPath when set, else the
+  // configured defaultWorkspace.
+  const probedThread = await threadStore.get(threadId);
+  const workspace = probedThread?.projectPath ?? defaultWorkspace;
+  runReplyAndToolProbes(logger, threadId, accumulators, workspace);
 
   // 4. Track participants + bump lastActive, then broadcast the thread update.
   if (participants.size > 0) {
@@ -358,6 +372,61 @@ function takeMatchingResult(
     }
   }
   return results.anon.shift();
+}
+
+/**
+ * Tool-input keys that carry a file-write path across our providers' tool
+ * vocabularies (Claude `Write`/`Edit` use `file_path`; generic write tools use
+ * `path`/`filePath`). The escape probe reads the first present one.
+ */
+const WRITE_PATH_KEYS: readonly string[] = ['file_path', 'path', 'filePath'];
+
+/** Tool names whose calls write to the filesystem (subject to the escape probe). */
+const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'Write',
+  'Edit',
+  'write_file',
+  'edit_file',
+  'NotebookEdit',
+]);
+
+/** Extract a file-write path string from a tool input bag, if one is present. */
+function extractWritePath(toolInput: Record<string, unknown> | undefined): string | undefined {
+  if (toolInput === undefined) return undefined;
+  for (const key of WRITE_PATH_KEYS) {
+    const value = toolInput[key];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Run the per-reply operability probes (invariants 2 + 3) over the accumulated
+ * replies + their captured tool events. Pure dispatch — each probe owns its own
+ * check and only emits a WARN through `logger` on violation (silent otherwise).
+ */
+function runReplyAndToolProbes(
+  logger: RouteLogger,
+  threadId: string,
+  accumulators: Map<AgentId, ReplyAccumulator>,
+  workspace: string | undefined,
+): void {
+  for (const [agentId, acc] of accumulators) {
+    const ctx = { threadId, agentId };
+    if (acc.text.length > 0) {
+      checkReplyNotDuplicated(logger, ctx, acc.text);
+    }
+    for (const ev of acc.toolEvents) {
+      if (ev.type !== 'tool_use' || ev.toolName === undefined) continue;
+      if (!WRITE_TOOL_NAMES.has(ev.toolName)) continue;
+      const writePath = extractWritePath(ev.toolInput);
+      if (writePath !== undefined) {
+        checkToolWritePathInside(logger, ctx, writePath, workspace, ev.toolName);
+      }
+    }
+  }
 }
 
 /** Derive a short thread title from the first message (auto-create case). */

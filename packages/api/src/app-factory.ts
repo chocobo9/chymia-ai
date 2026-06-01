@@ -35,6 +35,7 @@ import { InvocationRegistry } from '@clowder/api/invocation/invocation-registry'
 import { SessionStore } from '@clowder/api/invocation/session-store';
 import { SessionMutex } from '@clowder/api/invocation/session-mutex';
 import { invokeSingleAgent } from '@clowder/api/invocation/invoke-single-agent';
+import type { InvokeSingleAgentParams } from '@clowder/api/invocation/invoke-single-agent';
 import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
 import { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
 import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
@@ -53,6 +54,11 @@ import { handleThreadMessage } from '@clowder/api/routes/message-handler';
 import { registerAgentRoutes } from '@clowder/api/routes/agent-routes';
 import { registerEvidenceRoutes } from '@clowder/api/routes/evidence-routes';
 import { registerCallbackRoutes } from '@clowder/api/routes/callback-routes';
+import { registerHealthRoutes } from '@clowder/api/routes/health-routes';
+import {
+  checkWorkspaceMatch,
+  checkInvocationProductive,
+} from '@clowder/api/infrastructure/invariants';
 
 /** Env var names the CLI/MCP server reads to call back into this API (§C3). */
 export const CALLBACK_ENV_KEYS = {
@@ -207,6 +213,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     resolveConfig,
     apiBaseUrl,
     now,
+    logger,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),
@@ -234,6 +241,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     socket,
     logger,
     now,
+    ...(overrides.defaultWorkspace !== undefined
+      ? { defaultWorkspace: overrides.defaultWorkspace }
+      : {}),
   };
 
   const fileRoot = overrides.fileRoot ?? process.cwd();
@@ -245,6 +255,8 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   registerAgentRoutes(api, appServices);
   registerEvidenceRoutes(api, appServices);
   registerCallbackRoutes(api, appServices, { fileRoot });
+  // Operability: liveness probe. Harmless to tests (pure in-memory read).
+  registerHealthRoutes(api, { now });
 
   // G3 platform ingress: resolve A10 ids then drive the shared message pipeline,
   // returning the collected replies for the adapter to send back to the platform.
@@ -300,6 +312,12 @@ interface InvokeDeps {
   readonly resolveConfig: ResolveAgentConfig;
   readonly apiBaseUrl: string;
   readonly now: () => number;
+  /**
+   * Structured logger seam for invariant probes ({@link RouteLogger}). Defaults
+   * to the silent NOOP_LOGGER in buildApp, so probes are silent in tests unless
+   * a capturing logger is injected; main.ts injects the real file logger.
+   */
+  readonly logger: RouteLogger;
   /**
    * Fallback CLI working directory when a thread has no `projectPath`. Optional:
    * when omitted (and the thread has no projectPath) the invocation passes NO
@@ -368,14 +386,14 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
     // can be stamped with it — the route layer then tags the persisted agent
     // reply + tool events with session_id, grouping them into the session
     // transcript. `onSessionId` fires on resume and/or session_init; latest wins.
+    // Declared before invokeOptions so its onSessionId closure can bind it.
     let activeSessionId: string | undefined;
 
-    // Stamp this turn's invocationId (§4.2) AND session_id (补充 E) onto every
-    // emitted event so downstream sinks — the M5 ToolEventLog live-feed + the
-    // reply persist in message-routes — can correlate a tool_use to its
-    // invocation and group it into its session. We enrich events as they flow
-    // out, preserving any id a provider already set.
-    for await (const event of invokeSingleAgent({
+    // Build the InvokeOptions handed to invokeSingleAgent. The cwd field is
+    // OMITTED (left undefined) when there's no workspace — matching the prior
+    // no-cwd behavior — so `invokeOptions.workingDirectory` is the GENUINE value
+    // that flows to the provider spawn, not a re-derivation.
+    const invokeOptions: InvokeSingleAgentParams = {
       agentService,
       sessionStore: deps.sessionStore,
       sessionMutex: deps.sessionMutex,
@@ -390,14 +408,83 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
         activeSessionId = sessionId;
       },
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    })) {
-      const withInvocation =
-        event.invocationId === undefined
-          ? { ...event, invocationId: record.invocationId }
-          : event;
-      yield activeSessionId !== undefined && withInvocation.sessionId === undefined
-        ? { ...withInvocation, sessionId: activeSessionId }
-        : withInvocation;
+    };
+
+    // Operability invariant 1: the cwd ACTUALLY forwarded to the provider
+    // (invokeOptions.workingDirectory — undefined when the field was dropped)
+    // must match the workspace this turn was INDEPENDENTLY expected to run in
+    // (recomputed from the thread's projectPath, else the configured
+    // defaultWorkspace). Comparing the spawned field against a fresh expectation
+    // — NOT a value against itself — lets this fire on the real workspace-wire
+    // bug shape: projectPath dropped ⇒ undefined cwd while a workspace WAS
+    // configured ⇒ silent server-cwd fallback. Silent in tests (NOOP_LOGGER).
+    const expectedWorkspace = thread?.projectPath ?? deps.defaultWorkspace;
+    checkWorkspaceMatch(
+      deps.logger,
+      { threadId, agentId },
+      invokeOptions.workingDirectory,
+      expectedWorkspace,
+    );
+
+    // Audit-to-log: invocation start. Logs the agent + thread + invocationId so
+    // a turn is traceable in the structured log (info; silent in tests).
+    const startedAt = deps.now();
+    deps.logger({
+      level: 'info',
+      message: `invocation start (invocationId=${record.invocationId})`,
+      threadId,
+      agentId,
+    });
+
+    // Tally this turn's output for invariant 4 (productive-invocation probe).
+    let textLength = 0;
+    let toolCallCount = 0;
+    let errorCount = 0;
+
+    // Stamp this turn's invocationId (§4.2) AND session_id (补充 E) onto every
+    // emitted event so downstream sinks — the M5 ToolEventLog live-feed + the
+    // reply persist in message-routes — can correlate a tool_use to its
+    // invocation and group it into its session. We enrich events as they flow
+    // out, preserving any id a provider already set.
+    try {
+      for await (const event of invokeSingleAgent(invokeOptions)) {
+        // Operability tally for invariant 4 (productive-invocation probe).
+        if (event.type === 'text' && event.content !== undefined) {
+          textLength += event.content.length;
+        } else if (event.type === 'tool_use') {
+          toolCallCount += 1;
+        } else if (event.type === 'error') {
+          errorCount += 1;
+        }
+
+        const withInvocation =
+          event.invocationId === undefined
+            ? { ...event, invocationId: record.invocationId }
+            : event;
+        yield activeSessionId !== undefined && withInvocation.sessionId === undefined
+          ? { ...withInvocation, sessionId: activeSessionId }
+          : withInvocation;
+      }
+    } finally {
+      // Audit-to-log: invocation end with durationMs + an output summary so the
+      // turn's cost/shape is visible in the structured log (info; silent in tests).
+      deps.logger({
+        level: 'info',
+        message:
+          `invocation end (invocationId=${record.invocationId} ` +
+          `durationMs=${deps.now() - startedAt} textChars=${textLength} ` +
+          `toolCalls=${toolCallCount} errors=${errorCount})`,
+        threadId,
+        agentId,
+      });
+      // Operability invariant 4: flag a silent dead turn (no output, no error) or
+      // an error spike. Runs in `finally` so an aborted/short-circuited stream is
+      // still judged. Silent in tests (NOOP_LOGGER) unless a logger is injected.
+      checkInvocationProductive(
+        deps.logger,
+        { threadId, agentId },
+        { textLength, toolCallCount, errorCount },
+      );
     }
   };
 }

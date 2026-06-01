@@ -52,4 +52,13 @@ export interface AppServices {
   readonly logger: RouteLogger;
   /** Clock for route-stamped timestamps (injectable for deterministic tests). */
   readonly now: () => number;
+  /**
+   * Default agent workspace (the CLI cwd fallback when a thread has no
+   * projectPath), externalized via `CHOCO_WORKSPACE` at the composition root.
+   * Used by the operability tool-write-escape probe to judge whether a tool's
+   * file-write path resolves inside the workspace. Optional — when unset (and the
+   * thread has no projectPath) containment cannot be judged, so that probe is a
+   * no-op (matching the provider's no-cwd behavior). Never used for routing.
+   */
+  readonly defaultWorkspace?: string;
 }
