@@ -24,6 +24,8 @@ import { Server as SocketIoServer } from 'socket.io';
 import type { AgentMessage, AgentId, IncomingPlatformMessage, StoredMessage } from '@clowder/shared';
 
 import type { AgentService } from '@clowder/api/providers/base';
+import { MCP_CONFIG_ENV_KEY } from '@clowder/api/providers/claude/claude-service';
+import { buildClaudeMcpConfig } from '@clowder/api/providers/mcp-config';
 import { AgentRegistryImpl } from '@clowder/api/routing/agent-registry';
 import {
   AgentRouter,
@@ -415,6 +417,21 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       [CALLBACK_ENV_KEYS.invocationId]: record.invocationId,
       [CALLBACK_ENV_KEYS.callbackToken]: record.callbackToken,
     };
+
+    // MCP PRODUCER (§C3): tell claude where OUR M10 MCP server is, so the 8-tool
+    // subsystem is reachable. Gated to the claude client ONLY — codex/gemini use
+    // different config formats (feeding them this JSON would be malformed), and
+    // only when the agent's config declares mcpSupport. The value is an inline
+    // JSON string (POSIX) or a temp-file path (win32); the claude provider passes
+    // it to `--mcp-config <value>`.
+    const cfg = deps.resolveConfig(agentId);
+    if (cfg?.mcpSupport === true && cfg.clientId === 'anthropic') {
+      callbackEnv[MCP_CONFIG_ENV_KEY] = buildClaudeMcpConfig({
+        apiBaseUrl: deps.apiBaseUrl,
+        invocationId: record.invocationId,
+        callbackToken: record.callbackToken,
+      });
+    }
 
     const agentService: AgentService = deps.registry.getService(agentId);
 

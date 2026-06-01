@@ -87,8 +87,12 @@ const CLAUDE_MCP_CONFIG_FLAG = '--mcp-config';
 const CLAUDE_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 /** 默认模型；来源：design §4.1 示例 'claude-opus-4-6'，可被 options.model 覆盖 */
 const CLAUDE_DEFAULT_MODEL = 'claude-opus-4-6';
-/** callbackEnv 中携带 MCP 配置 JSON 的约定 key（来源：补充 §C3 MCP 运行模型） */
-const MCP_CONFIG_ENV_KEY = 'MCP_CONFIG_JSON';
+/**
+ * callbackEnv 中携带 MCP 配置 JSON（或 win32 下的配置文件路径）的约定 key
+ * （来源：补充 §C3 MCP 运行模型）。导出供 M8 app-factory 的 producer 复用——
+ * 唯一可信来源是这一处，绝不在多处复制该字面量（CLAUDE.md §2.1）。
+ */
+export const MCP_CONFIG_ENV_KEY = 'MCP_CONFIG_JSON';
 
 /** 构造参数：注入 agentId 与可选覆盖 */
 export interface ClaudeServiceDeps {
@@ -135,6 +139,14 @@ export function buildArgs(
   // 空串在这里被拦下，绝不静默落到 CLI 而被默默降级、关掉本意的沙箱。
   assertValidPermissionMode(permissionMode);
   const args = [...CLAUDE_BASE_ARGS];
+  // `--mcp-config <configs...>` 是 VARIADIC（贪婪吞掉其后所有非 flag 参数，已用真实
+  // claude 2.1.159 验证）。必须紧跟一个以 '-' 开头的 flag 来终止它，否则末位的位置参数
+  // prompt 会被当成第二个 config 路径吞掉。下方 --permission-mode 无条件 push 且以 '-'
+  // 开头，正好终止 variadic；prompt 仍安全地留在末位。因此 mcp-config 必须先于它。
+  const mcpConfig = options?.callbackEnv?.[MCP_CONFIG_ENV_KEY];
+  if (mcpConfig) {
+    args.push(CLAUDE_MCP_CONFIG_FLAG, mcpConfig);
+  }
   args.push(CLAUDE_PERMISSION_MODE_FLAG, permissionMode);
   if (options?.sessionId) {
     args.push(CLAUDE_RESUME_FLAG, options.sessionId);
@@ -146,10 +158,6 @@ export function buildArgs(
   // Claude Code 支持原生 system prompt 注入（injectsL0Natively=true）。
   if (options?.systemPrompt) {
     args.push(CLAUDE_SYSTEM_PROMPT_FLAG, options.systemPrompt);
-  }
-  const mcpConfig = options?.callbackEnv?.[MCP_CONFIG_ENV_KEY];
-  if (mcpConfig) {
-    args.push(CLAUDE_MCP_CONFIG_FLAG, mcpConfig);
   }
   // prompt 作为末位位置参数；附加多模态文本说明。
   args.push(`${prompt}${describeContentBlocks(options?.contentBlocks)}`);

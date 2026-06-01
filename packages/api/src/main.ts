@@ -116,6 +116,11 @@ async function main(): Promise<void> {
     agentServices: buildAgentServicesFromRoster({ permissionMode }),
     fileRoot: workspace,
     defaultWorkspace: workspace,
+    // The base URL the spawned MCP server calls back to. buildApp defaults this
+    // to `http://127.0.0.1` (NO port) → MCP callbacks would POST to port 80 and
+    // fail; override with the resolved port. 127.0.0.1 (not HOST) because the MCP
+    // child always reaches the API on localhost even when HOST binds 0.0.0.0.
+    apiBaseUrl: `http://127.0.0.1:${port}`,
     // Inject the real logger via the EXISTING RouteLogger seam: route notes +
     // invocation audit + invariant probe warnings now land in the rolling file.
     logger: routeLoggerFrom(logger),
