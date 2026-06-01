@@ -92,6 +92,20 @@ export interface AgentRouterDeps {
 }
 
 /**
+ * Result of resolving a message's routing: the AVAILABLE targets to actually
+ * dispatch to, plus any agents that were EXPLICITLY @mentioned but are NOT
+ * available (so the caller can surface a visible notice — §C, Clowder's
+ * `cat_disabled` with alternatives). `unavailable` is empty unless the user
+ * explicitly @mentioned an unavailable agent.
+ */
+export interface ResolvedRouting {
+  /** Available agents to dispatch to (may be empty if all mentions were unavailable). */
+  readonly targets: readonly AgentId[];
+  /** Explicitly @mentioned agents that are NOT available (for the notice). */
+  readonly unavailable: readonly AgentId[];
+}
+
+/**
  * Default count of recent user messages scanned for mention fallback.
  * Source: §5.2 rule 2 ("最近 5 条 user message 的 mention 历史").
  */
@@ -133,25 +147,91 @@ export class AgentRouter {
   }
 
   /**
-   * Resolve the target agents for a message (§5.2 rules):
-   *   1. explicit @mentions → those agents (in order of appearance);
+   * Resolve the target agents for a message (§5.2 rules, availability-aware — §A/§B):
+   *   1. explicit @mentions → those agents (in order), FILTERED to AVAILABLE ones;
    *   2. else fallback to the most recent prior user message that had mentions
-   *      (within the configured window);
-   *   3. else the default agent.
+   *      (within the configured window), filtered to AVAILABLE ones;
+   *   3. else the default agent IF available, else the first available agent
+   *      (Clowder `pickFallbackCat`). Returns [] only if NO agent is available.
+   *
+   * Net (the dogfooding bug fix): a no-mention message routes to the default
+   * AVAILABLE agent (claude); a recent-mention-of-codex (unavailable) is skipped
+   * → claude; an explicit-only @codex resolves to [] here (the visible notice is
+   * surfaced by the handler from {@link resolveRouting}).
    */
   async resolveTargets(message: string, threadId: string): Promise<AgentId[]> {
+    return (await this.resolveRouting(message, threadId)).targets as AgentId[];
+  }
+
+  /**
+   * Like {@link resolveTargets} but ALSO reports which explicitly-@mentioned
+   * agents were unavailable, so the caller can surface a visible notice (§C).
+   * The recent-mention fallback never contributes to `unavailable` — a notice
+   * only fires for an EXPLICIT mention the user typed this turn.
+   */
+  async resolveRouting(message: string, threadId: string): Promise<ResolvedRouting> {
     const entries = this.registry.getMentionEntries();
     const mentioned = parseUserMentions(message, entries);
+
     if (mentioned.length > 0) {
-      return mentioned;
+      const available = mentioned.filter((id) => this.registry.isAvailable(id));
+      const unavailable = mentioned.filter((id) => !this.registry.isAvailable(id));
+      // If some mentions are available, route to those + still report the
+      // unavailable ones for the notice. If ALL mentions were unavailable, route
+      // to nothing (targets=[]) — the handler shows only the notice, never a
+      // silent spawn-fail (§C). We do NOT silently re-route an explicit @codex to
+      // claude (that would be the surprising behavior the user hit).
+      return { targets: available, unavailable };
     }
 
+    // No explicit mention: recent-mention fallback (available-only), then the
+    // default-available agent. Neither path is a "notice" case — the user did not
+    // explicitly address an unavailable agent this turn.
     const fallback = await this.fallbackTargets(threadId);
     if (fallback.length > 0) {
-      return fallback;
+      return { targets: fallback, unavailable: [] };
     }
 
-    return [this.registry.getDefault().id];
+    const pick = this.pickFallback();
+    return { targets: pick === undefined ? [] : [pick], unavailable: [] };
+  }
+
+  /**
+   * Pick a deterministic fallback agent (Clowder `pickFallbackCat`): the default
+   * agent IF available, else the first available agent (by registry order).
+   * Returns undefined only when NO agent is available.
+   */
+  private pickFallback(): AgentId | undefined {
+    const def = this.registry.getDefault();
+    if (this.registry.isAvailable(def.id)) {
+      return def.id;
+    }
+    for (const config of this.registry.getAll()) {
+      if (this.registry.isAvailable(config.id)) {
+        return config.id;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * The AVAILABLE agents to offer as alternatives when a mention was unavailable
+   * (Clowder `buildAlts`) — excluding the unavailable ones themselves. Returns the
+   * default-available agent first (if any), then the rest in registry order.
+   */
+  availableAlternatives(exclude: readonly AgentId[]): readonly AgentId[] {
+    const excludeSet = new Set(exclude.map((id) => id as string));
+    const out: AgentId[] = [];
+    const def = this.registry.getDefault();
+    if (this.registry.isAvailable(def.id) && !excludeSet.has(def.id as string)) {
+      out.push(def.id);
+    }
+    for (const config of this.registry.getAll()) {
+      if (config.id === def.id) continue;
+      if (excludeSet.has(config.id as string)) continue;
+      if (this.registry.isAvailable(config.id)) out.push(config.id);
+    }
+    return out;
   }
 
   /**
@@ -187,7 +267,33 @@ export class AgentRouter {
     threadId: string,
     options?: RouteOptions,
   ): AsyncGenerator<AgentMessage> {
-    yield* this.dispatch(targets, content, threadId, options);
+    // §C: filter the validated targets to AVAILABLE ones too — an A2A fan-out
+    // must not spawn-fail against an unavailable agent. Unavailable targets are
+    // skipped here; the caller (callback-routes) can surface a notice from
+    // {@link partitionAvailability}. If none remain, we dispatch to nothing
+    // (rather than a silent spawn-fail).
+    const { available } = this.partitionAvailability(targets);
+    yield* this.dispatch(available, content, threadId, options);
+  }
+
+  /**
+   * Split a target list into available vs. unavailable agents (preserving order,
+   * deduped). Exposed so the post_message fan-out caller (M8 callback-routes) can
+   * surface a notice for any unavailable target, mirroring {@link resolveRouting}.
+   */
+  partitionAvailability(targets: readonly AgentId[]): {
+    readonly available: readonly AgentId[];
+    readonly unavailable: readonly AgentId[];
+  } {
+    const available: AgentId[] = [];
+    const unavailable: AgentId[] = [];
+    const seen = new Set<string>();
+    for (const id of targets) {
+      if (seen.has(id as string)) continue;
+      seen.add(id as string);
+      (this.registry.isAvailable(id) ? available : unavailable).push(id);
+    }
+    return { available, unavailable };
   }
 
   /**
@@ -250,8 +356,14 @@ export class AgentRouter {
       .slice(0, this.fallbackLimit);
 
     for (const msg of userMessages) {
-      if (msg.mentions.length > 0) {
-        return [...msg.mentions];
+      if (msg.mentions.length === 0) continue;
+      // §B: recent-mention fallback returns only AVAILABLE mentions — a prior
+      // @codex (unavailable) is skipped so a no-mention continuation routes to
+      // claude, not the dead agent. If the most-recent mentioning message had
+      // ONLY unavailable mentions, keep scanning earlier ones.
+      const available = msg.mentions.filter((id) => this.registry.isAvailable(id));
+      if (available.length > 0) {
+        return available;
       }
     }
     return [];

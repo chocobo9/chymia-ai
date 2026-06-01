@@ -128,6 +128,10 @@ beforeEach(() => {
     threads: [],
     messagesByThread: {},
     streamingByThread: {},
+    // Reset the §D transcript-notice map too, so an error/notice frame fired in
+    // one test (e.g. the "ERROR frame clears streaming" case) does not leak a
+    // visible notice into a later same-thread test (empty-state / alert-count).
+    noticesByThread: {},
     activeThreadId: null,
   });
   useAgentStore.setState({ roster: [], statusById: {} });

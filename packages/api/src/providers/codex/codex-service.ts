@@ -96,6 +96,11 @@ export class CodexAgentService implements AgentService {
     this.now = deps.now ?? Date.now;
   }
 
+  /** 本 provider spawn 的 CLI 可执行文件名（供启动期可用性探测，§A）。 */
+  cliCommand(): string {
+    return this.command;
+  }
+
   /** Codex 不支持原生 system prompt 文件注入；由上层拼入 prompt */
   injectsL0Natively(): boolean {
     return false;

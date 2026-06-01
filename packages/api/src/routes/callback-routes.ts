@@ -38,6 +38,10 @@ import type {
 } from '@clowder/shared';
 import type { AppServices } from '@clowder/api/infrastructure/app-services';
 import {
+  buildUnavailableNotice,
+  noticeToAgentEvent,
+} from '@clowder/api/routing/unavailable-notice';
+import {
   buildCallbackAuthPreHandler,
   getInvocationRecord,
 } from '@clowder/api/routes/callback-auth.js';
@@ -564,7 +568,22 @@ async function routeToTargets(
   services: AppServices,
   args: RouteToTargetsArgs,
 ): Promise<StoredMessage[]> {
-  const { router, messageStore, threadStore, socket } = services;
+  const { router, registry, messageStore, threadStore, socket, now } = services;
+
+  // §C: an A2A fan-out target whose CLI is unavailable is skipped by routeExplicit
+  // (never spawn-failed). Surface a VISIBLE notice for it (Clowder `cat_disabled`
+  // with alternatives) so the fan-out is not silently narrowed.
+  const { available, unavailable } = router.partitionAvailability(args.targets);
+  if (unavailable.length > 0) {
+    const notice = buildUnavailableNotice({
+      unavailable,
+      alternatives: router.availableAlternatives([...unavailable, ...available]),
+      resolve: (id) => registry.get(id),
+    });
+    if (notice !== undefined) {
+      await socket.broadcastAgentEvent(args.threadId, noticeToAgentEvent(notice, now()));
+    }
+  }
 
   const controller = socket.registerCancel(args.threadId);
   const accumulators = new Map<AgentId, { text: string; lastTimestamp: number }>();

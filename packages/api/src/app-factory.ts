@@ -94,6 +94,16 @@ export interface BuildAppOverrides {
   readonly apiBaseUrl?: string;
   /** Default agent id for the registry fallback. Defaults to the first config. */
   readonly defaultAgentId?: AgentId;
+  /**
+   * §A Availability map keyed by agent id — whether each rostered agent is
+   * routable (its provider CLI is installed on this system). The composition root
+   * (main.ts) derives this by probing CLI presence at boot and passes it here.
+   * OMITTED (the default, incl. tests with injected fakes) ⇒ ALL agents available
+   * (AgentRegistryImpl defaults absent ids to true), so the existing suite and
+   * injected fakes are unaffected. NOT hardcoded in agents.yaml (that would be
+   * wrong on a machine that HAS codex/gemini) — derived from CLI presence at boot.
+   */
+  readonly agentAvailability?: Readonly<Record<string, boolean>>;
   /** Injectable clock (deterministic tests). Defaults to Date.now. */
   readonly now?: () => number;
   /**
@@ -205,6 +215,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   const registry = new AgentRegistryImpl(configs, services, {
     ...(overrides.defaultAgentId !== undefined
       ? { defaultAgentId: overrides.defaultAgentId }
+      : {}),
+    ...(overrides.agentAvailability !== undefined
+      ? { availability: overrides.agentAvailability }
       : {}),
   });
 

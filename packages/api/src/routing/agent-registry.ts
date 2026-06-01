@@ -23,12 +23,29 @@ export interface AgentRegistry {
   getDefault(): AgentConfig;
   /** Flattened (agentId, pattern) entries for the mention parsers. */
   getMentionEntries(): readonly MentionEntry[];
+  /**
+   * Whether an agent is AVAILABLE — i.e. routable. Grounded (at the edge) in
+   * whether the agent's provider CLI is installed on this system (§A). An agent
+   * with no recorded availability defaults to AVAILABLE (true) — so injected
+   * fakes and any agent we couldn't probe stay routable (Clowder: "not in roster
+   * = available" backward-compat). The router filters routing targets through
+   * this; an explicit @mention of an unavailable agent surfaces a visible notice
+   * instead of a silent spawn-fail.
+   */
+  isAvailable(id: AgentId): boolean;
 }
 
 /** Options for {@link AgentRegistryImpl}. */
 export interface AgentRegistryOptions {
   /** Which agent is the default fallback; defaults to the first config. */
   readonly defaultAgentId?: AgentId;
+  /**
+   * Availability map keyed by agent id (§A). An id ABSENT from this map (or the
+   * whole map omitted) defaults to AVAILABLE — so tests/fakes that pass no map
+   * keep every agent routable. Production (main.ts) derives this from CLI
+   * presence at boot and passes it through buildApp.
+   */
+  readonly availability?: Readonly<Record<string, boolean>>;
 }
 
 /**
@@ -41,6 +58,7 @@ export class AgentRegistryImpl implements AgentRegistry {
   private readonly services: ReadonlyMap<AgentId, AgentService>;
   private readonly mentionEntries: readonly MentionEntry[];
   private readonly defaultConfig: AgentConfig;
+  private readonly availability: ReadonlyMap<AgentId, boolean>;
 
   constructor(
     configs: readonly AgentConfig[],
@@ -54,6 +72,9 @@ export class AgentRegistryImpl implements AgentRegistry {
     this.byId = new Map(configs.map((c) => [c.id, c]));
     this.services = new Map(
       Object.entries(services).map(([id, svc]) => [id as AgentId, svc]),
+    );
+    this.availability = new Map(
+      Object.entries(options?.availability ?? {}).map(([id, ok]) => [id as AgentId, ok]),
     );
 
     const entries: MentionEntry[] = [];
@@ -110,5 +131,11 @@ export class AgentRegistryImpl implements AgentRegistry {
 
   getMentionEntries(): readonly MentionEntry[] {
     return this.mentionEntries;
+  }
+
+  isAvailable(id: AgentId): boolean {
+    // Absent from the map ⇒ AVAILABLE (default true) — fakes/unprobed agents stay
+    // routable, matching Clowder's "not-in-roster = available" backward-compat.
+    return this.availability.get(id) ?? true;
   }
 }

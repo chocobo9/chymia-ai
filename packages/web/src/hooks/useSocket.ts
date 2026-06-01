@@ -51,6 +51,29 @@ export type SocketConnector = (url: string) => SocketLike;
 const defaultConnector: SocketConnector = (url) =>
   io(url, { transports: ['websocket'], autoConnect: true }) as unknown as SocketLike;
 
+/** Default text for an error frame that carried no reason. */
+const DEFAULT_ERROR_TEXT = '调用失败';
+
+/** The user-facing text for an error/notice frame (its `content`, or a fallback). */
+function noticeText(event: AgentMessage): string {
+  const content = event.content;
+  if (typeof content === 'string' && content.length > 0) return content;
+  return event.type === 'error' ? DEFAULT_ERROR_TEXT : '系统通知';
+}
+
+/**
+ * Stable id for a notice/error so a re-delivered frame dedupes. Prefers the
+ * invocationId (one terminal frame per invocation); else falls back to
+ * agent+type+timestamp.
+ */
+function noticeId(event: AgentMessage): string {
+  const inv = event.invocationId;
+  if (typeof inv === 'string' && inv.length > 0) {
+    return `${event.type}:${inv}`;
+  }
+  return `${event.type}:${event.agentId as string}:${event.timestamp}`;
+}
+
 export interface RegisterListenersOptions {
   /** Returns the thread the events should be scoped to (the joined room). */
   readonly getActiveThreadId: () => string | null;
@@ -73,7 +96,23 @@ export function registerSocketListeners(
     const threadId = getActiveThreadId();
     if (threadId === null) return;
     const chat = useChatStore.getState();
-    if (event.type === 'done' || event.type === 'error') {
+    // §D: an `error` frame (an agent call failed) or a `system_info` notice (an
+    // explicit @mention of an unavailable agent) must NOT be silently dropped —
+    // a turn that yields only one of these would otherwise leave the user staring
+    // at silence. Clear the live stream buffer (the turn ended/failed) AND add a
+    // VISIBLE notice/error bubble to the transcript.
+    if (event.type === 'error' || event.type === 'system_info') {
+      chat.clearStreaming(threadId);
+      chat.addNotice(threadId, {
+        id: noticeId(event),
+        agentId: event.agentId,
+        kind: event.type === 'error' ? 'error' : 'notice',
+        text: noticeText(event),
+        timestamp: event.timestamp,
+      });
+      return;
+    }
+    if (event.type === 'done') {
       chat.clearStreaming(threadId);
       return;
     }

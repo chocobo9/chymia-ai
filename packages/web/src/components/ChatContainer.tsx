@@ -10,7 +10,12 @@
 
 import { useMemo, type ReactElement } from 'react';
 import type { AgentId, StoredMessage } from '@clowder/shared';
-import { useChatStore, type StreamingMessage, type StreamingToolBlock } from '../stores/chat-store.js';
+import {
+  useChatStore,
+  type StreamingMessage,
+  type StreamingToolBlock,
+  type TranscriptNotice,
+} from '../stores/chat-store.js';
 import { useAgentStore } from '../stores/agent-store.js';
 import { AgentMessage, type AgentMessageView } from './AgentMessage.js';
 import type { AgentRosterEntry } from '../lib/api.js';
@@ -126,6 +131,38 @@ function UserBubble({ message }: UserBubbleProps): ReactElement {
   );
 }
 
+interface NoticeBubbleProps {
+  readonly notice: TranscriptNotice;
+  readonly roster: readonly AgentRosterEntry[];
+}
+
+/**
+ * §D: a VISIBLE error/notice bubble — what the user sees when an agent turn
+ * errors or an explicit @mention hit an unavailable agent (instead of silence).
+ * Error frames render with a ⚠ + the agent's display name + the reason; an
+ * availability notice renders the notice text (already names the agent + the
+ * available alternatives).
+ */
+function NoticeBubble({ notice, roster }: NoticeBubbleProps): ReactElement {
+  const display = agentDisplay(roster, notice.agentId);
+  const isError = notice.kind === 'error';
+  const text = isError ? `⚠ ${display.displayName} 调用失败：${notice.text}` : notice.text;
+  return (
+    <div
+      className={`msg-notice msg-notice--${notice.kind}`}
+      data-testid="transcript-notice"
+      data-notice-kind={notice.kind}
+      data-agent={notice.agentId}
+      // role="status" (polite live region), NOT "alert" — the app-level error
+      // banner already owns the single `alert` role; a transcript notice is an
+      // inline aside, not an interrupting alert.
+      role="status"
+    >
+      <span className="msg-notice__text">{text}</span>
+    </div>
+  );
+}
+
 /** Honest empty state for a thread with no messages yet. */
 function EmptyThread(): ReactElement {
   return (
@@ -144,6 +181,7 @@ export function ChatContainer(): ReactElement {
   const activeThreadId = useChatStore((s) => s.activeThreadId);
   const messagesByThread = useChatStore((s) => s.messagesByThread);
   const streamingByThread = useChatStore((s) => s.streamingByThread);
+  const noticesByThread = useChatStore((s) => s.noticesByThread);
   const roster = useAgentStore((s) => s.roster);
 
   const messages = useMemo(
@@ -153,6 +191,30 @@ export function ChatContainer(): ReactElement {
   const streaming = useMemo(
     () => (activeThreadId === null ? [] : streamingByThread[activeThreadId] ?? []),
     [activeThreadId, streamingByThread],
+  );
+  const liveNotices = useMemo(
+    () => (activeThreadId === null ? [] : noticesByThread[activeThreadId] ?? []),
+    [activeThreadId, noticesByThread],
+  );
+
+  // The unavailable-agent notice persists as a `system`-origin StoredMessage AND
+  // arrives live as a `system_info` notice. To avoid a double bubble, suppress a
+  // live notice whose text matches an already-persisted system message (same
+  // agent + text). The live notice still covers the streaming window before the
+  // POST reconciles the persisted copy.
+  const persistedSystemKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const m of messages) {
+      if (m.origin === 'system' && m.agentId !== null) {
+        keys.add(`${m.agentId as string}::${m.content}`);
+      }
+    }
+    return keys;
+  }, [messages]);
+
+  const visibleNotices = useMemo(
+    () => liveNotices.filter((n) => !persistedSystemKeys.has(`${n.agentId as string}::${n.text}`)),
+    [liveNotices, persistedSystemKeys],
   );
 
   if (activeThreadId === null) {
@@ -170,7 +232,8 @@ export function ChatContainer(): ReactElement {
     );
   }
 
-  const isEmpty = messages.length === 0 && streaming.length === 0;
+  const isEmpty =
+    messages.length === 0 && streaming.length === 0 && visibleNotices.length === 0;
 
   return (
     <div className="stream chat-container" data-testid="chat-container">
@@ -179,12 +242,30 @@ export function ChatContainer(): ReactElement {
         {messages.map((message) =>
           message.agentId === null ? (
             <UserBubble key={message.id} message={message} />
+          ) : message.origin === 'system' ? (
+            // A persisted unavailable-agent / system notice renders as a notice
+            // bubble (not a normal agent reply) so the durable copy matches the
+            // live one (§D).
+            <NoticeBubble
+              key={message.id}
+              roster={roster}
+              notice={{
+                id: message.id,
+                agentId: message.agentId as AgentId,
+                kind: 'notice',
+                text: message.content,
+                timestamp: message.timestamp,
+              }}
+            />
           ) : (
             <AgentMessage key={message.id} view={storedToView(message, roster)} />
           ),
         )}
         {streaming.map((stream) => (
           <AgentMessage key={`stream:${stream.key}`} view={streamingToView(stream, roster)} />
+        ))}
+        {visibleNotices.map((notice) => (
+          <NoticeBubble key={`notice:${notice.id}`} roster={roster} notice={notice} />
         ))}
       </div>
     </div>

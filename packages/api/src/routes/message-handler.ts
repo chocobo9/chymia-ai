@@ -19,6 +19,11 @@
 import type { AgentId, AgentMessage, AgentState, StoredMessage, StoredToolEvent } from '@clowder/shared';
 import { parseUserMentions } from '@clowder/api/routing/mention-parser';
 import type { RouteLogger } from '@clowder/api/routing/agent-router';
+import {
+  buildUnavailableNotice,
+  noticeToAgentEvent,
+  type UnavailableNotice,
+} from '@clowder/api/routing/unavailable-notice';
 import type { AppServices } from '@clowder/api/infrastructure/app-services';
 import type { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
 import {
@@ -105,6 +110,16 @@ export async function handleThreadMessage(
     timestamp: now(),
   });
 
+  // 2b. §C: if the user explicitly @mentioned an UNAVAILABLE agent (its provider
+  // CLI is not installed on this system), surface a VISIBLE notice with the
+  // available alternatives (Clowder's `cat_disabled` with alternatives) — instead
+  // of the silent spawn-fail the dogfooding user hit. The notice is broadcast as a
+  // `system_info` agent_event (live transcript) AND persisted as a `system`-origin
+  // StoredMessage (survives reload), and returned among the replies. A turn that
+  // ALSO mentioned available agents still routes to them below + shows this notice;
+  // a turn whose ONLY mention was unavailable shows the notice and routes nowhere.
+  const noticeReply = await surfaceUnavailableNotice(services, threadId, userId, content, now);
+
   // 3. Drive the router; broadcast + accumulate replies; emit agent_status (G7).
   const controller = socket.registerCancel(threadId);
   const accumulators = new Map<AgentId, ReplyAccumulator>();
@@ -168,7 +183,54 @@ export async function handleThreadMessage(
     await socket.broadcastThreadUpdate(threadId, updatedThread);
   }
 
-  return { userMessage, replies: persisted };
+  // The unavailable-agent notice (if any) is part of the turn's visible output:
+  // include it among the replies so an HTTP caller renders it and a platform
+  // adapter (M13/M14) sends it back. Ordered before the agent replies (it explains
+  // what was skipped) — the persisted timestamps already place it first.
+  const replies = noticeReply !== null ? [noticeReply, ...persisted] : persisted;
+
+  return { userMessage, replies };
+}
+
+/**
+ * §C: detect an explicit @mention of an UNAVAILABLE agent and, if present, make
+ * it VISIBLE — broadcast a `system_info` notice (live) + persist a `system`-origin
+ * StoredMessage (durable) carrying the notice text with the available
+ * alternatives. Returns the persisted notice message (so the caller includes it
+ * in the replies), or null when there's nothing to surface (all mentions were
+ * available, or it was a no-mention message).
+ */
+async function surfaceUnavailableNotice(
+  services: AppServices,
+  threadId: string,
+  userId: string,
+  content: string,
+  now: () => number,
+): Promise<StoredMessage | null> {
+  const { router, registry, messageStore, socket } = services;
+  const { unavailable } = await router.resolveRouting(content, threadId);
+  if (unavailable.length === 0) return null;
+
+  const notice: UnavailableNotice | undefined = buildUnavailableNotice({
+    unavailable,
+    alternatives: router.availableAlternatives(unavailable),
+    resolve: (id) => registry.get(id),
+  });
+  if (notice === undefined) return null;
+
+  // Live: broadcast as a system_info agent_event (never rate-limited).
+  await socket.broadcastAgentEvent(threadId, noticeToAgentEvent(notice, now()));
+
+  // Durable: persist as a `system`-origin message so a reload still shows it.
+  return messageStore.append({
+    threadId,
+    userId,
+    agentId: notice.agentId,
+    content: notice.text,
+    mentions: [],
+    origin: 'system',
+    timestamp: now(),
+  });
 }
 
 /**

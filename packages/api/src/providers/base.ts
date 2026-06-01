@@ -71,4 +71,12 @@ export interface AgentService {
    * 而非拼进 user prompt）。可选——未实现等价于 false。
    */
   injectsL0Natively?(): boolean;
+
+  /**
+   * 该 provider 启动 agent 所 spawn 的 CLI 可执行文件名（如 'claude' / 'codex' /
+   * 'gemini'）。可选——供组合根（main.ts）在启动时探测该 CLI 是否安装，从而推导
+   * agent 的可用性（available）。返回 undefined / 未实现 = 无法探测 ⇒ 视为可用
+   * （fail-open，与注入 fake service 的测试一致）。
+   */
+  cliCommand?(): string | undefined;
 }

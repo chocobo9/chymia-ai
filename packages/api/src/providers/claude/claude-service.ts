@@ -190,6 +190,11 @@ export class ClaudeAgentService implements AgentService {
     return true;
   }
 
+  /** 本 provider spawn 的 CLI 可执行文件名（供启动期可用性探测，§A）。 */
+  cliCommand(): string {
+    return this.command;
+  }
+
   async *invoke(
     prompt: string,
     options?: InvokeOptions,

@@ -35,6 +35,7 @@ import {
   buildAgentServicesFromRoster,
   resolvePermissionMode,
 } from '@clowder/api/runtime/agent-services';
+import { probeAgentAvailability } from '@clowder/api/runtime/cli-availability';
 import {
   createFileLogger,
   routeLoggerFrom,
@@ -123,8 +124,19 @@ async function main(): Promise<void> {
 
   logger.info({ workspace, permissionMode, host, port }, 'api booting');
 
+  // §A: build the REAL provider roster, then DERIVE each agent's availability by
+  // probing whether its CLI is installed on THIS system (claude resolves;
+  // codex/gemini may not). The map flows into buildApp → AgentRegistry.isAvailable,
+  // so the router routes only to available agents and surfaces a visible notice
+  // for an explicit @mention of an unavailable one — never a silent spawn-fail.
+  // Derived at boot (deployment-agnostic), NOT hardcoded in agents.yaml.
+  const agentServices = buildAgentServicesFromRoster({ permissionMode });
+  const agentAvailability = probeAgentAvailability(agentServices);
+  logger.info({ agentAvailability }, 'agent CLI availability probed');
+
   const { api } = buildApp({
-    agentServices: buildAgentServicesFromRoster({ permissionMode }),
+    agentServices,
+    agentAvailability,
     fileRoot: workspace,
     defaultWorkspace: workspace,
     // The base URL the spawned MCP server calls back to. buildApp defaults this

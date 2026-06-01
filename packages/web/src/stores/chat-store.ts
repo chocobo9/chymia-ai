@@ -23,6 +23,26 @@ export interface StreamingToolBlock {
 }
 
 /**
+ * TranscriptNotice — a VISIBLE error/notice bubble rendered inline in the
+ * transcript (§D). Surfaced when an agent turn ERRORS (the agent_event `error`
+ * frame, which the socket layer used to silently drop) or when an explicit
+ * @mention of an unavailable agent yields a `system_info` notice. A turn that
+ * produces ONLY an error/notice must NOT leave the user staring at silence — this
+ * entry is what they see instead.
+ */
+export interface TranscriptNotice {
+  /** Stable id for keying + dedupe. */
+  readonly id: string;
+  /** The agent the notice is about (drives display name/color via the roster). */
+  readonly agentId: AgentId;
+  /** 'error' = an agent call failed; 'notice' = an availability/system notice. */
+  readonly kind: 'error' | 'notice';
+  /** The user-facing reason/notice text. */
+  readonly text: string;
+  readonly timestamp: number;
+}
+
+/**
  * StreamingMessage — the live, not-yet-persisted message for one agent turn.
  * Keyed per thread by streamingKey() so concurrent (parallel) agents don't
  * clobber each other.
@@ -43,6 +63,8 @@ interface ChatState {
   readonly messagesByThread: Readonly<Record<string, readonly StoredMessage[]>>;
   /** Live streaming messages per threadId (one per agent turn). */
   readonly streamingByThread: Readonly<Record<string, readonly StreamingMessage[]>>;
+  /** Visible error/notice bubbles per threadId (§D — never silent). */
+  readonly noticesByThread: Readonly<Record<string, readonly TranscriptNotice[]>>;
   readonly activeThreadId: string | null;
 
   // Thread actions.
@@ -69,6 +91,10 @@ interface ChatState {
   // Streaming actions (driven by agent_event frames).
   applyAgentEvent(threadId: string, event: AgentMessage): void;
   clearStreaming(threadId: string): void;
+
+  // Notice/error actions (§D — render an agent error / availability notice
+  // visibly in the transcript instead of dropping it).
+  addNotice(threadId: string, notice: TranscriptNotice): void;
 }
 
 /** Prefix marking an optimistic (not-yet-persisted) user message's temp id. */
@@ -139,6 +165,7 @@ export const useChatStore = create<ChatState>((set) => ({
   threads: [],
   messagesByThread: {},
   streamingByThread: {},
+  noticesByThread: {},
   activeThreadId: null,
 
   setThreads: (threads) => set({ threads }),
@@ -158,9 +185,10 @@ export const useChatStore = create<ChatState>((set) => ({
       const threads = state.threads.filter((t) => t.id !== threadId);
       const { [threadId]: _removedMsgs, ...messagesByThread } = state.messagesByThread;
       const { [threadId]: _removedStream, ...streamingByThread } = state.streamingByThread;
+      const { [threadId]: _removedNotices, ...noticesByThread } = state.noticesByThread;
       const activeThreadId =
         state.activeThreadId === threadId ? null : state.activeThreadId;
-      return { threads, messagesByThread, streamingByThread, activeThreadId };
+      return { threads, messagesByThread, streamingByThread, noticesByThread, activeThreadId };
     }),
 
   setActiveThread: (threadId) => set({ activeThreadId: threadId }),
@@ -264,5 +292,18 @@ export const useChatStore = create<ChatState>((set) => ({
       if (state.streamingByThread[threadId] === undefined) return {};
       const { [threadId]: _cleared, ...streamingByThread } = state.streamingByThread;
       return { streamingByThread };
+    }),
+
+  addNotice: (threadId, notice) =>
+    set((state) => {
+      const existing = state.noticesByThread[threadId] ?? [];
+      // Dedupe by id so a re-delivered notice doesn't double-render.
+      if (existing.some((n) => n.id === notice.id)) return {};
+      return {
+        noticesByThread: {
+          ...state.noticesByThread,
+          [threadId]: [...existing, notice],
+        },
+      };
     }),
 }));
