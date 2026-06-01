@@ -25,6 +25,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:net';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -65,6 +66,24 @@ const procs = [
     args: ['--filter', '@clowder/web', 'dev'],
   },
 ];
+
+/** API listen port (mirrors main.ts resolvePort default). */
+const API_PORT = Number.parseInt(process.env.PORT ?? '', 10) || 3000;
+
+/**
+ * Probe whether the API port is already in use, so we can fail fast with a clear
+ * message instead of crash-looping the API against EADDRINUSE — a port conflict
+ * is NOT transient, so retrying it (the supervisor's job for real crashes) never
+ * helps and just spams 5 cryptic failures.
+ */
+function portInUse(port) {
+  return new Promise((res) => {
+    const tester = createServer();
+    tester.once('error', (err) => res(err.code === 'EADDRINUSE'));
+    tester.once('listening', () => tester.close(() => res(false)));
+    tester.listen(port, '0.0.0.0');
+  });
+}
 
 const children = [];
 let shuttingDown = false;
@@ -144,8 +163,21 @@ function startWeb() {
   });
 }
 
-startApi();
-startWeb();
+/** Fail fast on a port conflict (don't crash-loop), then start both halves. */
+async function main() {
+  if (await portInUse(API_PORT)) {
+    console.error(
+      `[launch] port ${API_PORT} is already in use — another 'pnpm app' (or some process on ${API_PORT}) is still running.`,
+    );
+    console.error(
+      `[launch] Stop the other instance first (close its terminal / kill it), or use a different port:  PORT=3001 pnpm app`,
+    );
+    console.error('[launch] Not starting — a port conflict will not fix itself by retrying.');
+    process.exit(1);
+  }
+  startApi();
+  startWeb();
+}
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
@@ -153,3 +185,5 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     shutdown(0);
   });
 }
+
+void main();
