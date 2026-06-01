@@ -1,11 +1,21 @@
-// M9 ThreadList — sidebar listing threads with a "new thread" action. Selecting
-// a thread sets it active in the chat store (which drives the socket room join).
+// M9 ThreadList — the LEFT column (.col-threads) in the .d-choco design: a
+// "新建会话" button, the thread list (each row: # mark, title, a meta line, and
+// per-participant accent dots), and the owner footer (.cvo, gear deferred).
+// Selecting a thread sets it active in the chat store (drives the socket room
+// join); creating one is delegated to the container (which calls the API).
+//
 // Threads come from the chat store (seeded by GET /api/threads, kept fresh by
-// thread_update socket frames).
+// thread_update socket frames); participant accent colors come from the roster.
+// Preserves the wiring/a11y hooks: data-testid="thread-list"/"new-thread-button"
+// /"thread-item"/"thread-list-empty", data-thread, aria-current.
 
 import type { ReactElement } from 'react';
 import type { Thread } from '@clowder/shared';
 import { useChatStore } from '../stores/chat-store.js';
+import { useAgentStore } from '../stores/agent-store.js';
+import type { AgentRosterEntry } from '../lib/api.js';
+import { IconPlus, IconHash, IconGear } from './choco/icons.js';
+import { shortName } from './choco/primitives.js';
 
 /** Fallback label for a thread with no title yet. */
 const UNTITLED_LABEL = '未命名会话';
@@ -18,48 +28,93 @@ export interface ThreadListProps {
 }
 
 function threadLabel(thread: Thread): string {
-  return thread.title !== undefined && thread.title.length > 0
-    ? thread.title
-    : UNTITLED_LABEL;
+  return thread.title !== undefined && thread.title.length > 0 ? thread.title : UNTITLED_LABEL;
 }
 
-/** Render the thread sidebar. */
+/** Build the meta line + accent dots from a thread's participants + roster. */
+function participantInfo(
+  thread: Thread,
+  roster: readonly AgentRosterEntry[],
+): { meta: string; dots: readonly { id: string; color: string }[] } {
+  const dots = thread.participants
+    .map((id) => roster.find((a) => a.id === (id as string)))
+    .filter((a): a is AgentRosterEntry => a !== undefined)
+    .map((a) => ({ id: a.id, color: a.color.primary }));
+  const names = thread.participants
+    .map((id) => {
+      const entry = roster.find((a) => a.id === (id as string));
+      return entry === undefined ? (id as string) : shortName(entry);
+    });
+  const meta = names.length > 0 ? names.join(' · ') : '尚无参与者';
+  return { meta, dots };
+}
+
+/** Render the LEFT thread column. */
 export function ThreadList(props: ThreadListProps): ReactElement {
   const { onCreateThread, onSelectThread } = props;
   const threads = useChatStore((s) => s.threads);
   const activeThreadId = useChatStore((s) => s.activeThreadId);
+  const roster = useAgentStore((s) => s.roster);
 
   return (
-    <nav className="thread-list" data-testid="thread-list" aria-label="会话列表">
-      <button
-        type="button"
-        className="thread-list__new"
-        data-testid="new-thread-button"
-        onClick={onCreateThread}
-      >
-        + 新建会话
-      </button>
-      <ul className="thread-list__items">
-        {threads.map((thread) => (
-          <li key={thread.id}>
+    <div className="col-threads__inner thread-list-wrap">
+      <div className="threads-top">
+        <button
+          type="button"
+          className="btn-new thread-list__new"
+          data-testid="new-thread-button"
+          onClick={onCreateThread}
+        >
+          <IconPlus />
+          <span>新建会话</span>
+        </button>
+      </div>
+      <div className="threads-label">Threads</div>
+      <nav className="thread-list" data-testid="thread-list" aria-label="会话列表">
+        {threads.map((thread) => {
+          const { meta, dots } = participantInfo(thread, roster);
+          const isActive = thread.id === activeThreadId;
+          return (
             <button
+              key={thread.id}
               type="button"
-              className="thread-list__item"
+              className={`thread thread-list__item${isActive ? ' active' : ''}`}
               data-testid="thread-item"
               data-thread={thread.id}
-              aria-current={thread.id === activeThreadId ? 'true' : undefined}
+              aria-current={isActive ? 'true' : undefined}
               onClick={() => onSelectThread(thread.id)}
             >
-              {threadLabel(thread)}
+              <span className="thread-mark">
+                <IconHash />
+              </span>
+              <div className="thread-main">
+                <div className="thread-title">{threadLabel(thread)}</div>
+                <div className="thread-meta">{meta}</div>
+              </div>
+              <div className="thread-dots">
+                {dots.map((dot) => (
+                  <span key={dot.id} className="dot" style={{ background: dot.color }} />
+                ))}
+              </div>
             </button>
-          </li>
-        ))}
+          );
+        })}
         {threads.length === 0 && (
-          <li className="thread-list__empty" data-testid="thread-list-empty">
+          <div className="thread-empty" data-testid="thread-list-empty">
             暂无会话，点击上方新建。
-          </li>
+          </div>
         )}
-      </ul>
-    </nav>
+      </nav>
+      <div className="cvo" title="设置（即将上线）">
+        <div className="cvo-mark">U</div>
+        <div className="cvo-who">
+          <b>You</b>
+          <span>project owner</span>
+        </div>
+        <span className="cvo-gear" aria-hidden="true">
+          <IconGear />
+        </span>
+      </div>
+    </div>
   );
 }

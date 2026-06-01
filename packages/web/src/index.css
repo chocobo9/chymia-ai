@@ -1,3 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* The web app no longer uses Tailwind. The .d-choco design CSS is self-contained
+   and lives in choco.css (imported by main.tsx). Tailwind's @tailwind base
+   (Preflight) reset fought the design's own resets, so it has been dropped.
+   This file is retained empty to avoid breaking any stale import. */

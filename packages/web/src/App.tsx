@@ -1,16 +1,22 @@
-// M9 App — top-level layout + data wiring for the web client.
+// M9 App — top-level layout + data wiring for the web client, skinned as the
+// .d-choco core workspace: a `ws` shell (header + 3 columns).
 //
-// Layout: ThreadList (left) | ChatContainer + ChatInput (center) | AgentStatus
-// (right). On mount it loads the agent roster (GET /api/agents) and thread list
-// (GET /api/threads) into the stores, and opens the Socket.io connection
-// (useSocket) which dispatches live frames into the stores. Selecting/creating a
-// thread loads its history and sets it active (which drives the room join).
+// Layout: header (brand + live online/idle chip + deferred bell/panel buttons) |
+// col-threads (ThreadList) | col-main (ChatContainer + composer ChatInput) |
+// col-status (AgentStatus / StatusBar). On mount it loads the agent roster
+// (GET /api/agents) and thread list (GET /api/threads) into the stores, and
+// opens the Socket.io connection (useSocket) which dispatches live frames into
+// the stores. Selecting/creating a thread loads its history and sets it active
+// (which drives the room join).
 //
 // G8: sendMessage POSTs synchronously (resolves post-turn); the transcript fills
 // incrementally from agent_event socket frames meanwhile, then reconciles the
 // final persisted replies from the POST result.
+//
+// Deferred (rendered but no-op): the header bell (NotifInbox), panel button
+// (WorkspacePanel), and the owner gear (SettingsOverlay) — see frontend SCOPE.
 
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { apiClient, ApiClient } from './lib/api.js';
 import { useChatStore } from './stores/chat-store.js';
 import { useAgentStore } from './stores/agent-store.js';
@@ -19,6 +25,7 @@ import { ThreadList } from './components/ThreadList.js';
 import { ChatContainer } from './components/ChatContainer.js';
 import { ChatInput } from './components/ChatInput.js';
 import { AgentStatus } from './components/AgentStatus.js';
+import { IconBell, IconPanel, IconHash, IconStop } from './components/choco/icons.js';
 
 export interface AppProps {
   /** Injectable API client (defaults to the shared one); eases testing. */
@@ -32,10 +39,14 @@ export function App(props: AppProps = {}): ReactElement {
   const client = props.client ?? apiClient;
 
   const setRoster = useAgentStore((s) => s.setRoster);
+  const roster = useAgentStore((s) => s.roster);
+  const statusById = useAgentStore((s) => s.statusById);
   const setThreads = useChatStore((s) => s.setThreads);
+  const threads = useChatStore((s) => s.threads);
   const upsertThread = useChatStore((s) => s.upsertThread);
   const setActiveThread = useChatStore((s) => s.setActiveThread);
   const setMessages = useChatStore((s) => s.setMessages);
+  const messagesByThread = useChatStore((s) => s.messagesByThread);
   const addMessage = useChatStore((s) => s.addMessage);
   const reconcileReplies = useChatStore((s) => s.reconcileReplies);
   const activeThreadId = useChatStore((s) => s.activeThreadId);
@@ -54,13 +65,13 @@ export function App(props: AppProps = {}): ReactElement {
     let cancelled = false;
     void (async () => {
       try {
-        const [agents, threads] = await Promise.all([
+        const [agents, loadedThreads] = await Promise.all([
           client.listAgents(),
           client.listThreads(),
         ]);
         if (cancelled) return;
         setRoster(agents);
-        setThreads(threads);
+        setThreads(loadedThreads);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'load failed');
       }
@@ -110,43 +121,115 @@ export function App(props: AppProps = {}): ReactElement {
     [client, activeThreadId, addMessage, reconcileReplies],
   );
 
+  // Live header chip: online = not-offline agents; idle = idle agents.
+  const { online, idle } = useMemo(() => {
+    let onlineCount = 0;
+    let idleCount = 0;
+    for (const agent of roster) {
+      const status = statusById[agent.id] ?? agent.status;
+      if (status !== 'offline') onlineCount += 1;
+      if (status === 'idle') idleCount += 1;
+    }
+    return { online: onlineCount, idle: idleCount };
+  }, [roster, statusById]);
+
+  const activeThread = useMemo(
+    () => threads.find((t) => t.id === activeThreadId),
+    [threads, activeThreadId],
+  );
+
+  const messageCount =
+    activeThreadId === null ? 0 : messagesByThread[activeThreadId]?.length ?? 0;
+
+  const cancelButton =
+    activeThreadId !== null ? (
+      <button
+        type="button"
+        className="cancel app__cancel"
+        data-testid="cancel-button"
+        onClick={cancel}
+      >
+        <IconStop /> 停止
+      </button>
+    ) : null;
+
   return (
-    <div className="app" data-app-root="true" data-testid="app-root">
-      <aside className="app__sidebar">
-        <ThreadList
-          onCreateThread={() => void createThread()}
-          onSelectThread={(id) => void selectThread(id)}
-        />
-      </aside>
-
-      <main className="app__main">
-        {error !== null && (
-          <div className="app__error" data-testid="app-error" role="alert">
-            {error}
-            <button type="button" onClick={() => setError(null)} aria-label="关闭错误">
-              ×
-            </button>
+    <div className="ws d-choco app" data-app-root="true" data-testid="app-root">
+      <header className="ws-header">
+        <div className="brand">
+          <div className="brand-mark">C</div>
+          <div className="brand-name">
+            Choco<span>multi-agent coding</span>
           </div>
-        )}
-        <ChatContainer />
-        <div className="app__composer">
-          {activeThreadId !== null && (
-            <button
-              type="button"
-              className="app__cancel"
-              data-testid="cancel-button"
-              onClick={cancel}
-            >
-              中断
-            </button>
-          )}
-          <ChatInput onSend={(content) => void sendMessage(content)} disabled={activeThreadId === null} />
         </div>
-      </main>
+        <div className="header-spacer" />
+        <div className="h-chip">
+          <span className="h-live" /> {online} online · {idle} idle
+        </div>
+        <button
+          type="button"
+          className="icon-btn bell"
+          aria-label="待你处理（即将上线）"
+          disabled
+        >
+          <IconBell />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="打开 Workspace（即将上线）"
+          disabled
+        >
+          <IconPanel />
+        </button>
+      </header>
 
-      <aside className="app__status">
-        <AgentStatus />
-      </aside>
+      <div className="ws-body">
+        <aside className="col-threads app__sidebar">
+          <ThreadList
+            onCreateThread={() => void createThread()}
+            onSelectThread={(id) => void selectThread(id)}
+          />
+        </aside>
+
+        <main className="col-main app__main">
+          <div className="main-bar">
+            <span className="main-mark">
+              <IconHash />
+            </span>
+            <span className="main-title">
+              {activeThread?.title ?? (activeThreadId === null ? '未选择会话' : '会话')}
+            </span>
+            <div style={{ flex: 1 }} />
+            <span className="main-meta">
+              {online} agents · {messageCount} messages
+            </span>
+          </div>
+
+          {error !== null && (
+            <div className="app__error" data-testid="app-error" role="alert">
+              {error}
+              <button type="button" onClick={() => setError(null)} aria-label="关闭错误">
+                ×
+              </button>
+            </div>
+          )}
+
+          <ChatContainer />
+
+          <div className="app__composer">
+            <ChatInput
+              onSend={(content) => void sendMessage(content)}
+              disabled={activeThreadId === null}
+              cancelSlot={cancelButton}
+            />
+          </div>
+        </main>
+
+        <aside className="col-status app__status">
+          <AgentStatus />
+        </aside>
+      </div>
     </div>
   );
 }

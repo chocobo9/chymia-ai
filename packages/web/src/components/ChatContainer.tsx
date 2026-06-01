@@ -1,10 +1,12 @@
-// M9 ChatContainer — the message transcript for the active thread. Renders, in
-// order: persisted messages (user bubbles + agent replies) then the live
+// M9 ChatContainer — the message transcript for the active thread, rendered in
+// the .d-choco design: a scrollable `stream` of centered `stream-inner` content.
+// In order: persisted messages (user bubbles + agent replies) then the live
 // streaming messages assembled from agent_event frames (G8 incremental render).
 //
-// User messages render as plain bubbles; agent messages (persisted or streaming)
-// route through <AgentMessage> with a normalized view. The agent display name +
-// color come from the roster (agent store).
+// User messages render as `.msg-user` bubbles; agent messages (persisted or
+// streaming) route through <AgentMessage> with a normalized view. Display name,
+// short name (avatar), model badge, and accent come from the roster (agent
+// store). When the thread has no messages we show the honest empty state.
 
 import { useMemo, type ReactElement } from 'react';
 import type { AgentId, StoredMessage } from '@clowder/shared';
@@ -12,33 +14,44 @@ import { useChatStore, type StreamingMessage } from '../stores/chat-store.js';
 import { useAgentStore } from '../stores/agent-store.js';
 import { AgentMessage, type AgentMessageView } from './AgentMessage.js';
 import type { AgentRosterEntry } from '../lib/api.js';
+import { modelBadge, shortName } from './choco/primitives.js';
+import { IconHash } from './choco/icons.js';
 
-/** Look up an agent's display name + color, falling back to the raw id. */
-function agentDisplay(
-  roster: readonly AgentRosterEntry[],
-  agentId: AgentId,
-): { displayName: string; color?: string } {
+interface AgentDisplay {
+  readonly displayName: string;
+  readonly avatarName: string;
+  readonly color?: string;
+  readonly model?: string;
+}
+
+/** Look up an agent's display fields from the roster, falling back to the id. */
+function agentDisplay(roster: readonly AgentRosterEntry[], agentId: AgentId): AgentDisplay {
   const entry = roster.find((a) => a.id === (agentId as string));
-  return entry === undefined
-    ? { displayName: agentId as string }
-    : { displayName: entry.displayName, color: entry.color.primary };
+  if (entry === undefined) {
+    return { displayName: agentId as string, avatarName: agentId as string };
+  }
+  return {
+    displayName: entry.displayName,
+    avatarName: shortName(entry),
+    color: entry.color.primary,
+    model: modelBadge(entry),
+  };
 }
 
 /** Map a persisted agent StoredMessage to the AgentMessage view. */
-function storedToView(
-  message: StoredMessage,
-  roster: readonly AgentRosterEntry[],
-): AgentMessageView {
+function storedToView(message: StoredMessage, roster: readonly AgentRosterEntry[]): AgentMessageView {
   const agentId = message.agentId as AgentId;
-  const { displayName, color } = agentDisplay(roster, agentId);
+  const display = agentDisplay(roster, agentId);
   return {
     agentId,
-    displayName,
+    displayName: display.displayName,
+    avatarName: display.avatarName,
+    model: display.model,
     text: message.content,
     thinking: '',
     toolBlocks: [],
     isStreaming: false,
-    color,
+    color: display.color,
   };
 }
 
@@ -47,15 +60,17 @@ function streamingToView(
   stream: StreamingMessage,
   roster: readonly AgentRosterEntry[],
 ): AgentMessageView {
-  const { displayName, color } = agentDisplay(roster, stream.agentId);
+  const display = agentDisplay(roster, stream.agentId);
   return {
     agentId: stream.agentId,
-    displayName,
+    displayName: display.displayName,
+    avatarName: display.avatarName,
+    model: display.model,
     text: stream.text,
     thinking: stream.thinking,
     toolBlocks: stream.toolBlocks,
     isStreaming: true,
-    color,
+    color: display.color,
   };
 }
 
@@ -65,8 +80,24 @@ interface UserBubbleProps {
 
 function UserBubble({ message }: UserBubbleProps): ReactElement {
   return (
-    <div className="chat-message chat-message--user" data-testid="user-message">
-      <div className="chat-message__text">{message.content}</div>
+    <div className="msg-user" data-testid="user-message">
+      <div className="ubub chat-message__text">{message.content}</div>
+      <div className="umeta">
+        <span className="to">@all</span>
+      </div>
+    </div>
+  );
+}
+
+/** Honest empty state for a thread with no messages yet. */
+function EmptyThread(): ReactElement {
+  return (
+    <div className="empty-thread" data-testid="empty-thread">
+      <div className="empty-mark">
+        <IconHash />
+      </div>
+      <div className="empty-t">新会话已就绪</div>
+      <div className="empty-s">下达指令，或 @ 点名某个 agent 开工。</div>
     </div>
   );
 }
@@ -89,24 +120,36 @@ export function ChatContainer(): ReactElement {
 
   if (activeThreadId === null) {
     return (
-      <div className="chat-container chat-container--empty" data-testid="chat-container">
-        <p>选择或新建一个会话开始对话。</p>
+      <div className="stream chat-container chat-container--empty" data-testid="chat-container">
+        <div className="stream-inner">
+          <div className="empty-thread">
+            <div className="empty-mark">
+              <IconHash />
+            </div>
+            <div className="empty-t">选择或新建一个会话开始对话。</div>
+          </div>
+        </div>
       </div>
     );
   }
 
+  const isEmpty = messages.length === 0 && streaming.length === 0;
+
   return (
-    <div className="chat-container" data-testid="chat-container">
-      {messages.map((message) =>
-        message.agentId === null ? (
-          <UserBubble key={message.id} message={message} />
-        ) : (
-          <AgentMessage key={message.id} view={storedToView(message, roster)} />
-        ),
-      )}
-      {streaming.map((stream) => (
-        <AgentMessage key={`stream:${stream.key}`} view={streamingToView(stream, roster)} />
-      ))}
+    <div className="stream chat-container" data-testid="chat-container">
+      <div className="stream-inner">
+        {isEmpty && <EmptyThread />}
+        {messages.map((message) =>
+          message.agentId === null ? (
+            <UserBubble key={message.id} message={message} />
+          ) : (
+            <AgentMessage key={message.id} view={storedToView(message, roster)} />
+          ),
+        )}
+        {streaming.map((stream) => (
+          <AgentMessage key={`stream:${stream.key}`} view={streamingToView(stream, roster)} />
+        ))}
+      </div>
     </div>
   );
 }
