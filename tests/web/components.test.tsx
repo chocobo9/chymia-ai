@@ -232,6 +232,42 @@ describe('ChatContainer (render, happy path)', () => {
     expect(screen.getByTestId('agent-text')).toHaveTextContent('我正在补充集成测试…');
   });
 
+  it('re-shows Think + Tool blocks on a COMPLETED reply from extra.thinking/extra.toolEvents (Bug 3)', () => {
+    // A persisted reply whose extra carries the same reasoning + tool_use the
+    // streaming view rendered live (backend message-handler persists both).
+    const completed = makeAgentReply({
+      extra: {
+        thinking: '先确认数据模型，再决定端点划分。',
+        toolEvents: [
+          {
+            type: 'tool_use',
+            toolName: 'write_file',
+            toolUseId: 'tu_1',
+            toolInput: { path: 'src/todo.ts' },
+            invocationId: 'inv_1',
+            timestamp: 2,
+          },
+          // a tool_result is ignored — only tool_use becomes a block
+          { type: 'tool_result', toolUseId: 'tu_1', content: 'ok', invocationId: 'inv_1', timestamp: 3 },
+        ],
+      },
+    });
+    useChatStore.setState({
+      threads: [makeThread()],
+      activeThreadId: 'thread_todo_api',
+      messagesByThread: { thread_todo_api: [makeUserMessage(), completed] },
+      streamingByThread: {},
+    });
+    render(<ChatContainer />);
+
+    // Not streaming, yet the Think + Tool blocks render (recovered from extra).
+    expect(screen.queryByTestId('streaming-indicator')).not.toBeInTheDocument();
+    expect(screen.getByTestId('thinking-block')).toBeInTheDocument();
+    const tool = screen.getByTestId('tool-use-block');
+    expect(within(tool).getByText(/write_file/)).toBeInTheDocument();
+    expect(screen.getByTestId('agent-text')).toHaveTextContent('我已经实现了 TODO API');
+  });
+
   it('shows the empty state when no thread is active', () => {
     render(<ChatContainer />);
     expect(screen.getByText('选择或新建一个会话开始对话。')).toBeInTheDocument();

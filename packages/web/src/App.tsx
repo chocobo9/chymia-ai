@@ -27,7 +27,7 @@ import { ThreadList } from './components/ThreadList.js';
 import { ChatContainer } from './components/ChatContainer.js';
 import { ChatInput } from './components/ChatInput.js';
 import { AgentStatus } from './components/AgentStatus.js';
-import { IconBell, IconPanel, IconHash, IconStop, IconGrid } from './components/choco/icons.js';
+import { IconBell, IconPanel, IconHash, IconGrid } from './components/choco/icons.js';
 import { NotifInbox, deriveNotifItems } from './components/overlays/NotifInbox.js';
 import { WorkspacePanel } from './components/overlays/WorkspacePanel.js';
 import { MonitorGrid } from './components/overlays/MonitorGrid.js';
@@ -56,11 +56,16 @@ export function App(props: AppProps = {}): ReactElement {
   const setActiveThread = useChatStore((s) => s.setActiveThread);
   const setMessages = useChatStore((s) => s.setMessages);
   const messagesByThread = useChatStore((s) => s.messagesByThread);
-  const addMessage = useChatStore((s) => s.addMessage);
+  const addOptimisticUserMessage = useChatStore((s) => s.addOptimisticUserMessage);
+  const replaceOptimisticMessage = useChatStore((s) => s.replaceOptimisticMessage);
+  const removeMessage = useChatStore((s) => s.removeMessage);
   const reconcileReplies = useChatStore((s) => s.reconcileReplies);
   const activeThreadId = useChatStore((s) => s.activeThreadId);
 
   const [error, setError] = useState<string | null>(null);
+  // Busy/in-flight: true from send until the turn's POST resolves or rejects.
+  // Drives the composer's 停止-vs-send swap (停止 shows ONLY while busy).
+  const [sending, setSending] = useState(false);
   const [overlay, setOverlay] = useState<OverlaySurface>(null);
   const [resolvedNotifs, setResolvedNotifs] = useState<ReadonlySet<string>>(new Set());
 
@@ -132,17 +137,28 @@ export function App(props: AppProps = {}): ReactElement {
   const sendMessage = useCallback(
     async (content: string) => {
       if (activeThreadId === null) return;
+      const threadId = activeThreadId;
+      // Bug 1: insert the user message optimistically so it shows AT ONCE — not
+      // only after the (post-turn, ~10-30s) POST resolves. The agent reply then
+      // streams in via agent_event; on POST resolve we swap the temp message for
+      // the real persisted one (deduped) and reconcile the replies.
+      const tempId = addOptimisticUserMessage(threadId, content, Date.now());
+      setSending(true);
       try {
         // POST resolves only after the turn completes (G8); the transcript fills
         // from agent_event frames meanwhile. Reconcile final state from result.
-        const result = await client.sendMessage(activeThreadId, { content });
-        addMessage(result.userMessage);
+        const result = await client.sendMessage(threadId, { content });
+        replaceOptimisticMessage(threadId, tempId, result.userMessage);
         reconcileReplies(result.replies);
       } catch (err) {
+        // Bug 1 error path: drop the optimistic message and surface the error.
+        removeMessage(threadId, tempId);
         setError(err instanceof Error ? err.message : 'send failed');
+      } finally {
+        setSending(false);
       }
     },
-    [client, activeThreadId, addMessage, reconcileReplies],
+    [client, activeThreadId, addOptimisticUserMessage, replaceOptimisticMessage, removeMessage, reconcileReplies],
   );
 
   // Live header chip: online = not-offline agents; idle = idle agents.
@@ -173,18 +189,6 @@ export function App(props: AppProps = {}): ReactElement {
 
   const messageCount =
     activeThreadId === null ? 0 : messagesByThread[activeThreadId]?.length ?? 0;
-
-  const cancelButton =
-    activeThreadId !== null ? (
-      <button
-        type="button"
-        className="cancel app__cancel"
-        data-testid="cancel-button"
-        onClick={cancel}
-      >
-        <IconStop /> 停止
-      </button>
-    ) : null;
 
   return (
     <div className="ws d-choco app" data-app-root="true" data-testid="app-root">
@@ -277,7 +281,8 @@ export function App(props: AppProps = {}): ReactElement {
             <ChatInput
               onSend={(content) => void sendMessage(content)}
               disabled={activeThreadId === null}
-              cancelSlot={cancelButton}
+              busy={sending}
+              onCancel={cancel}
             />
           </div>
         </main>

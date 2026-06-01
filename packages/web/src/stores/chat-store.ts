@@ -54,11 +54,29 @@ interface ChatState {
   // Message actions.
   setMessages(threadId: string, messages: readonly StoredMessage[]): void;
   addMessage(message: StoredMessage): void;
+  /**
+   * Optimistically insert a user message immediately on send (before the POST
+   * resolves) so it shows at once; returns the temp id the caller later passes
+   * to {@link replaceOptimisticMessage} / {@link removeMessage}.
+   */
+  addOptimisticUserMessage(threadId: string, content: string, timestamp: number): string;
+  /** Replace an optimistic temp message with the real persisted one (dedupe). */
+  replaceOptimisticMessage(threadId: string, tempId: string, real: StoredMessage): void;
+  /** Remove a message by id (used to drop a failed optimistic message). */
+  removeMessage(threadId: string, messageId: string): void;
   reconcileReplies(replies: readonly StoredMessage[]): void;
 
   // Streaming actions (driven by agent_event frames).
   applyAgentEvent(threadId: string, event: AgentMessage): void;
   clearStreaming(threadId: string): void;
+}
+
+/** Prefix marking an optimistic (not-yet-persisted) user message's temp id. */
+const OPTIMISTIC_ID_PREFIX = 'optimistic-';
+
+/** Mint a unique temp id for an optimistic user message. */
+function mintOptimisticId(): string {
+  return `${OPTIMISTIC_ID_PREFIX}${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 /** Stable per-turn key so parallel agent streams stay separate. */
@@ -160,6 +178,56 @@ export const useChatStore = create<ChatState>((set) => ({
         messagesByThread: {
           ...state.messagesByThread,
           [message.threadId]: [...existing, message],
+        },
+      };
+    }),
+
+  addOptimisticUserMessage: (threadId, content, timestamp) => {
+    const tempId = mintOptimisticId();
+    set((state) => {
+      const existing = state.messagesByThread[threadId] ?? [];
+      const optimistic: StoredMessage = {
+        id: tempId,
+        threadId,
+        userId: 'user',
+        agentId: null,
+        content,
+        mentions: [],
+        origin: 'user',
+        timestamp,
+      };
+      return {
+        messagesByThread: {
+          ...state.messagesByThread,
+          [threadId]: [...existing, optimistic],
+        },
+      };
+    });
+    return tempId;
+  },
+
+  replaceOptimisticMessage: (threadId, tempId, real) =>
+    set((state) => {
+      const existing = state.messagesByThread[threadId] ?? [];
+      // Dedupe: if the real message is already present (e.g. a history refresh
+      // raced in), just drop the optimistic placeholder.
+      const withoutTemp = existing.filter((m) => m.id !== tempId);
+      const next = withoutTemp.some((m) => m.id === real.id)
+        ? withoutTemp
+        : [...withoutTemp, real];
+      return {
+        messagesByThread: { ...state.messagesByThread, [threadId]: next },
+      };
+    }),
+
+  removeMessage: (threadId, messageId) =>
+    set((state) => {
+      const existing = state.messagesByThread[threadId];
+      if (existing === undefined) return {};
+      return {
+        messagesByThread: {
+          ...state.messagesByThread,
+          [threadId]: existing.filter((m) => m.id !== messageId),
         },
       };
     }),

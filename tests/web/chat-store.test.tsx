@@ -98,6 +98,47 @@ describe('chat-store reducers (unit, happy path)', () => {
     expect(msgs[1].agentId).toBe(CODEX);
   });
 
+  it('addOptimisticUserMessage inserts a user bubble immediately and returns its temp id', () => {
+    const threadId = 'thread_todo_api';
+    const tempId = useChatStore
+      .getState()
+      .addOptimisticUserMessage(threadId, '@claude 写一个带 CRUD 的 TODO API', 1_700_000_000_000);
+
+    expect(tempId.startsWith('optimistic-')).toBe(true);
+    const msgs = useChatStore.getState().messagesByThread[threadId];
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].id).toBe(tempId);
+    expect(msgs[0].agentId).toBeNull();
+    expect(msgs[0].origin).toBe('user');
+    expect(msgs[0].content).toBe('@claude 写一个带 CRUD 的 TODO API');
+  });
+
+  it('replaceOptimisticMessage swaps the temp message for the persisted one without duplicating', () => {
+    const threadId = 'thread_todo_api';
+    const tempId = useChatStore
+      .getState()
+      .addOptimisticUserMessage(threadId, '@claude 写一个带 CRUD 的 TODO API', 1_700_000_000_000);
+    const real = makeUserMessage();
+
+    useChatStore.getState().replaceOptimisticMessage(threadId, tempId, real);
+
+    const msgs = useChatStore.getState().messagesByThread[threadId];
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].id).toBe('msg_user_1');
+    expect(msgs.some((m) => m.id === tempId)).toBe(false);
+  });
+
+  it('removeMessage drops a failed optimistic message (error path)', () => {
+    const threadId = 'thread_todo_api';
+    const tempId = useChatStore
+      .getState()
+      .addOptimisticUserMessage(threadId, '@claude 写代码', 1_700_000_000_000);
+
+    useChatStore.getState().removeMessage(threadId, tempId);
+
+    expect(useChatStore.getState().messagesByThread[threadId]).toHaveLength(0);
+  });
+
   it('applyAgentEvent folds text deltas into one growing streaming message', () => {
     const threadId = 'thread_todo_api';
     useChatStore.getState().applyAgentEvent(threadId, textFrame(CLAUDE, '我先', 1));

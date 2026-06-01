@@ -10,7 +10,7 @@
 
 import { useMemo, type ReactElement } from 'react';
 import type { AgentId, StoredMessage } from '@clowder/shared';
-import { useChatStore, type StreamingMessage } from '../stores/chat-store.js';
+import { useChatStore, type StreamingMessage, type StreamingToolBlock } from '../stores/chat-store.js';
 import { useAgentStore } from '../stores/agent-store.js';
 import { AgentMessage, type AgentMessageView } from './AgentMessage.js';
 import type { AgentRosterEntry } from '../lib/api.js';
@@ -38,6 +38,41 @@ function agentDisplay(roster: readonly AgentRosterEntry[], agentId: AgentId): Ag
   };
 }
 
+/**
+ * Recover the tool blocks a completed reply rendered while streaming, from the
+ * persisted `extra.toolEvents` bag (backend message-handler writes `tool_use`
+ * entries there). Only `tool_use` events become blocks (mirroring the streaming
+ * fold). Defensive: returns [] when absent or malformed (never throws / fabricates).
+ */
+function toolBlocksFromExtra(extra: StoredMessage['extra']): readonly StreamingToolBlock[] {
+  const raw = extra?.['toolEvents'];
+  if (!Array.isArray(raw)) return [];
+  const blocks: StreamingToolBlock[] = [];
+  for (const ev of raw) {
+    if (typeof ev !== 'object' || ev === null) continue;
+    const record = ev as Record<string, unknown>;
+    if (record['type'] !== 'tool_use') continue;
+    const toolName = typeof record['toolName'] === 'string' ? record['toolName'] : 'tool';
+    const toolUseId = typeof record['toolUseId'] === 'string' ? record['toolUseId'] : undefined;
+    const toolInput =
+      typeof record['toolInput'] === 'object' && record['toolInput'] !== null
+        ? (record['toolInput'] as Record<string, unknown>)
+        : undefined;
+    blocks.push({
+      toolName,
+      ...(toolUseId !== undefined ? { toolUseId } : {}),
+      ...(toolInput !== undefined ? { toolInput } : {}),
+    });
+  }
+  return blocks;
+}
+
+/** Recover the persisted reasoning text from `extra.thinking` (defensive). */
+function thinkingFromExtra(extra: StoredMessage['extra']): string {
+  const raw = extra?.['thinking'];
+  return typeof raw === 'string' ? raw : '';
+}
+
 /** Map a persisted agent StoredMessage to the AgentMessage view. */
 function storedToView(message: StoredMessage, roster: readonly AgentRosterEntry[]): AgentMessageView {
   const agentId = message.agentId as AgentId;
@@ -48,8 +83,10 @@ function storedToView(message: StoredMessage, roster: readonly AgentRosterEntry[
     avatarName: display.avatarName,
     model: display.model,
     text: message.content,
-    thinking: '',
-    toolBlocks: [],
+    // Re-show the Think + Tool/Diff blocks the streaming view rendered, recovered
+    // from the persisted extra bag — so a completed reply matches its live state.
+    thinking: thinkingFromExtra(message.extra),
+    toolBlocks: toolBlocksFromExtra(message.extra),
     isStreaming: false,
     color: display.color,
   };

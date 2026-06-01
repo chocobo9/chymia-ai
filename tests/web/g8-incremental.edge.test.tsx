@@ -107,10 +107,16 @@ describe('G8 — incremental render from socket frames (integration, adversarial
     await userEvent.click(screen.getByTestId('chat-send-button'));
     expect(client.sendMessage).toHaveBeenCalledTimes(1);
 
-    // The POST is still pending, so NO user bubble / reconciled reply yet...
-    expect(screen.queryByTestId('user-message')).not.toBeInTheDocument();
+    // RECONCILED (Bug 1 optimistic-send): the user message now shows IMMEDIATELY
+    // on send — before the (still-pending) POST resolves and before any socket
+    // frame — instead of only appearing once the whole turn completes.
+    await waitFor(() => {
+      expect(screen.getByTestId('user-message')).toHaveTextContent(
+        '@claude 写一个带 CRUD 的 TODO API',
+      );
+    });
 
-    // ...but socket frames drive the transcript incrementally.
+    // ...and socket frames drive the agent reply transcript incrementally.
     act(() => socket.fire('agent_event', textFrame(CLAUDE, '我先设计数据模型，', 1)));
     act(() => socket.fire('agent_event', toolUseFrame(CLAUDE, 'write_file', { path: 'src/todo.ts' }, 2)));
     act(() => socket.fire('agent_event', textFrame(CLAUDE, '再写 CRUD 路由。', 3)));
@@ -121,8 +127,8 @@ describe('G8 — incremental render from socket frames (integration, adversarial
     expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument();
     expect(screen.getByTestId('tool-use-block')).toBeInTheDocument();
 
-    // Crucially: still no user-message bubble because POST never resolved.
-    expect(screen.queryByTestId('user-message')).not.toBeInTheDocument();
+    // The optimistic user message stays put (single bubble) while POST is pending.
+    expect(screen.getAllByTestId('user-message')).toHaveLength(1);
   });
 
   it('done frame drops the streaming view; the resolved POST then reconciles the persisted reply', async () => {

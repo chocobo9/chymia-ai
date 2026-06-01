@@ -56,6 +56,8 @@ interface CapturedToolEvent {
 /** Mutable per-agent accumulator while a route streams. */
 interface ReplyAccumulator {
   text: string;
+  /** Concatenated `thinking` frame text (reasoning) — persisted under extra.thinking. */
+  thinking: string;
   readonly toolEvents: CapturedToolEvent[];
   lastTimestamp: number;
   /** invocationId of the turn that produced this reply (stamped by the invoke seam). */
@@ -69,6 +71,10 @@ const TOOL_EVENT_TYPES: ReadonlySet<AgentMessage['type']> = new Set([
   'tool_use',
   'tool_result',
 ]);
+
+/** Well-known keys in {@link StoredMessage.extra} for a persisted agent reply. */
+const EXTRA_TOOL_EVENTS_KEY = 'toolEvents';
+const EXTRA_THINKING_KEY = 'thinking';
 
 /**
  * Run the full message pipeline for one inbound user message and return the
@@ -213,6 +219,7 @@ function accumulate(
   participants.add(event.agentId);
   const acc = accumulators.get(event.agentId) ?? {
     text: '',
+    thinking: '',
     toolEvents: [],
     lastTimestamp: event.timestamp,
   };
@@ -229,6 +236,10 @@ function accumulate(
 
   if (event.type === 'text' && event.content !== undefined) {
     acc.text += event.content;
+  } else if (event.type === 'thinking' && event.content !== undefined) {
+    // Persist reasoning so a completed reply can re-show its Think block (the
+    // streaming view shows it live; without this it vanishes on completion).
+    acc.thinking += event.content;
   } else if (TOOL_EVENT_TYPES.has(event.type)) {
     acc.toolEvents.push({
       type: event.type,
@@ -243,6 +254,23 @@ function accumulate(
   accumulators.set(event.agentId, acc);
 }
 
+/**
+ * Build the `extra` bag for a persisted reply from its accumulator: tool events
+ * (the M7 context channel) plus the concatenated reasoning under `thinking` so a
+ * completed reply can re-show its Think block. Returns undefined when neither is
+ * present (keep `extra` absent rather than an empty object).
+ */
+function buildReplyExtra(acc: ReplyAccumulator): Record<string, unknown> | undefined {
+  const extra: Record<string, unknown> = {};
+  if (acc.toolEvents.length > 0) {
+    extra[EXTRA_TOOL_EVENTS_KEY] = acc.toolEvents;
+  }
+  if (acc.thinking.length > 0) {
+    extra[EXTRA_THINKING_KEY] = acc.thinking;
+  }
+  return Object.keys(extra).length > 0 ? extra : undefined;
+}
+
 /** Persist one StoredMessage per agent that produced output. */
 async function persistReplies(
   messageStore: AppServices['messageStore'],
@@ -254,6 +282,7 @@ async function persistReplies(
   for (const [agentId, acc] of accumulators) {
     // Only persist a reply when the agent produced text or tool activity.
     if (acc.text.length === 0 && acc.toolEvents.length === 0) continue;
+    const extra = buildReplyExtra(acc);
     const stored = await messageStore.append({
       threadId,
       userId,
@@ -262,7 +291,7 @@ async function persistReplies(
       mentions: [],
       origin: 'stream',
       timestamp: acc.lastTimestamp,
-      ...(acc.toolEvents.length > 0 ? { extra: { toolEvents: acc.toolEvents } } : {}),
+      ...(extra !== undefined ? { extra } : {}),
       ...(acc.sessionId !== undefined ? { sessionId: acc.sessionId } : {}),
     });
     persisted.push(stored);

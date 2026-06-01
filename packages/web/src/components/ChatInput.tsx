@@ -15,12 +15,11 @@ import {
   useRef,
   useState,
   type ReactElement,
-  type ReactNode,
   type ChangeEvent,
 } from 'react';
 import { useAgentStore } from '../stores/agent-store.js';
 import type { AgentRosterEntry } from '../lib/api.js';
-import { IconSend } from './choco/icons.js';
+import { IconSend, IconStop } from './choco/icons.js';
 import { Avatar, modelBadge, shortName } from './choco/primitives.js';
 
 /** A single autocomplete candidate (enriched with roster display fields). */
@@ -43,10 +42,12 @@ export interface ChatInputProps {
   /** Disable input while a turn is in flight (optional). */
   readonly disabled?: boolean;
   /**
-   * Slot rendered alongside the send button (the App's cancel/stop button).
-   * Rendered in addition to send so the send-button wiring is never removed.
+   * True while a turn is in flight. When busy the composer shows the 停止 (stop)
+   * button INSTEAD of send (never both, never 停止 at idle — Bug 2).
    */
-  readonly cancelSlot?: ReactNode;
+  readonly busy?: boolean;
+  /** Cancel the in-flight turn (wired to the socket cancel). */
+  readonly onCancel?: () => void;
 }
 
 /** Build the full suggestion list from the roster's mentionPatterns. */
@@ -72,7 +73,7 @@ function activeMentionToken(value: string): string | null {
 
 /** Render the composer with @mention autocomplete. */
 export function ChatInput(props: ChatInputProps): ReactElement {
-  const { onSend, disabled = false, cancelSlot } = props;
+  const { onSend, disabled = false, busy = false, onCancel } = props;
   const [value, setValue] = useState('');
   const roster = useAgentStore((s) => s.roster);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -150,17 +151,28 @@ export function ChatInput(props: ChatInputProps): ReactElement {
             }
           }}
         />
-        {cancelSlot}
-        <button
-          type="button"
-          className="send chat-input__send"
-          data-testid="chat-send-button"
-          disabled={disabled || value.trim().length === 0}
-          onClick={submit}
-          aria-label="发送"
-        >
-          <IconSend />
-        </button>
+        {busy ? (
+          <button
+            type="button"
+            className="cancel chat-input__cancel"
+            data-testid="cancel-button"
+            onClick={onCancel}
+            aria-label="停止"
+          >
+            <IconStop /> 停止
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="send chat-input__send"
+            data-testid="chat-send-button"
+            disabled={disabled || value.trim().length === 0}
+            onClick={submit}
+            aria-label="发送"
+          >
+            <IconSend />
+          </button>
+        )}
       </div>
       <div className="composer-hint">
         <span>

@@ -478,8 +478,18 @@ describe('wiring / a11y intact', () => {
     useChatStore.setState({
       messagesByThread: { thread_todo_api: [makeUserMessage(), makeAgentReply()] },
     });
-    await mountApp({ messages: [makeUserMessage(), makeAgentReply()] });
+    // RECONCILED (Bug 2 busy-only stop): the cancel/stop button now renders ONLY
+    // while a turn is in flight (busy), so we hold a never-resolving send to keep
+    // the composer busy — at idle the send button shows instead (asserted below).
+    await mountApp({ messages: [makeUserMessage(), makeAgentReply()], sendImpl: () => new Promise(() => {}) });
     await selectDefaultThread();
+    // At idle: send button present, no cancel/stop button.
+    expect(screen.getByTestId('chat-send-button')).toBeInTheDocument();
+    expect(screen.queryByTestId('cancel-button')).not.toBeInTheDocument();
+    // Go busy → the 停止 (cancel) button replaces send.
+    await userEvent.type(screen.getByTestId('chat-input-textarea'), '@claude 写代码');
+    await userEvent.click(screen.getByTestId('chat-send-button'));
+    await screen.findByTestId('cancel-button');
     for (const id of [
       'app-root',
       'thread-list',
@@ -488,7 +498,6 @@ describe('wiring / a11y intact', () => {
       'chat-container',
       'chat-input',
       'chat-input-textarea',
-      'chat-send-button',
       'agent-status',
       'cancel-button',
     ]) {
@@ -499,8 +508,10 @@ describe('wiring / a11y intact', () => {
     expect(item).toHaveAttribute('data-thread', 'thread_todo_api');
     expect(item).toHaveAttribute('aria-current', 'true');
     // user + agent messages render with their testids; agent carries data-agent.
-    expect(screen.getByTestId('user-message')).toBeInTheDocument();
-    expect(screen.getByTestId('agent-message')).toHaveAttribute('data-agent', 'claude-opus');
+    // (Two user bubbles now: the seeded one + the optimistic one from the busy
+    // send above — Bug 1 inserts the user message immediately on send.)
+    expect(screen.getAllByTestId('user-message').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByTestId('agent-message')[0]).toHaveAttribute('data-agent', 'claude-opus');
   });
 
   it('select / create / send each call the injected client (no real backend dependency)', async () => {
@@ -527,9 +538,13 @@ describe('wiring / a11y intact', () => {
   });
 
   it('the cancel/stop button EMITS a cancel frame over the socket for the active thread', async () => {
-    const { socket } = await mountApp();
+    // RECONCILED (Bug 2 busy-only stop): the cancel button only renders while a
+    // turn is in flight, so hold a never-resolving send to surface it, then click.
+    const { socket } = await mountApp({ sendImpl: () => new Promise(() => {}) });
     await selectDefaultThread();
-    await userEvent.click(screen.getByTestId('cancel-button'));
+    await userEvent.type(screen.getByTestId('chat-input-textarea'), '@claude 写代码');
+    await userEvent.click(screen.getByTestId('chat-send-button'));
+    await userEvent.click(await screen.findByTestId('cancel-button'));
     const cancels = socket.emitted.filter((e) => e.event === 'cancel');
     expect(cancels).toHaveLength(1);
     expect(cancels[0].args[0]).toEqual({ threadId: 'thread_todo_api' });
