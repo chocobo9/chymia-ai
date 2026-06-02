@@ -15,14 +15,14 @@
 // Realistic numeric Telegram ids + real markdown/CJK/emoji — no placeholders.
 
 import { describe, it, expect, vi } from 'vitest';
-import type { IncomingPlatformMessage } from '@clowder/shared';
+import type { IncomingPlatformMessage } from '@choco/shared';
 import {
   createTelegramAdapter,
   TELEGRAM_ADAPTER_NAME,
   type TelegramLogger,
   type TelegramUpdateContext,
-} from '@clowder/adapters/telegram/telegram-adapter';
-import { TELEGRAM_MAX_MESSAGE_LENGTH as LIMIT } from '@clowder/adapters/telegram/message-splitter';
+} from '@choco/adapters/telegram/telegram-adapter';
+import { TELEGRAM_MAX_MESSAGE_LENGTH as LIMIT } from '@choco/adapters/telegram/message-splitter';
 import { FakeTelegramBot, textUpdate } from './fake-telegram-bot.js';
 
 const CHAT_ID = 6_812_345_678;

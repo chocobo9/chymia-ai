@@ -19,7 +19,7 @@ import type { AgentRosterEntry, HealthPayload } from '../../packages/web/src/lib
 import type { SocketLike, SocketConnector } from '../../packages/web/src/hooks/useSocket.js';
 import { useChatStore } from '../../packages/web/src/stores/chat-store.js';
 import { useAgentStore } from '../../packages/web/src/stores/agent-store.js';
-import type { EvidenceSearchResult } from '@clowder/shared';
+import type { EvidenceSearchResult } from '@choco/shared';
 import { ROSTER, CLAUDE, makeThread, makeUserMessage, makeAgentReply } from './fixtures.js';
 
 /** Minimal mock socket (no network). */

@@ -27,7 +27,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
 } from 'react';
-import type { Thread } from '@clowder/shared';
+import type { Thread } from '@choco/shared';
 import { useChatStore } from '../stores/chat-store.js';
 import { useAgentStore } from '../stores/agent-store.js';
 import type { AgentRosterEntry } from '../lib/api.js';

@@ -17,7 +17,7 @@
 
 import { accessSync, constants as fsConstants } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
-import type { AgentService } from '@clowder/api/providers/base';
+import type { AgentService } from '@choco/api/providers/base';
 
 /** Environment slice the probe reads (injectable for deterministic tests). */
 export interface CliProbeEnv {

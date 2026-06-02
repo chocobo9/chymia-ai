@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { SqlitePlatformMappingStore } from '@clowder/api/stores/platform-mapping-store';
+import { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
 
 /** Monotonic clock: each call returns a strictly increasing epoch-ms value. */
 function makeClock(start = 1_700_000_000_000): () => number {

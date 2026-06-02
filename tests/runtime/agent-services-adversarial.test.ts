@@ -16,10 +16,10 @@ import {
   buildAgentServicesFromRoster,
   resolvePermissionMode,
   CHOCO_DEFAULT_PERMISSION_MODE,
-} from '@clowder/api/runtime/agent-services';
-import { ClaudeAgentService } from '@clowder/api/providers/claude/claude-service';
-import { CodexAgentService } from '@clowder/api/providers/codex/codex-service';
-import { GeminiAgentService } from '@clowder/api/providers/gemini/gemini-service';
+} from '@choco/api/runtime/agent-services';
+import { ClaudeAgentService } from '@choco/api/providers/claude/claude-service';
+import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
+import { GeminiAgentService } from '@choco/api/providers/gemini/gemini-service';
 
 // ── Temp-roster fixtures (cleaned up afterEach; no repo litter) ────────────────
 const tmpDirs: string[] = [];

@@ -16,10 +16,10 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createAgentId } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { CallbackClient } from '@clowder/mcp-server/callback-client';
-import { createServer } from '@clowder/mcp-server/index';
+import { createAgentId } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { CallbackClient } from '@choco/mcp-server/callback-client';
+import { createServer } from '@choco/mcp-server/index';
 import { FakeAgentService, textEvent, doneEvent } from '../invocation/fake-agent-service.js';
 
 const CODEX = createAgentId('codex-gpt');
@@ -73,9 +73,9 @@ async function harness(agentServices?: Record<string, FakeAgentService>): Promis
   const record = app.invocations.create({ userId: 'user', agentId: CODEX, threadId });
 
   const env: NodeJS.ProcessEnv = {
-    CLOWDER_API_URL: baseUrl,
-    CLOWDER_INVOCATION_ID: record.invocationId,
-    CLOWDER_CALLBACK_TOKEN: record.callbackToken,
+    CHOCO_API_URL: baseUrl,
+    CHOCO_INVOCATION_ID: record.invocationId,
+    CHOCO_CALLBACK_TOKEN: record.callbackToken,
   };
 
   const server = createServer(new CallbackClient({ env }));

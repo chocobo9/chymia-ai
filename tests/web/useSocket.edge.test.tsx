@@ -19,7 +19,7 @@ import {
 } from '../../packages/web/src/hooks/useSocket.js';
 import { useChatStore } from '../../packages/web/src/stores/chat-store.js';
 import { useAgentStore } from '../../packages/web/src/stores/agent-store.js';
-import type { AgentMessage } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
 import {
   CLAUDE,
   CODEX,

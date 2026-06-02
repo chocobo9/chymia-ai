@@ -13,8 +13,8 @@
 // backend). Constructor injection only (supplement D, no global singleton).
 
 import type { Database } from 'better-sqlite3';
-import type { AgentId, Thread, ThreadThinkingMode } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { AgentId, Thread, ThreadThinkingMode } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import { THREADS_TABLE, createThreadsTable } from './migrations/002-threads.js';
 import { MESSAGES_TABLE, createMessagesTable } from './migrations/001-messages.js';
 import { TOOL_EVENTS_TABLE, createToolEventsTable } from './migrations/003-tool-events.js';

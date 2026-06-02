@@ -4,10 +4,10 @@
 // alias patterns, explicit default selection, and constructor invariants.
 
 import { describe, test, expect } from 'vitest';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
-import type { AgentService } from '@clowder/api/providers/base';
-import { AgentRegistryImpl } from '@clowder/api/routing/agent-registry';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
+import type { AgentService } from '@choco/api/providers/base';
+import { AgentRegistryImpl } from '@choco/api/routing/agent-registry';
 import {
   CLAUDE,
   CODEX,

@@ -2,7 +2,7 @@
 // M4 DEV happy-path: deterministic intent + prompt-tag parsing.
 
 import { describe, test, expect } from 'vitest';
-import { parseIntent, stripIntentTags } from '@clowder/api/routing/intent-parser';
+import { parseIntent, stripIntentTags } from '@choco/api/routing/intent-parser';
 
 describe('parseIntent — happy path (unit)', () => {
   test('explicit #ideate wins regardless of target count', () => {

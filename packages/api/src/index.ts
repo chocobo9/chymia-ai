@@ -5,7 +5,7 @@
 // reads the host/port from the environment (no hardcoded values — CLAUDE.md §2.1)
 // and starts listening.
 
-import { buildApp } from '@clowder/api/app-factory';
+import { buildApp } from '@choco/api/app-factory';
 
 /** Default listen port when PORT is unset. */
 const DEFAULT_PORT = 3000;

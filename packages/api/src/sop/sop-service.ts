@@ -1,7 +1,7 @@
 // M12 SopService — bulletin-board hints + post-hoc trace evaluation.
 // Source: clowder-architecture-design.md §5.6.
 
-import type { SopDefinition } from '@clowder/shared';
+import type { SopDefinition } from '@choco/shared';
 import { loadSopDefinition } from './sop-loader.js';
 import { evaluateTrace, type SopEvalResult, type SopTraceInput } from './trace-evaluator.js';
 

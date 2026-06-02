@@ -9,7 +9,7 @@
 // pulled earlier to avoid splitting semantic chains. We re-author it against our
 // StoredMessage shape (agentId instead of catId; tool events via extra).
 
-import type { HierarchicalContextConfig, StoredMessage } from '@clowder/shared';
+import type { HierarchicalContextConfig, StoredMessage } from '@choco/shared';
 import { hasToolResult, hasToolUse } from './tool-scrub.js';
 
 export interface BurstResult {

@@ -16,8 +16,8 @@ import {
   buildApp,
   type BuildAppOverrides,
   type BuiltApp,
-} from '@clowder/api/app-factory';
-import type { InvokeOptions } from '@clowder/api/providers/base';
+} from '@choco/api/app-factory';
+import type { InvokeOptions } from '@choco/api/providers/base';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { replyScript, CLAUDE } from './helpers.js';
 

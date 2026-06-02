@@ -7,14 +7,14 @@
 // Real codex frames + real Chinese/English content.
 
 import { describe, it, expect } from 'vitest';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import {
   createCodexParserState,
   parseCodexLine,
   type CodexParserState,
   type CodexParserDeps,
-} from '@clowder/api/providers/codex/codex-parser';
+} from '@choco/api/providers/codex/codex-parser';
 
 const agentId = createAgentId('codex');
 const FIXED_TS = 1_700_000_911_000;
@@ -103,13 +103,13 @@ describe('parseCodexLine — streaming semantics (edge)', () => {
         item: {
           type: 'mcp_tool_call',
           id: 'call_42',
-          server: 'clowder',
+          server: 'choco',
           tool: 'evidence_search',
           arguments: { query: '退款超时的历史讨论', limit: 8 },
         },
       }),
     ]);
-    expect(messages[0]).toMatchObject({ type: 'tool_use', toolName: 'clowder__evidence_search', toolUseId: 'call_42' });
+    expect(messages[0]).toMatchObject({ type: 'tool_use', toolName: 'choco__evidence_search', toolUseId: 'call_42' });
     expect(messages[0].toolInput).toEqual({ query: '退款超时的历史讨论', limit: 8 });
   });
 
@@ -154,9 +154,9 @@ describe('parseCodexLine — adversarial', () => {
 
   it('defaults mcp_tool_call arguments to {} and tool to "unknown" when omitted', () => {
     const { messages } = run([
-      JSON.stringify({ type: 'item.started', item: { type: 'mcp_tool_call', server: 'clowder' } }),
+      JSON.stringify({ type: 'item.started', item: { type: 'mcp_tool_call', server: 'choco' } }),
     ]);
-    expect(messages[0]).toMatchObject({ type: 'tool_use', toolName: 'clowder__unknown' });
+    expect(messages[0]).toMatchObject({ type: 'tool_use', toolName: 'choco__unknown' });
     expect(messages[0].toolInput).toEqual({});
   });
 

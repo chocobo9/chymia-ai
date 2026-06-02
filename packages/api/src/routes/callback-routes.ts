@@ -35,17 +35,17 @@ import type {
   EvidenceKind,
   EvidenceSearchMode,
   StoredMessage,
-} from '@clowder/shared';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
+} from '@choco/shared';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
 import {
   buildUnavailableNotice,
   noticeToAgentEvent,
-} from '@clowder/api/routing/unavailable-notice';
+} from '@choco/api/routing/unavailable-notice';
 import {
   buildCallbackAuthPreHandler,
   getInvocationRecord,
-} from '@clowder/api/routes/callback-auth.js';
-import { advanceStageWithEval } from '@clowder/api/sop/advance-stage.js';
+} from '@choco/api/routes/callback-auth.js';
+import { advanceStageWithEval } from '@choco/api/sop/advance-stage.js';
 
 const EVIDENCE_KINDS = [
   'feature',

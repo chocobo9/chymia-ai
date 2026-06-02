@@ -3,14 +3,14 @@
 // a logger capture, and a serial-params builder. Reuses the dev happy-path
 // helpers (read-only) for the standard three-agent fixtures. Deterministic.
 
-import type { AgentId, AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
-import type { MentionEntry } from '@clowder/api/routing/mention-parser';
+import type { AgentId, AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
+import type { MentionEntry } from '@choco/api/routing/mention-parser';
 import type {
   InvokeAgentFn,
   RouteLogger,
-} from '@clowder/api/routing/agent-router';
-import type { RouteSerialParams } from '@clowder/api/routing/route-serial';
+} from '@choco/api/routing/agent-router';
+import type { RouteSerialParams } from '@choco/api/routing/route-serial';
 import { ALL_CONFIGS, fixedNow } from './helpers';
 
 /** Flattened (agentId, pattern) entries over the standard three agents. */

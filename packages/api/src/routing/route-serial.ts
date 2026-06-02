@@ -17,13 +17,13 @@ import type {
   AgentMessage,
   InvocationContext,
   PingPongWarning,
-} from '@clowder/shared';
-import type { MentionEntry } from '@clowder/api/routing/mention-parser';
-import { parseA2AMentions } from '@clowder/api/routing/mention-parser';
+} from '@choco/shared';
+import type { MentionEntry } from '@choco/api/routing/mention-parser';
+import { parseA2AMentions } from '@choco/api/routing/mention-parser';
 import type {
   InvokeAgentFn,
   RouteLogger,
-} from '@clowder/api/routing/agent-router';
+} from '@choco/api/routing/agent-router';
 
 /**
  * Default max A2A worklist expansions per route call.

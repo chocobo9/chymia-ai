@@ -1,6 +1,6 @@
 // M12 command_pattern — require/forbid command regexes in the session trace.
 
-import type { SopPredicate } from '@clowder/shared';
+import type { SopPredicate } from '@choco/shared';
 import type { PredicateEvalOutcome, SopTraceContext } from './predicate-types.js';
 
 function anyCommandMatches(commands: readonly string[], pattern: string): boolean {

@@ -17,7 +17,7 @@
 
 import { useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import type { AgentMessage, AgentState, Thread } from '@clowder/shared';
+import type { AgentMessage, AgentState, Thread } from '@choco/shared';
 import { webConfig } from '../lib/config.js';
 import { useChatStore } from '../stores/chat-store.js';
 import { useAgentStore } from '../stores/agent-store.js';

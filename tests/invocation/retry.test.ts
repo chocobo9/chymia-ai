@@ -3,7 +3,7 @@
 // One representative real CLI error per class; pure functions, no I/O.
 
 import { describe, test, expect } from 'vitest';
-import { classifyError, decideRetry, MAX_RETRIES } from '@clowder/api/invocation/retry';
+import { classifyError, decideRetry, MAX_RETRIES } from '@choco/api/invocation/retry';
 
 describe('classifyError — one representative per class (unit)', () => {
   test('missing session error → missing_session', () => {

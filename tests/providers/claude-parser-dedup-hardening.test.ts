@@ -21,14 +21,14 @@
 // placeholders. If a test exposes a REAL product bug it is KEPT FAILING (QA does not fix).
 
 import { describe, it, expect } from 'vitest';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import {
   createClaudeParserState,
   parseClaudeLine,
   type ParserState,
   type ClaudeParserDeps,
-} from '@clowder/api/providers/claude/claude-parser';
+} from '@choco/api/providers/claude/claude-parser';
 
 const agentId = createAgentId('claude-opus');
 const FIXED_TS = 1_700_000_900_000;

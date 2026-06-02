@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   SessionMutex,
   SessionMutexAcquireError,
-} from '@clowder/api/invocation/session-mutex';
+} from '@choco/api/invocation/session-mutex';
 
 // Real per-invocation mutex keys mirror invoke-single-agent's sessionKey():
 // `${agentId}:${threadId}`.

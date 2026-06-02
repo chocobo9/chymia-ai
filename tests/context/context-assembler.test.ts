@@ -5,7 +5,7 @@ import {
   formatMessage,
   getSenderName,
   formatPromptTime,
-} from '@clowder/api/context/context-assembler';
+} from '@choco/api/context/context-assembler';
 import { CLAUDE, makeMessage, resolveConfig } from './fixtures';
 
 describe('ContextAssembler (unit, happy path)', () => {

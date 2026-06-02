@@ -7,7 +7,7 @@
 // stdout 'data' events to exercise the StringDecoder + line-buffer seam.
 
 import { describe, it, expect } from 'vitest';
-import { spawnCliLineStream, type CliExitInfo } from '@clowder/api/providers/cli-spawn';
+import { spawnCliLineStream, type CliExitInfo } from '@choco/api/providers/cli-spawn';
 
 const NODE = process.execPath;
 const TEN_SECONDS = 10_000;

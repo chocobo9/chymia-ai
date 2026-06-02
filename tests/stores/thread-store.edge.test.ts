@@ -13,10 +13,10 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createAgentId, type AgentId } from '@clowder/shared';
-import { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
-import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
-import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
+import { createAgentId, type AgentId } from '@choco/shared';
+import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
+import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
+import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 
 const CLAUDE: AgentId = createAgentId('claude-opus');
 const CODEX: AgentId = createAgentId('codex-gpt');

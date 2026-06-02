@@ -14,8 +14,8 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
-import { handleThreadMessage, DEFAULT_USER_ID } from '@clowder/api/routes/message-handler';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
+import { handleThreadMessage, DEFAULT_USER_ID } from '@choco/api/routes/message-handler';
 
 /** Body schema for POST /api/threads/:id/messages. */
 const SendMessageBodySchema = z

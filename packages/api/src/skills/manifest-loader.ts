@@ -10,8 +10,8 @@
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { z } from 'zod';
-import type { SkillDefinition, SkillManifest } from '@clowder/shared';
-import { manifestPath as defaultManifestPath } from '@clowder/skills';
+import type { SkillDefinition, SkillManifest } from '@choco/shared';
+import { manifestPath as defaultManifestPath } from '@choco/skills';
 
 /**
  * Raw per-skill shape as authored in manifest.yaml (snake_case on disk).
@@ -55,7 +55,7 @@ function toSkillDefinition(id: string, raw: z.infer<typeof RawSkillSchema>): Ski
 /**
  * Load and validate the skills manifest into a {@link SkillManifest}.
  *
- * @param path Absolute path to manifest.yaml. Defaults to the @clowder/skills
+ * @param path Absolute path to manifest.yaml. Defaults to the @choco/skills
  *   package's exported {@link defaultManifestPath} (never hardcode the path).
  */
 export function loadManifest(path: string = defaultManifestPath): SkillManifest {

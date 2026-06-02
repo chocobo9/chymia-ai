@@ -11,7 +11,7 @@ import {
   updateStreak,
   PINGPONG_WARN_THRESHOLD,
   PINGPONG_BLOCK_THRESHOLD,
-} from '@clowder/api/routing/route-serial';
+} from '@choco/api/routing/route-serial';
 import { makeRecordingInvoke, drain, CLAUDE, CODEX, GEMINI } from './helpers';
 import { serialParams, captureLogger, makeAbortingInvoke } from './qa-helpers';
 

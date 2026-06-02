@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
-import type { StoredMessage, StoredMessageOrigin, AgentId } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { StoredMessage, StoredMessageOrigin, AgentId } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import { MESSAGES_TABLE, createMessagesTable } from './migrations/001-messages.js';
 
 /**

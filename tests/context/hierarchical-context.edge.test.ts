@@ -3,10 +3,10 @@
 // evidence fail-open integration, and degenerate threads. dev≠QA.
 
 import { describe, it, expect } from 'vitest';
-import type { EvidenceSearchResult, HierarchicalContextConfig } from '@clowder/shared';
-import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@clowder/shared';
-import { buildHierarchicalContext } from '@clowder/api/context/hierarchical-context';
-import type { EvidenceRecaller } from '@clowder/api/context/evidence-recall';
+import type { EvidenceSearchResult, HierarchicalContextConfig } from '@choco/shared';
+import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@choco/shared';
+import { buildHierarchicalContext } from '@choco/api/context/hierarchical-context';
+import type { EvidenceRecaller } from '@choco/api/context/evidence-recall';
 import { build25MessageThread, CLAUDE, makeMessage, resolveConfig } from './fixtures';
 
 const DROP_ORDER = ['evidence', 'coverageMap', 'anchors', 'tombstone', 'burst'] as const;

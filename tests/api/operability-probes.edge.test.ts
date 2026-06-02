@@ -13,10 +13,10 @@ import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { resolve } from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
-import type { AgentMessage } from '@clowder/shared';
-import type { RouteLogger } from '@clowder/api/routing/agent-router';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { DEFAULT_LOG_DIR } from '@clowder/api/infrastructure/logger';
+import type { AgentMessage } from '@choco/shared';
+import type { RouteLogger } from '@choco/api/routing/agent-router';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { DEFAULT_LOG_DIR } from '@choco/api/infrastructure/logger';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { CLAUDE } from './helpers.js';
 

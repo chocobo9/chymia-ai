@@ -10,8 +10,8 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { SqlitePlatformMappingStore } from '@clowder/api/stores/platform-mapping-store';
-import { PLATFORM_MAPPINGS_TABLE } from '@clowder/api/stores/migrations/004-platform-mappings.js';
+import { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
+import { PLATFORM_MAPPINGS_TABLE } from '@choco/api/stores/migrations/004-platform-mappings.js';
 
 /** Monotonic clock: strictly increasing epoch-ms per call (deterministic created_at). */
 function makeClock(start = 1_700_000_000_000): () => number {

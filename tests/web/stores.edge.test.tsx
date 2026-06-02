@@ -14,8 +14,8 @@ import {
   useAgentStore,
   selectAgentStatus,
 } from '../../packages/web/src/stores/agent-store.js';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import {
   CLAUDE,
   CODEX,

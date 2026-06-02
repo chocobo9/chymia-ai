@@ -11,12 +11,12 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { IncomingPlatformMessage } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
+import type { IncomingPlatformMessage } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import {
   createTelegramAdapter,
   TELEGRAM_ADAPTER_NAME,
-} from '@clowder/adapters/telegram/telegram-adapter';
+} from '@choco/adapters/telegram/telegram-adapter';
 import { replyScript, CLAUDE } from '../../api/helpers.js';
 import { FakeAgentService } from '../../invocation/fake-agent-service.js';
 import { FakeTelegramBot, textUpdate } from './fake-telegram-bot.js';

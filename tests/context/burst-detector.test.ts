@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import type { HierarchicalContextConfig } from '@clowder/shared';
-import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@clowder/shared';
-import { detectRecentBurst } from '@clowder/api/context/burst-detector';
+import type { HierarchicalContextConfig } from '@choco/shared';
+import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@choco/shared';
+import { detectRecentBurst } from '@choco/api/context/burst-detector';
 import { CLAUDE, CODEX, makeMessage, build25MessageThread } from './fixtures';
 
 /** Config with a small min-burst so the cut lands precisely on crafted chains. */

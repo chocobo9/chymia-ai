@@ -16,20 +16,20 @@
 // Message persistence is M8's job (the M4 router explicitly does NOT persist).
 // A per-thread cancel controller (Socket.io `cancel`) aborts the live route.
 
-import type { AgentId, AgentMessage, AgentState, StoredMessage, StoredToolEvent } from '@clowder/shared';
-import { parseUserMentions } from '@clowder/api/routing/mention-parser';
-import type { RouteLogger } from '@clowder/api/routing/agent-router';
+import type { AgentId, AgentMessage, AgentState, StoredMessage, StoredToolEvent } from '@choco/shared';
+import { parseUserMentions } from '@choco/api/routing/mention-parser';
+import type { RouteLogger } from '@choco/api/routing/agent-router';
 import {
   buildUnavailableNotice,
   noticeToAgentEvent,
   type UnavailableNotice,
-} from '@clowder/api/routing/unavailable-notice';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
-import type { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
+} from '@choco/api/routing/unavailable-notice';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
+import type { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 import {
   checkReplyNotDuplicated,
   checkToolWritePathInside,
-} from '@clowder/api/infrastructure/invariants';
+} from '@choco/api/infrastructure/invariants';
 
 /** Default userId attributed to inbound user messages when none is supplied. */
 export const DEFAULT_USER_ID = 'user';

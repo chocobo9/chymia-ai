@@ -10,7 +10,7 @@
 // survive. We re-author that; sender naming is decoupled via an injected resolver
 // (we have no global agent registry — supplement D forbids singletons).
 
-import type { AgentConfig, AgentId, StoredMessage } from '@clowder/shared';
+import type { AgentConfig, AgentId, StoredMessage } from '@choco/shared';
 
 /** Resolve an AgentConfig by id (injected — no global registry). */
 export type ResolveAgentConfig = (id: AgentId) => AgentConfig | undefined;

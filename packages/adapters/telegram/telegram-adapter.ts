@@ -10,11 +10,11 @@
 // → that returns the agent replies → sendMessage each reply back to the chat.
 //
 // Injection (CLAUDE.md §2.1 no hardcoded config, constructor injection only):
-// the bot token comes from config (or env CLOWDER_TELEGRAM_BOT_TOKEN at the wiring
+// the bot token comes from config (or env CHOCO_TELEGRAM_BOT_TOKEN at the wiring
 // site, never a literal here), and the grammy Bot is injected so tests can supply
 // a fake — the adapter never constructs network I/O itself.
 
-import type { AgentId, IncomingPlatformMessage, PlatformAdapter } from '@clowder/shared';
+import type { AgentId, IncomingPlatformMessage, PlatformAdapter } from '@choco/shared';
 import { formatToTelegramHtml } from './html-formatter.js';
 import { splitHtmlMessage } from './message-splitter.js';
 
@@ -22,7 +22,7 @@ import { splitHtmlMessage } from './message-splitter.js';
 export const TELEGRAM_ADAPTER_NAME = 'telegram' as const;
 
 /** Env var the wiring site reads for the bot token (never read as a literal in code). */
-export const TELEGRAM_BOT_TOKEN_ENV = 'CLOWDER_TELEGRAM_BOT_TOKEN' as const;
+export const TELEGRAM_BOT_TOKEN_ENV = 'CHOCO_TELEGRAM_BOT_TOKEN' as const;
 
 /** Telegram parse mode we send formatted replies with (matches html-formatter output). */
 const TELEGRAM_PARSE_MODE = 'HTML' as const;

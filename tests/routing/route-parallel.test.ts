@@ -2,7 +2,7 @@
 // M4 DEV happy-path: parallel fan-out interleaves independent agent streams.
 
 import { describe, test, expect } from 'vitest';
-import { routeParallel } from '@clowder/api/routing/route-parallel';
+import { routeParallel } from '@choco/api/routing/route-parallel';
 import { makeRecordingInvoke, drain, CLAUDE, CODEX, GEMINI } from './helpers';
 
 describe('routeParallel — happy path (unit)', () => {

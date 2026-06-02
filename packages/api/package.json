@@ -1,5 +1,5 @@
 {
-  "name": "@clowder/api",
+  "name": "@choco/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@clowder/shared": "workspace:*",
-    "@clowder/skills": "workspace:*",
+    "@choco/shared": "workspace:*",
+    "@choco/skills": "workspace:*",
     "@fastify/cors": "^10.0.1",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "@node-rs/jieba": "^2.0.1",

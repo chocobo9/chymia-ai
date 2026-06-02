@@ -3,13 +3,13 @@
 // closes that gap. Authored independently of the M7 product code (dev≠QA).
 
 import { describe, it, expect } from 'vitest';
-import type { StoredMessage } from '@clowder/shared';
+import type { StoredMessage } from '@choco/shared';
 import {
   getToolEvents,
   hasToolResult,
   hasToolUse,
   scrubToolPayloads,
-} from '@clowder/api/context/tool-scrub';
+} from '@choco/api/context/tool-scrub';
 import { CLAUDE, CODEX, makeMessage } from './fixtures';
 
 /** Build a message carrying a raw (possibly-malformed) extra.toolEvents bag. */

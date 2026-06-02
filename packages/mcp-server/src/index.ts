@@ -37,7 +37,7 @@ import { buildSopTools } from './tools/sop-tools.js';
 import type { ToolDef } from './tools/tool-def.js';
 
 /** Server identity advertised to the MCP client. */
-const SERVER_INFO = { name: 'clowder-mcp', version: '0.1.0' } as const;
+const SERVER_INFO = { name: 'choco-mcp', version: '0.1.0' } as const;
 
 /**
  * Build the full set of tool definitions from a CallbackClient. Pure function
@@ -90,9 +90,9 @@ function logStderr(message: string): void {
 async function main(): Promise<void> {
   const server = createServer();
   const transport = new StdioServerTransport();
-  logStderr('[clowder-mcp] starting on stdio');
+  logStderr('[choco-mcp] starting on stdio');
   await server.connect(transport);
-  logStderr('[clowder-mcp] running on stdio');
+  logStderr('[choco-mcp] running on stdio');
 }
 
 // Run only when executed directly (skip on import so tests never block on stdio).
@@ -101,7 +101,7 @@ const isEntryPoint =
   resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1]);
 if (isEntryPoint) {
   main().catch((err: unknown) => {
-    logStderr(`[clowder-mcp] fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+    logStderr(`[choco-mcp] fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
     process.exit(1);
   });
 }

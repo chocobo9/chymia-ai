@@ -4,11 +4,11 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createAgentId } from '@clowder/shared';
-import { loadSopDefinition } from '@clowder/api/sop/sop-loader';
-import { SopServiceImpl } from '@clowder/api/sop/sop-service';
-import { evaluateEnvCheck } from '@clowder/api/sop/predicates/env-check';
-import { evaluateTrace } from '@clowder/api/sop/trace-evaluator';
+import { createAgentId } from '@choco/shared';
+import { loadSopDefinition } from '@choco/api/sop/sop-loader';
+import { SopServiceImpl } from '@choco/api/sop/sop-service';
+import { evaluateEnvCheck } from '@choco/api/sop/predicates/env-check';
+import { evaluateTrace } from '@choco/api/sop/trace-evaluator';
 
 const CLAUDE = createAgentId('claude-opus');
 

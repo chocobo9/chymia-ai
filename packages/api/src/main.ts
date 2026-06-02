@@ -30,17 +30,17 @@
 //   LOG_LEVEL  Minimum level emitted (trace…fatal). Default 'info'.
 
 import { mkdirSync } from 'node:fs';
-import { buildApp } from '@clowder/api/app-factory';
+import { buildApp } from '@choco/api/app-factory';
 import {
   buildAgentServicesFromRoster,
   resolvePermissionMode,
-} from '@clowder/api/runtime/agent-services';
-import { probeAgentAvailability } from '@clowder/api/runtime/cli-availability';
+} from '@choco/api/runtime/agent-services';
+import { probeAgentAvailability } from '@choco/api/runtime/cli-availability';
 import {
   createFileLogger,
   routeLoggerFrom,
   type StructuredLogger,
-} from '@clowder/api/infrastructure/logger';
+} from '@choco/api/infrastructure/logger';
 
 /** Default listen port when PORT is unset. */
 const DEFAULT_PORT = 3000;

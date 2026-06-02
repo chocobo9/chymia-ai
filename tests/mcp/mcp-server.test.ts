@@ -3,7 +3,7 @@
 // This is an INTEGRATION test (no mock of the callback layer): it stands up the
 // real buildApp() over an in-memory SQLite db, listens on an ephemeral port,
 // mints a live invocation via the app's own InvocationRegistry, sets the three
-// CLOWDER_* env vars the MCP server reads, then drives the McpServer through a
+// CHOCO_* env vars the MCP server reads, then drives the McpServer through a
 // real MCP Client over an in-memory transport pair. evidence_search is proven
 // round-trip: tool call → callback-client HTTP POST → real /api/callback/
 // evidence_search → real EvidenceStore → results back to the tool caller.
@@ -14,10 +14,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createAgentId } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { CallbackClient } from '@clowder/mcp-server/callback-client';
-import { createServer } from '@clowder/mcp-server/index';
+import { createAgentId } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { CallbackClient } from '@choco/mcp-server/callback-client';
+import { createServer } from '@choco/mcp-server/index';
 
 const CODEX = createAgentId('codex-gpt');
 
@@ -81,9 +81,9 @@ describe('M10 MCP server (happy path)', () => {
 
       // The env the CLI injects into this MCP subprocess (frozen §C3 contract).
       const env: NodeJS.ProcessEnv = {
-        CLOWDER_API_URL: baseUrl,
-        CLOWDER_INVOCATION_ID: record.invocationId,
-        CLOWDER_CALLBACK_TOKEN: record.callbackToken,
+        CHOCO_API_URL: baseUrl,
+        CHOCO_INVOCATION_ID: record.invocationId,
+        CHOCO_CALLBACK_TOKEN: record.callbackToken,
       };
 
       server = createServer(new CallbackClient({ env }));

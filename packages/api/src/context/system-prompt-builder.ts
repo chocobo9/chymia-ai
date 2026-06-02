@@ -9,7 +9,7 @@
 // inject a config resolver (ResolveAgentConfig). The three exported functions stay
 // pure (same inputs → same output). See DEV report "deviations".
 
-import type { AgentConfig, AgentId, ClientId, InvocationContext } from '@clowder/shared';
+import type { AgentConfig, AgentId, ClientId, InvocationContext } from '@choco/shared';
 import type { ResolveAgentConfig } from './context-assembler.js';
 
 /** Human-readable provider labels by CLI client. Source: §4.1 (ClientId). */

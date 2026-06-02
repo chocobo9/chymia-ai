@@ -4,7 +4,7 @@
 //      whose content is the JSON; posix returns the inline JSON string.
 //   3. buildApp wiring — driving a real turn sets callbackEnv['MCP_CONFIG_JSON']
 //      IFF the agent is claude (clientId 'anthropic' + mcpSupport), and forwards
-//      the configured apiBaseUrl into CLOWDER_API_URL.
+//      the configured apiBaseUrl into CHOCO_API_URL.
 //   4. claude buildArgs — given MCP_CONFIG_JSON it emits `--mcp-config <value>`.
 //
 // QA (≠ me) owns edge/adversarial (malformed env, missing config, non-anthropic
@@ -14,13 +14,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { buildApp, type BuildAppOverrides, type BuiltApp } from '@clowder/api/app-factory';
+import { buildApp, type BuildAppOverrides, type BuiltApp } from '@choco/api/app-factory';
 import {
   buildClaudeMcpConfig,
   buildClaudeMcpConfigObject,
   type ClaudeMcpConfigObject,
-} from '@clowder/api/providers/mcp-config';
-import { buildArgs, MCP_CONFIG_ENV_KEY } from '@clowder/api/providers/claude/claude-service';
+} from '@choco/api/providers/mcp-config';
+import { buildArgs, MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { replyScript, CLAUDE, CODEX } from './helpers.js';
 
@@ -43,7 +43,7 @@ describe('buildClaudeMcpConfigObject (pure builder)', () => {
   it('produces a single clowder server launched via node + tsx-cli + entry', () => {
     const cfg: ClaudeMcpConfigObject = buildClaudeMcpConfigObject(CONFIG_OPTS);
 
-    const server = cfg.mcpServers['clowder'];
+    const server = cfg.mcpServers['choco'];
     expect(server).toBeDefined();
     expect(server?.command).toBe('node');
     expect(server?.args).toHaveLength(2);
@@ -54,23 +54,23 @@ describe('buildClaudeMcpConfigObject (pure builder)', () => {
 
   it('embeds the three callback env vars under their canonical keys', () => {
     const cfg = buildClaudeMcpConfigObject(CONFIG_OPTS);
-    const env = cfg.mcpServers['clowder']?.env;
+    const env = cfg.mcpServers['choco']?.env;
 
-    expect(env?.['CLOWDER_API_URL']).toBe(CONFIG_OPTS.apiBaseUrl);
-    expect(env?.['CLOWDER_INVOCATION_ID']).toBe(CONFIG_OPTS.invocationId);
-    expect(env?.['CLOWDER_CALLBACK_TOKEN']).toBe(CONFIG_OPTS.callbackToken);
+    expect(env?.['CHOCO_API_URL']).toBe(CONFIG_OPTS.apiBaseUrl);
+    expect(env?.['CHOCO_INVOCATION_ID']).toBe(CONFIG_OPTS.invocationId);
+    expect(env?.['CHOCO_CALLBACK_TOKEN']).toBe(CONFIG_OPTS.callbackToken);
   });
 
-  it('respects the CLOWDER_MCP_SERVER_PATH env override', () => {
+  it('respects the CHOCO_MCP_SERVER_PATH env override', () => {
     const override = 'D:/custom/mcp/entry.ts';
-    const prev = process.env['CLOWDER_MCP_SERVER_PATH'];
-    process.env['CLOWDER_MCP_SERVER_PATH'] = override;
+    const prev = process.env['CHOCO_MCP_SERVER_PATH'];
+    process.env['CHOCO_MCP_SERVER_PATH'] = override;
     try {
       const cfg = buildClaudeMcpConfigObject(CONFIG_OPTS);
-      expect(cfg.mcpServers['clowder']?.args[1]).toBe(override);
+      expect(cfg.mcpServers['choco']?.args[1]).toBe(override);
     } finally {
-      if (prev === undefined) delete process.env['CLOWDER_MCP_SERVER_PATH'];
-      else process.env['CLOWDER_MCP_SERVER_PATH'] = prev;
+      if (prev === undefined) delete process.env['CHOCO_MCP_SERVER_PATH'];
+      else process.env['CHOCO_MCP_SERVER_PATH'] = prev;
     }
   });
 
@@ -80,7 +80,7 @@ describe('buildClaudeMcpConfigObject (pure builder)', () => {
       serverEntryPath: 'D:/explicit/entry.ts',
       tsxCliPath: 'D:/explicit/tsx.mjs',
     });
-    expect(cfg.mcpServers['clowder']?.args).toEqual([
+    expect(cfg.mcpServers['choco']?.args).toEqual([
       'D:/explicit/tsx.mjs',
       'D:/explicit/entry.ts',
     ]);
@@ -146,7 +146,7 @@ describe('MCP producer wiring via buildApp', () => {
         ? (JSON.parse(readFileSync(value as string, 'utf-8')) as unknown)
         : (JSON.parse(value as string) as unknown)
     ) as ClaudeMcpConfigObject;
-    expect(parsed.mcpServers['clowder']?.command).toBe('node');
+    expect(parsed.mcpServers['choco']?.command).toBe('node');
   });
 
   it('does NOT set MCP_CONFIG_JSON for a non-anthropic agent (codex)', async () => {
@@ -160,7 +160,7 @@ describe('MCP producer wiring via buildApp', () => {
     expect(fake.calls[0]?.options?.callbackEnv?.[MCP_CONFIG_ENV_KEY]).toBeUndefined();
   });
 
-  it('forwards the configured apiBaseUrl into CLOWDER_API_URL', async () => {
+  it('forwards the configured apiBaseUrl into CHOCO_API_URL', async () => {
     const apiBaseUrl = 'http://127.0.0.1:3100';
     const fake = new FakeAgentService([replyScript(CLAUDE, '在指定 base 上回调。')]);
     const app = appWith({ 'claude-opus': fake }, { apiBaseUrl });
@@ -169,7 +169,7 @@ describe('MCP producer wiring via buildApp', () => {
     await postMention(app, 'thread-apibase', '@claude');
 
     expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0]?.options?.callbackEnv?.['CLOWDER_API_URL']).toBe(apiBaseUrl);
+    expect(fake.calls[0]?.options?.callbackEnv?.['CHOCO_API_URL']).toBe(apiBaseUrl);
   });
 });
 

@@ -13,7 +13,7 @@
 // "diff-block"/"streaming-indicator", data-agent).
 
 import { type ReactElement } from 'react';
-import type { AgentId } from '@clowder/shared';
+import type { AgentId } from '@choco/shared';
 import type { StreamingToolBlock } from '../stores/chat-store.js';
 import { Avatar } from './choco/primitives.js';
 import { Think, Diff, ToolGroup, type ToolRowData, type DiffLine } from './choco/blocks.js';

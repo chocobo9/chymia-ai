@@ -11,13 +11,13 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
-import type { AgentId, AgentMessage } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
+import type { AgentId, AgentMessage } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import {
   createWeChatAdapter,
   computeSignature,
   type OutboundSender,
-} from '@clowder/adapters/wechat';
+} from '@choco/adapters/wechat';
 import { replyScript, CLAUDE } from '../../api/helpers.js';
 import { FakeAgentService } from '../../invocation/fake-agent-service.js';
 

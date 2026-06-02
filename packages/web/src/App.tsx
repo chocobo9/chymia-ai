@@ -18,7 +18,7 @@
 // (SettingsOverlay) — see frontend SCOPE.
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import type { Thread } from '@clowder/shared';
+import type { Thread } from '@choco/shared';
 import { apiClient, ApiClient } from './lib/api.js';
 import { useChatStore } from './stores/chat-store.js';
 import { useAgentStore } from './stores/agent-store.js';

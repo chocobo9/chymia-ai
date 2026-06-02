@@ -12,7 +12,7 @@
 //
 // Both share boundary handling so "@opus" never falsely matches inside "@opus-45".
 
-import type { AgentId } from '@clowder/shared';
+import type { AgentId } from '@choco/shared';
 
 /**
  * One mention trigger for an agent, e.g. { agentId, pattern: '@claude' }.

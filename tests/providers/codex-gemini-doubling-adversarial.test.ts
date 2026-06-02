@@ -15,22 +15,22 @@
 // Real codex `exec --json` and gemini-cli stream-json shapes + real CJK content. No placeholders.
 
 import { describe, it, expect } from 'vitest';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import {
   createCodexParserState,
   parseCodexLine,
   type CodexParserState,
   type CodexParserDeps,
-} from '@clowder/api/providers/codex/codex-parser';
+} from '@choco/api/providers/codex/codex-parser';
 import {
   createGeminiParserState,
   parseGeminiLine,
   type GeminiParserState,
   type GeminiParserDeps,
-} from '@clowder/api/providers/gemini/gemini-parser';
-import { buildArgs } from '@clowder/api/providers/claude/claude-service';
-import type { InvokeOptions } from '@clowder/api/providers/base';
+} from '@choco/api/providers/gemini/gemini-parser';
+import { buildArgs } from '@choco/api/providers/claude/claude-service';
+import type { InvokeOptions } from '@choco/api/providers/base';
 
 const FIXED_TS = 1_700_000_950_000;
 

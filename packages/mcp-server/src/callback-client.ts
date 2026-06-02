@@ -4,7 +4,7 @@
 // CLI subprocess; on a tool call it does an HTTP POST to an API callback
 // endpoint; the API verifies invocationId + callbackToken; env vars carry the
 // callback config) + the FROZEN M8 callback contract (.harness/progress.md):
-//   - reads CLOWDER_API_URL / CLOWDER_INVOCATION_ID / CLOWDER_CALLBACK_TOKEN
+//   - reads CHOCO_API_URL / CHOCO_INVOCATION_ID / CHOCO_CALLBACK_TOKEN
 //   - every request sends headers X-Invocation-Id + X-Callback-Token
 //   - bodies are `.strict()` server-side — we send ONLY the documented fields
 //     and never re-supply identity (threadId/agentId come from the verified
@@ -20,7 +20,7 @@ import { CALLBACK_ENV_KEYS } from './env-keys.js';
 /**
  * Env-var names the CLI sets so this MCP subprocess can reach the API.
  * Mirrors app-factory's CALLBACK_ENV_KEYS (kept as a local copy so the
- * mcp-server package does not depend on @clowder/api — it talks HTTP only).
+ * mcp-server package does not depend on @choco/api — it talks HTTP only).
  */
 
 /** Canonical auth header names the API's callback-auth expects (lowercased). */
@@ -62,8 +62,8 @@ export function readCallbackConfig(
 
 /** Clear, agent-facing message when callback credentials are not configured. */
 export const NO_CONFIG_ERROR =
-  'Clowder callback not configured: missing CLOWDER_API_URL / CLOWDER_INVOCATION_ID / ' +
-  'CLOWDER_CALLBACK_TOKEN. This MCP server must be spawned by the Clowder CLI, which ' +
+  'Clowder callback not configured: missing CHOCO_API_URL / CHOCO_INVOCATION_ID / ' +
+  'CHOCO_CALLBACK_TOKEN. This MCP server must be spawned by the Clowder CLI, which ' +
   'injects the callback credentials for the current invocation.';
 
 /** Build the auth headers a callback request must carry (frozen M8 contract). */

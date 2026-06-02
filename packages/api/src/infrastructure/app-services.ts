@@ -6,17 +6,17 @@
 // (via buildApp overrides) with a temp db + fake AgentService so routes are
 // exercised end-to-end without real CLIs.
 
-import type { AgentRouter, RouteLogger } from '@clowder/api/routing/agent-router';
-import type { AgentRegistry } from '@clowder/api/routing/agent-registry';
-import type { InvocationRegistry } from '@clowder/api/invocation/invocation-registry';
-import type { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
-import type { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
-import type { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
-import type { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-store';
-import type { SqlitePlatformMappingStore } from '@clowder/api/stores/platform-mapping-store';
-import type { SessionStore } from '@clowder/api/invocation/session-store';
-import type { SocketManager } from '@clowder/api/infrastructure/socket-manager';
-import type { SopService } from '@clowder/api/sop/sop-service';
+import type { AgentRouter, RouteLogger } from '@choco/api/routing/agent-router';
+import type { AgentRegistry } from '@choco/api/routing/agent-registry';
+import type { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
+import type { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
+import type { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
+import type { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
+import type { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
+import type { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
+import type { SessionStore } from '@choco/api/invocation/session-store';
+import type { SocketManager } from '@choco/api/infrastructure/socket-manager';
+import type { SopService } from '@choco/api/sop/sop-service';
 
 /**
  * The wired service bundle shared by all routes. Immutable references — routes

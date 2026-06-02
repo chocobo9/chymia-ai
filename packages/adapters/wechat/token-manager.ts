@@ -15,11 +15,11 @@ export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
 /** Config for {@link TokenManager}. corpId/secret/baseUrl come from env/config — never literals. */
 export interface TokenManagerConfig {
-  /** WeCom corpId (CLOWDER_WECHAT_CORP_ID). */
+  /** WeCom corpId (CHOCO_WECHAT_CORP_ID). */
   readonly corpId: string;
-  /** WeCom app secret (CLOWDER_WECHAT_SECRET). */
+  /** WeCom app secret (CHOCO_WECHAT_SECRET). */
   readonly secret: string;
-  /** API base (CLOWDER_WECHAT_API_BASE), e.g. https://qyapi.weixin.qq.com/cgi-bin. */
+  /** API base (CHOCO_WECHAT_API_BASE), e.g. https://qyapi.weixin.qq.com/cgi-bin. */
   readonly apiBase: string;
   /** Injectable HTTP. Defaults to globalThis.fetch. */
   readonly fetchFn?: FetchFn;

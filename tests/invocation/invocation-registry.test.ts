@@ -3,8 +3,8 @@
 // Deterministic: injected idFactory + clock, no wall-clock, real agent ids.
 
 import { describe, test, expect } from 'vitest';
-import { createAgentId } from '@clowder/shared';
-import { InvocationRegistry } from '@clowder/api/invocation/invocation-registry';
+import { createAgentId } from '@choco/shared';
+import { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
 
 /** A deterministic id factory yielding a fixed sequence (invocationId, token, ...). */
 function seqIdFactory(ids: readonly string[]): () => string {

@@ -13,7 +13,7 @@
 // Ported visual from choco-panels.jsx MonitorGrid + directions.css `.monitor`.
 
 import { useMemo, type ReactElement } from 'react';
-import type { AgentStatus } from '@clowder/shared';
+import type { AgentStatus } from '@choco/shared';
 import { useAgentStore } from '../../stores/agent-store.js';
 import { useChatStore } from '../../stores/chat-store.js';
 import type { AgentRosterEntry } from '../../lib/api.js';

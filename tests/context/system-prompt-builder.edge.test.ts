@@ -4,13 +4,13 @@
 // dev≠QA.
 
 import { describe, it, expect } from 'vitest';
-import type { InvocationContext } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { InvocationContext } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import {
   buildInvocationContext,
   buildStaticIdentity,
   buildSystemPrompt,
-} from '@clowder/api/context/system-prompt-builder';
+} from '@choco/api/context/system-prompt-builder';
 import { BASE_TS, CLAUDE, CODEX, resolveConfig } from './fixtures';
 
 const UNKNOWN = createAgentId('ghost-agent');

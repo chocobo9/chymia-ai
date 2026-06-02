@@ -13,7 +13,7 @@ import type {
   ContextTombstone,
   HierarchicalContextConfig,
   StoredMessage,
-} from '@clowder/shared';
+} from '@choco/shared';
 import { formatPromptTimeRange, getSenderName, type ResolveAgentConfig } from './context-assembler.js';
 
 /** Minimum keyword length (chars) — drops noise like 'is'/'的'. Source: §B1a (最少 3 字符). */

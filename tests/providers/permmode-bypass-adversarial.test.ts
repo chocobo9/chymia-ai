@@ -27,9 +27,9 @@ import {
   CLAUDE_DEFAULT_PERMISSION_MODE,
   assertValidPermissionMode,
   type ClaudePermissionMode,
-} from '@clowder/api/providers/claude/claude-service';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+} from '@choco/api/providers/claude/claude-service';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 
 const DEFAULT_MODEL = 'claude-opus-4-6';
 // Real agent-style prompt (no placeholder data, per CLAUDE §2.2).

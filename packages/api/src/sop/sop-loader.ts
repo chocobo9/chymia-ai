@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { z } from 'zod';
-import type { SopDefinition, SopPredicate, SopRule, SopStage } from '@clowder/shared';
+import type { SopDefinition, SopPredicate, SopRule, SopStage } from '@choco/shared';
 
 const RawPredicateSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('manual_only'), reason: z.string().min(1) }).strict(),

@@ -1,5 +1,5 @@
 {
-  "name": "@clowder/adapters",
+  "name": "@choco/adapters",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "./*": "./*.ts"
   },
   "dependencies": {
-    "@clowder/shared": "workspace:*",
+    "@choco/shared": "workspace:*",
     "fast-xml-parser": "^4.5.1",
     "grammy": "^1.32.0"
   }

@@ -11,16 +11,16 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AgentId, AgentMessage } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
+import type { AgentId, AgentMessage } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import {
   createWeChatAdapter,
   createWeComOutboundSender,
   bufferReply,
   WECHAT_BUFFER_CONSTANTS,
   type OutboundSender,
-} from '@clowder/adapters/wechat';
-import type { FetchFn } from '@clowder/adapters/wechat/token-manager';
+} from '@choco/adapters/wechat';
+import type { FetchFn } from '@choco/adapters/wechat/token-manager';
 import { replyScript, CLAUDE } from '../../api/helpers.js';
 import { FakeAgentService } from '../../invocation/fake-agent-service.js';
 

@@ -17,13 +17,13 @@ import type {
   AgentMessage,
   InvocationContext,
   StoredMessage,
-} from '@clowder/shared';
-import type { MessageContent } from '@clowder/api/providers/base';
-import type { AgentRegistry } from '@clowder/api/routing/agent-registry';
-import { parseUserMentions } from '@clowder/api/routing/mention-parser';
-import { parseIntent, stripIntentTags } from '@clowder/api/routing/intent-parser';
-import { routeSerial, DEFAULT_MAX_A2A_DEPTH } from '@clowder/api/routing/route-serial';
-import { routeParallel } from '@clowder/api/routing/route-parallel';
+} from '@choco/shared';
+import type { MessageContent } from '@choco/api/providers/base';
+import type { AgentRegistry } from '@choco/api/routing/agent-registry';
+import { parseUserMentions } from '@choco/api/routing/mention-parser';
+import { parseIntent, stripIntentTags } from '@choco/api/routing/intent-parser';
+import { routeSerial, DEFAULT_MAX_A2A_DEPTH } from '@choco/api/routing/route-serial';
+import { routeParallel } from '@choco/api/routing/route-parallel';
 
 /** Arguments passed to the injected invocation seam for one agent turn. */
 export interface InvokeAgentArgs {

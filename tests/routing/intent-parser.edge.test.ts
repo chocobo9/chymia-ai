@@ -4,7 +4,7 @@
 // CJK hashtag preservation, and clean stripping.
 
 import { describe, test, expect } from 'vitest';
-import { parseIntent, stripIntentTags } from '@clowder/api/routing/intent-parser';
+import { parseIntent, stripIntentTags } from '@choco/api/routing/intent-parser';
 
 describe('parseIntent — edge', () => {
   test('(edge) intent tag embedded mid-message is still detected', () => {

@@ -14,7 +14,7 @@ import type { CallbackClient } from '../callback-client.js';
 import { toToolResult } from '../tool-result.js';
 import type { ToolDef } from './tool-def.js';
 
-/** Evidence kinds accepted by the API (matches @clowder/shared EvidenceKind). */
+/** Evidence kinds accepted by the API (matches @choco/shared EvidenceKind). */
 const EVIDENCE_KINDS = [
   'feature',
   'decision',

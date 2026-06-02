@@ -10,7 +10,7 @@
 // Ported visual from choco-wsp.jsx WspMemory + directions.css `.mem-*`.
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from 'react';
-import type { EvidenceItem, EvidenceKind } from '@clowder/shared';
+import type { EvidenceItem, EvidenceKind } from '@choco/shared';
 import type { ApiClient } from '../../lib/api.js';
 import { IconSearch } from '../choco/icons.js';
 

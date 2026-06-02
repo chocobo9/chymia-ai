@@ -14,10 +14,10 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AgentId, SopViolationPayload, StoredToolEvent } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { buildSopTraceContext } from '@clowder/api/sop/sop-trace-adapter';
+import type { AgentId, SopViolationPayload, StoredToolEvent } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { buildSopTraceContext } from '@choco/api/sop/sop-trace-adapter';
 import { connectClient } from './helpers.js';
 import type { Socket as ClientSocket } from 'socket.io-client';
 

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { skillsDir, manifestPath, skillsPackageRoot } from '@clowder/skills';
-import { loadManifest } from '@clowder/api/skills/manifest-loader';
-import { loadSkillContent } from '@clowder/api/skills/skill-reader';
-import { PackCompiler } from '@clowder/api/skills/pack-compiler';
+import { skillsDir, manifestPath, skillsPackageRoot } from '@choco/skills';
+import { loadManifest } from '@choco/api/skills/manifest-loader';
+import { loadSkillContent } from '@choco/api/skills/skill-reader';
+import { PackCompiler } from '@choco/api/skills/pack-compiler';
 
 const EXPECTED_SKILL_IDS = [
   'feat-lifecycle',
@@ -65,7 +65,7 @@ describe('loadSkillContent (happy path)', () => {
     expect(body).toContain('Red-Green-Refactor');
   });
 
-  it('reads from the @clowder/skills exported skillsDir', () => {
+  it('reads from the @choco/skills exported skillsDir', () => {
     const body = loadSkillContent('quality-gate', skillsDir);
     expect(body).toContain('质量');
   });

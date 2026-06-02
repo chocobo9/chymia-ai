@@ -16,8 +16,8 @@ import type {
   FastifyRequest,
   preHandlerHookHandler,
 } from 'fastify';
-import type { InvocationRecord, VerifyResult } from '@clowder/shared';
-import type { InvocationRegistry } from '@clowder/api/invocation/invocation-registry';
+import type { InvocationRecord, VerifyResult } from '@choco/shared';
+import type { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
 
 /** Canonical header names the MCP server must send (lowercased by Fastify). */
 export const INVOCATION_ID_HEADER = 'x-invocation-id';
@@ -86,7 +86,7 @@ export function buildCallbackAuthPreHandler(
 }
 
 /** Symbol-free request decoration key for the verified record. */
-const INVOCATION_RECORD_KEY = 'clowderInvocationRecord';
+const INVOCATION_RECORD_KEY = 'chocoInvocationRecord';
 
 interface RequestWithInvocation extends FastifyRequest {
   [INVOCATION_RECORD_KEY]?: InvocationRecord;

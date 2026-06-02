@@ -3,7 +3,7 @@
 // erroring does not kill the others.
 
 import { describe, test, expect } from 'vitest';
-import { mergeStreams } from '@clowder/api/routing/stream-merge';
+import { mergeStreams } from '@choco/api/routing/stream-merge';
 
 /** Yield values with awaited microtask gaps so interleaving is observable. */
 async function* labeled(label: string, count: number): AsyncGenerator<string> {

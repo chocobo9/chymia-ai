@@ -1,4 +1,4 @@
-// @clowder/web — public barrel for the M9 React app (root + stores + lib).
+// @choco/web — public barrel for the M9 React app (root + stores + lib).
 
 export { App } from './App.js';
 export { ThreadList } from './components/ThreadList.js';

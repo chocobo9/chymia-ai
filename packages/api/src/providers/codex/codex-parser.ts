@@ -16,7 +16,7 @@
 //
 // 纯、确定性、零 any。
 
-import type { AgentId, AgentMessage, AgentMessageType } from '@clowder/shared';
+import type { AgentId, AgentMessage, AgentMessageType } from '@choco/shared';
 
 /** provider 标识常量（来源：本项目 provider 命名约定） */
 export const CODEX_PROVIDER = 'codex' as const;

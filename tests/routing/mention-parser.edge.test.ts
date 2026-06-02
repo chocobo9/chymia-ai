@@ -8,7 +8,7 @@ import {
   parseUserMentions,
   parseA2AMentions,
   MAX_A2A_MENTION_TARGETS,
-} from '@clowder/api/routing/mention-parser';
+} from '@choco/api/routing/mention-parser';
 import { CLAUDE, CODEX, GEMINI } from './helpers';
 import { ENTRIES, PREFIX_ENTRIES, PLAIN_CLAUDE, CLAUDE_PRO } from './qa-helpers';
 

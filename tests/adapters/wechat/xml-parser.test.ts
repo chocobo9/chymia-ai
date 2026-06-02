@@ -5,7 +5,7 @@
 // real OpenId-shaped ids. Asserts text/image/event classification + epoch-s→ms.
 
 import { describe, it, expect } from 'vitest';
-import { parseWeChatXml } from '@clowder/adapters/wechat/xml-parser';
+import { parseWeChatXml } from '@choco/adapters/wechat/xml-parser';
 
 const OFFICIAL_ACCOUNT = 'gh_7f3a9c2e1b08';
 const SENDER_OPENID = 'oABCdEf1234567890ghijklmnop';

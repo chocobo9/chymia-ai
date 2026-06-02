@@ -1,4 +1,4 @@
-// M1 QA — adversarial / negative type tests for @clowder/shared.
+// M1 QA — adversarial / negative type tests for @choco/shared.
 // These are gated by the tsc --noEmit bar (root tsconfig includes tests/**).
 // Each `@ts-expect-error` asserts the line MUST NOT compile; if a brand /
 // literal-union / required-field invariant regresses, the expected error
@@ -6,7 +6,7 @@
 // executed, passing tests. Authored by the QA subagent (dev≠QA).
 
 import { describe, it, expect } from 'vitest';
-import { createAgentId } from '@clowder/shared';
+import { createAgentId } from '@choco/shared';
 import type {
   AgentId,
   AgentConfig,
@@ -19,7 +19,7 @@ import type {
   SopPredicate,
   InvocationContext,
   IncomingPlatformMessage,
-} from '@clowder/shared';
+} from '@choco/shared';
 
 describe('M1 AgentId brand must reject bare strings', () => {
   it('a raw string is not assignable where AgentId is required', () => {

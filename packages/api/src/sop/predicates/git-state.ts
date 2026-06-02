@@ -1,6 +1,6 @@
 // M12 git_state_predicate — ahead/behind checks before worktree commands.
 
-import type { SopPredicate } from '@clowder/shared';
+import type { SopPredicate } from '@choco/shared';
 import type { PredicateEvalOutcome, SopTraceContext } from './predicate-types.js';
 
 export function evaluateGitState(

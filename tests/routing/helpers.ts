@@ -7,14 +7,14 @@ import type {
   AgentId,
   AgentMessage,
   InvocationContext,
-} from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
-import type { AgentService } from '@clowder/api/providers/base';
-import { AgentRegistryImpl } from '@clowder/api/routing/agent-registry';
+} from '@choco/shared';
+import { createAgentId } from '@choco/shared';
+import type { AgentService } from '@choco/api/providers/base';
+import { AgentRegistryImpl } from '@choco/api/routing/agent-registry';
 import type {
   InvokeAgentArgs,
   InvokeAgentFn,
-} from '@clowder/api/routing/agent-router';
+} from '@choco/api/routing/agent-router';
 
 export const FIXED_TS = 1_700_000_000_000;
 export const fixedNow = (): number => FIXED_TS;

@@ -1,6 +1,6 @@
 // M12 handle_check — reviewer/author identity constraints (e.g. no self-review).
 
-import type { SopPredicate } from '@clowder/shared';
+import type { SopPredicate } from '@choco/shared';
 import type { PredicateEvalOutcome, SopTraceContext } from './predicate-types.js';
 
 export function evaluateHandleCheck(

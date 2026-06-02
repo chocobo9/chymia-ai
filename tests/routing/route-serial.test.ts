@@ -3,7 +3,7 @@
 // expansion. Deterministic recording invoke seam, fixed clock.
 
 import { describe, test, expect } from 'vitest';
-import { routeSerial } from '@clowder/api/routing/route-serial';
+import { routeSerial } from '@choco/api/routing/route-serial';
 import {
   makeRecordingInvoke,
   drain,

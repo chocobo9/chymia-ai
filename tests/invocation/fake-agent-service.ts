@@ -3,13 +3,13 @@
 // of AgentMessage events and records the InvokeOptions it was called with.
 // No CLI is spawned — this drives invokeSingleAgent deterministically.
 
-import type { AgentId, AgentMessage } from '@clowder/shared';
-import type { AgentService, InvokeOptions } from '@clowder/api/providers/base';
+import type { AgentId, AgentMessage } from '@choco/shared';
+import type { AgentService, InvokeOptions } from '@choco/api/providers/base';
 import {
   createClaudeParserState,
   parseClaudeLine,
   type ParserState,
-} from '@clowder/api/providers/claude/claude-parser';
+} from '@choco/api/providers/claude/claude-parser';
 
 /** One recorded invocation: the prompt and the options it was called with. */
 export interface RecordedInvoke {

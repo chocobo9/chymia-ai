@@ -15,7 +15,7 @@
 // mentions and the alternatives are the ACTUALLY-available agents — never
 // placeholders.
 
-import type { AgentConfig, AgentId, AgentMessage } from '@clowder/shared';
+import type { AgentConfig, AgentId, AgentMessage } from '@choco/shared';
 
 /** A resolver from agent id → its config (for display names + mention patterns). */
 export type ResolveAgentDisplay = (id: AgentId) => AgentConfig | undefined;

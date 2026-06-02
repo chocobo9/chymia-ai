@@ -3,9 +3,9 @@
 // and the formatted output. Authored independently of M7 product code (dev≠QA).
 
 import { describe, it, expect } from 'vitest';
-import type { HierarchicalContextConfig } from '@clowder/shared';
-import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@clowder/shared';
-import { buildTombstone, formatTombstone } from '@clowder/api/context/tombstone';
+import type { HierarchicalContextConfig } from '@choco/shared';
+import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@choco/shared';
+import { buildTombstone, formatTombstone } from '@choco/api/context/tombstone';
 import { CLAUDE, CODEX, makeMessage, resolveConfig, THREAD_ID } from './fixtures';
 
 function cfg(over?: Partial<HierarchicalContextConfig>): HierarchicalContextConfig {

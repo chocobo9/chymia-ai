@@ -13,7 +13,7 @@
 // (supplement D) — the Server + helpers are injected, nothing global.
 
 import type { Server as SocketIoServer, Socket } from 'socket.io';
-import type { AgentMessage, AgentState, SopViolationPayload, Thread } from '@clowder/shared';
+import type { AgentMessage, AgentState, SopViolationPayload, Thread } from '@choco/shared';
 import { ThreadSequencer } from './thread-sequencer.js';
 import { BroadcastRateMonitor } from './broadcast-rate-monitor.js';
 

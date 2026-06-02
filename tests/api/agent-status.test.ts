@@ -6,7 +6,7 @@
 // Real @mention + real agent ids; the reply is driven through the HTTP route.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import type { AgentState } from '@clowder/shared';
+import type { AgentState } from '@choco/shared';
 import type { Socket as ClientSocket } from 'socket.io-client';
 import { startTestApp, connectClient, replyScript, CLAUDE } from './helpers.js';
 

@@ -7,7 +7,7 @@ import {
   isPromptLimitError,
   isTransientCliError,
   isTimeoutError,
-} from '@clowder/api/providers/error-classifier';
+} from '@choco/api/providers/error-classifier';
 
 describe('error-classifier (unit, happy path)', () => {
   describe('isMissingSessionError', () => {

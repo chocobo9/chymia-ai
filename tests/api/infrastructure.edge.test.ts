@@ -11,11 +11,11 @@
 
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
-import { createAgentId } from '@clowder/shared';
-import { ThreadSequencer } from '@clowder/api/infrastructure/thread-sequencer';
-import { BroadcastRateMonitor } from '@clowder/api/infrastructure/broadcast-rate-monitor';
-import { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
-import { buildApp } from '@clowder/api/app-factory';
+import { createAgentId } from '@choco/shared';
+import { ThreadSequencer } from '@choco/api/infrastructure/thread-sequencer';
+import { BroadcastRateMonitor } from '@choco/api/infrastructure/broadcast-rate-monitor';
+import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
+import { buildApp } from '@choco/api/app-factory';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { CLAUDE, replyScript } from './helpers.js';
 

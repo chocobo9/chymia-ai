@@ -14,9 +14,9 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AgentId, AgentMessage, AgentState } from '@clowder/shared';
-import type { AgentService, InvokeOptions } from '@clowder/api/providers/base';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
+import type { AgentId, AgentMessage, AgentState } from '@choco/shared';
+import type { AgentService, InvokeOptions } from '@choco/api/providers/base';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import { CLAUDE, CODEX, GEMINI, replyScript } from './helpers.js';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 

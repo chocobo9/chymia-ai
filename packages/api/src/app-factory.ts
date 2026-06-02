@@ -21,53 +21,53 @@ import type { Database as DatabaseType } from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { Server as SocketIoServer } from 'socket.io';
-import type { AgentMessage, AgentId, IncomingPlatformMessage, StoredMessage } from '@clowder/shared';
+import type { AgentMessage, AgentId, IncomingPlatformMessage, StoredMessage } from '@choco/shared';
 
-import type { AgentService } from '@clowder/api/providers/base';
-import { MCP_CONFIG_ENV_KEY } from '@clowder/api/providers/claude/claude-service';
-import { buildClaudeMcpConfig } from '@clowder/api/providers/mcp-config';
-import { AgentRegistryImpl } from '@clowder/api/routing/agent-registry';
+import type { AgentService } from '@choco/api/providers/base';
+import { MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
+import { buildClaudeMcpConfig } from '@choco/api/providers/mcp-config';
+import { AgentRegistryImpl } from '@choco/api/routing/agent-registry';
 import {
   AgentRouter,
   type InvokeAgentArgs,
   type InvokeAgentFn,
   type RouteLogger,
-} from '@clowder/api/routing/agent-router';
-import { InvocationRegistry } from '@clowder/api/invocation/invocation-registry';
-import { SessionStore } from '@clowder/api/invocation/session-store';
-import { SessionMutex } from '@clowder/api/invocation/session-mutex';
-import { invokeSingleAgent } from '@clowder/api/invocation/invoke-single-agent';
-import type { InvokeSingleAgentParams } from '@clowder/api/invocation/invoke-single-agent';
-import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
-import { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
-import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
-import { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-store';
-import { SqlitePlatformMappingStore } from '@clowder/api/stores/platform-mapping-store';
-import { buildSystemPrompt } from '@clowder/api/context/system-prompt-builder';
-import { buildHierarchicalContext } from '@clowder/api/context/hierarchical-context';
-import { SopServiceImpl, type SopService } from '@clowder/api/sop/sop-service';
-import type { EvidenceRecaller } from '@clowder/api/context/evidence-recall';
-import type { ResolveAgentConfig } from '@clowder/api/context/context-assembler';
-import { loadAgentConfigs } from '@clowder/api/config/agent-config-loader';
-import { SocketManager } from '@clowder/api/infrastructure/socket-manager';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
-import { registerThreadRoutes } from '@clowder/api/routes/thread-routes';
-import { registerMessageRoutes } from '@clowder/api/routes/message-routes';
-import { handleThreadMessage } from '@clowder/api/routes/message-handler';
-import { registerAgentRoutes } from '@clowder/api/routes/agent-routes';
-import { registerEvidenceRoutes } from '@clowder/api/routes/evidence-routes';
-import { registerCallbackRoutes } from '@clowder/api/routes/callback-routes';
-import { registerHealthRoutes } from '@clowder/api/routes/health-routes';
+} from '@choco/api/routing/agent-router';
+import { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
+import { SessionStore } from '@choco/api/invocation/session-store';
+import { SessionMutex } from '@choco/api/invocation/session-mutex';
+import { invokeSingleAgent } from '@choco/api/invocation/invoke-single-agent';
+import type { InvokeSingleAgentParams } from '@choco/api/invocation/invoke-single-agent';
+import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
+import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
+import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
+import { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
+import { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
+import { buildSystemPrompt } from '@choco/api/context/system-prompt-builder';
+import { buildHierarchicalContext } from '@choco/api/context/hierarchical-context';
+import { SopServiceImpl, type SopService } from '@choco/api/sop/sop-service';
+import type { EvidenceRecaller } from '@choco/api/context/evidence-recall';
+import type { ResolveAgentConfig } from '@choco/api/context/context-assembler';
+import { loadAgentConfigs } from '@choco/api/config/agent-config-loader';
+import { SocketManager } from '@choco/api/infrastructure/socket-manager';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
+import { registerThreadRoutes } from '@choco/api/routes/thread-routes';
+import { registerMessageRoutes } from '@choco/api/routes/message-routes';
+import { handleThreadMessage } from '@choco/api/routes/message-handler';
+import { registerAgentRoutes } from '@choco/api/routes/agent-routes';
+import { registerEvidenceRoutes } from '@choco/api/routes/evidence-routes';
+import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
+import { registerHealthRoutes } from '@choco/api/routes/health-routes';
 import {
   checkWorkspaceMatch,
   checkInvocationProductive,
-} from '@clowder/api/infrastructure/invariants';
+} from '@choco/api/infrastructure/invariants';
 
 /** Env var names the CLI/MCP server reads to call back into this API (§C3). */
 export const CALLBACK_ENV_KEYS = {
-  apiUrl: 'CLOWDER_API_URL',
-  invocationId: 'CLOWDER_INVOCATION_ID',
-  callbackToken: 'CLOWDER_CALLBACK_TOKEN',
+  apiUrl: 'CHOCO_API_URL',
+  invocationId: 'CHOCO_INVOCATION_ID',
+  callbackToken: 'CHOCO_CALLBACK_TOKEN',
 } as const;
 
 /** Overrides accepted by {@link buildApp}. All optional — production passes none. */
@@ -172,7 +172,7 @@ export interface BuiltApp {
 }
 
 /** Default in-process DB path when no Database is injected. */
-const DEFAULT_DB_PATH = 'clowder.db';
+const DEFAULT_DB_PATH = 'choco.db';
 
 /**
  * Silent default logger — used when no {@link RouteLogger} is injected. Matches

@@ -5,7 +5,7 @@
 // （Claude Code spawn 参数 / stream-json / --resume / --system-prompt-file）。
 // 从设计写 WHAT，不复制源码。
 
-import type { AgentId, AgentMessage } from '@clowder/shared';
+import type { AgentId, AgentMessage } from '@choco/shared';
 import type { AgentService, InvokeOptions, MessageContent } from '../base.js';
 import { spawnCliLineStream, type CliExitInfo } from '../cli-spawn.js';
 import {

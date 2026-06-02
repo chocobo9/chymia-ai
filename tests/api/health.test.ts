@@ -8,8 +8,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { existsSync, readdirSync } from 'node:fs';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { DEFAULT_LOG_DIR } from '@clowder/api/infrastructure/logger';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { DEFAULT_LOG_DIR } from '@choco/api/infrastructure/logger';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { replyScript, CLAUDE } from './helpers.js';
 

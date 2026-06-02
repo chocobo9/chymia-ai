@@ -12,7 +12,7 @@
 // Transitions are validated; an illegal transition throws so a wiring bug
 // surfaces loudly instead of silently corrupting state.
 
-import type { AgentId } from '@clowder/shared';
+import type { AgentId } from '@choco/shared';
 
 /** Per-target lifecycle state. Source: §6.4. */
 export type MentionState =

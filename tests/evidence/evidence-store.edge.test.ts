@@ -12,8 +12,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Database as BetterSqliteDatabase } from 'better-sqlite3';
-import type { EvidenceItem, EvidenceSearchResult } from '@clowder/shared';
-import { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-store';
+import type { EvidenceItem, EvidenceSearchResult } from '@choco/shared';
+import { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
 
 // The vec0 table dimension is fixed by the first embedding's length (default
 // 384). Within a single test DB every embedding must share this dimension.

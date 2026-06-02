@@ -15,9 +15,9 @@
 //   * Violations are surfaced as a logger `warn` + a `sop_violation` socket
 //     broadcast. They are NOT fed back into the agent's prompt (notify only).
 
-import type { AgentId } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
+import type { AgentId } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
 import { buildSopTraceContext } from './sop-trace-adapter.js';
 
 /** Sentinel agentId for the SopTraceInput when no advancing/owning agent is known. */

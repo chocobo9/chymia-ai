@@ -22,7 +22,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import pino, { type Level as PinoLevel } from 'pino';
-import type { RouteLogger } from '@clowder/api/routing/agent-router';
+import type { RouteLogger } from '@choco/api/routing/agent-router';
 
 /** Env var naming the directory rolling log files are written under. */
 export const LOG_DIR_ENV = 'LOG_DIR';

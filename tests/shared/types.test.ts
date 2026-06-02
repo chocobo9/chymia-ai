@@ -1,4 +1,4 @@
-// M1 QA — runtime contract tests for @clowder/shared.
+// M1 QA — runtime contract tests for @choco/shared.
 // Written independently from the design docs (§4 / §B1a / §A10), NOT from the
 // implementation. Constructs real-content instances and asserts the externalized
 // defaults equal the design values exactly. Authored by the QA subagent (dev≠QA).
@@ -17,7 +17,7 @@ import {
   DEFAULT_COLD_MENTION_TOKEN_THRESHOLD,
   DEFAULT_MAX_ANCHORS,
   DEFAULT_MAX_THREAD_MEMORY_TOKENS,
-} from '@clowder/shared';
+} from '@choco/shared';
 import type {
   AgentId,
   AgentConfig,
@@ -48,7 +48,7 @@ import type {
   ImportanceSignals,
   ScoredMessage,
   IncomingPlatformMessage,
-} from '@clowder/shared';
+} from '@choco/shared';
 
 // Real project agent ids per design (clientId 'anthropic'|'openai'|'google';
 // example id 'claude-opus'). Use the team's claude/codex/gemini naming.

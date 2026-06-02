@@ -13,7 +13,7 @@
 // or a future history refresh.
 
 import { create } from 'zustand';
-import type { AgentId, AgentMessage, StoredMessage, Thread } from '@clowder/shared';
+import type { AgentId, AgentMessage, StoredMessage, Thread } from '@choco/shared';
 
 /** A single tool invocation captured while streaming. */
 export interface StreamingToolBlock {

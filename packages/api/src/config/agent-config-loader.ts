@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { load } from 'js-yaml';
 import { z } from 'zod';
-import type { AgentConfig, ClientId } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { AgentConfig, ClientId } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 
 /** Default roster path: the agents.yaml shipped beside this loader. */
 export const DEFAULT_AGENTS_CONFIG_PATH: string = join(

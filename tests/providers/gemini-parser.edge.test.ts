@@ -6,14 +6,14 @@
 // and adversarial malformed shapes. Real frames + real Chinese/English content.
 
 import { describe, it, expect } from 'vitest';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import {
   createGeminiParserState,
   parseGeminiLine,
   type GeminiParserState,
   type GeminiParserDeps,
-} from '@clowder/api/providers/gemini/gemini-parser';
+} from '@choco/api/providers/gemini/gemini-parser';
 
 const agentId = createAgentId('gemini');
 const FIXED_TS = 1_700_000_922_000;

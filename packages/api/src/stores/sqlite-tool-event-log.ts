@@ -8,8 +8,8 @@
 // (no `any`). agent_id is stored as the raw branded string and re-branded on read.
 
 import type { Database } from 'better-sqlite3';
-import type { IToolEventLog, StoredToolEvent } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { IToolEventLog, StoredToolEvent } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import { TOOL_EVENTS_TABLE, createToolEventsTable } from './migrations/003-tool-events.js';
 
 /** Raw row shape for the `tool_events` table (precisely typed; no `any`). */

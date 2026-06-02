@@ -12,8 +12,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Database as BetterSqliteDatabase } from 'better-sqlite3';
-import type { EvidenceItem, EntityRecord, EvidenceEdge } from '@clowder/shared';
-import { SqliteEvidenceStore } from '@clowder/api/evidence/sqlite-evidence-store';
+import type { EvidenceItem, EntityRecord, EvidenceEdge } from '@choco/shared';
+import { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
 
 // vec0 table dimension is fixed (default 384) by the first embedding.
 const EMBEDDING_DIM = 384;

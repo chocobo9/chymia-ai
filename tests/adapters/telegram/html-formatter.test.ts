@@ -5,7 +5,7 @@
 // CJK content — no placeholders.
 
 import { describe, it, expect } from 'vitest';
-import { formatToTelegramHtml, escapeHtml } from '@clowder/adapters/telegram/html-formatter';
+import { formatToTelegramHtml, escapeHtml } from '@choco/adapters/telegram/html-formatter';
 
 describe('escapeHtml (happy path)', () => {
   it('escapes the three Telegram-special characters to entities', () => {

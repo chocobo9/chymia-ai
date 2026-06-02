@@ -5,13 +5,13 @@
 
 import { describe, test, expect } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
-import { SessionStore } from '@clowder/api/invocation/session-store';
-import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
-import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
-import { SessionMutex } from '@clowder/api/invocation/session-mutex';
-import { invokeSingleAgent } from '@clowder/api/invocation/invoke-single-agent';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
+import { SessionStore } from '@choco/api/invocation/session-store';
+import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
+import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
+import { SessionMutex } from '@choco/api/invocation/session-mutex';
+import { invokeSingleAgent } from '@choco/api/invocation/invoke-single-agent';
 import {
   FakeAgentService,
   sessionInit,

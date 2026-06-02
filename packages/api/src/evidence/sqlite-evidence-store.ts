@@ -25,7 +25,7 @@ import type {
   EvidenceSearchOptions,
   EvidenceSearchResult,
   EvidenceSearchMode,
-} from '@clowder/shared';
+} from '@choco/shared';
 import { runEvidenceMigration } from './migrations/001-evidence.js';
 import { tokenizeForIndex, tokenizeForQuery } from './jieba-tokenizer.js';
 import { VectorStore } from './vector-store.js';

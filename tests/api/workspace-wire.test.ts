@@ -15,7 +15,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { buildApp, type BuildAppOverrides, type BuiltApp } from '@clowder/api/app-factory';
+import { buildApp, type BuildAppOverrides, type BuiltApp } from '@choco/api/app-factory';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { replyScript, CLAUDE } from './helpers.js';
 

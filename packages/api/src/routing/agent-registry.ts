@@ -5,9 +5,9 @@
 // AgentService instance (supplement D: constructor injection, no global
 // singleton). Mention patterns are flattened into entries once for the parsers.
 
-import type { AgentConfig, AgentId } from '@clowder/shared';
-import type { AgentService } from '@clowder/api/providers/base';
-import type { MentionEntry } from '@clowder/api/routing/mention-parser';
+import type { AgentConfig, AgentId } from '@choco/shared';
+import type { AgentService } from '@choco/api/providers/base';
+import type { MentionEntry } from '@choco/api/routing/mention-parser';
 
 /** AgentRegistry contract. Source: §A2. */
 export interface AgentRegistry {

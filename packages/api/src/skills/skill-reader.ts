@@ -6,7 +6,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { skillsDir as defaultSkillsDir } from '@clowder/skills';
+import { skillsDir as defaultSkillsDir } from '@choco/skills';
 
 /**
  * Valid skill id pattern: lowercase kebab-case. Constraining the id keeps it
@@ -23,7 +23,7 @@ const MARKDOWN_EXTENSION = '.md';
  * @param skillId Skill id (kebab-case), e.g. `'tdd'`. Must match the filename
  *   `<skillId>.md` under the skills directory.
  * @param skillsDir Directory holding skill markdown files. Defaults to the
- *   @clowder/skills package's exported {@link defaultSkillsDir}.
+ *   @choco/skills package's exported {@link defaultSkillsDir}.
  * @throws if the id is malformed or the file cannot be read.
  */
 export function loadSkillContent(skillId: string, skillsDir: string = defaultSkillsDir): string {

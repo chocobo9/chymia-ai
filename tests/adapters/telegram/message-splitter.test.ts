@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   splitHtmlMessage,
   TELEGRAM_MAX_MESSAGE_LENGTH,
-} from '@clowder/adapters/telegram/message-splitter';
+} from '@choco/adapters/telegram/message-splitter';
 
 describe('splitHtmlMessage (happy path)', () => {
   it('returns the input unchanged in a single chunk when within the limit', () => {

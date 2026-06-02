@@ -4,7 +4,7 @@
 // 设计来源：extraction §2.2（codex exec --json；session resume = experimental-resume）
 // + design §5.1。从设计写 WHAT，不复制源码。
 
-import type { AgentId, AgentMessage } from '@clowder/shared';
+import type { AgentId, AgentMessage } from '@choco/shared';
 import type { AgentService, InvokeOptions, MessageContent } from '../base.js';
 import { spawnCliLineStream } from '../cli-spawn.js';
 import { finalizeStream } from '../claude/claude-service.js';

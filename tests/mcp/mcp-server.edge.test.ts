@@ -13,9 +13,9 @@
 import { describe, it, expect } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createServer, buildAllTools } from '@clowder/mcp-server/index';
-import { CallbackClient } from '@clowder/mcp-server/callback-client';
-import type { CallbackResult } from '@clowder/mcp-server/callback-client';
+import { createServer, buildAllTools } from '@choco/mcp-server/index';
+import { CallbackClient } from '@choco/mcp-server/callback-client';
+import type { CallbackResult } from '@choco/mcp-server/callback-client';
 
 const EXPECTED_TOOLS = [
   'evidence_search',
@@ -191,8 +191,8 @@ describe('graceful degradation through the server (adversarial)', () => {
 
   it('with PARTIAL env (only 2 of 3 set), a tool call still degrades to a clean isError', async () => {
     const partial: NodeJS.ProcessEnv = {
-      CLOWDER_API_URL: 'http://127.0.0.1:7700',
-      CLOWDER_INVOCATION_ID: 'inv_partial',
+      CHOCO_API_URL: 'http://127.0.0.1:7700',
+      CHOCO_INVOCATION_ID: 'inv_partial',
       // token deliberately absent
     };
     const { client, close } = await connect(new CallbackClient({ env: partial }));

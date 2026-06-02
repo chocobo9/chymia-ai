@@ -11,8 +11,8 @@
 //   - a very long callback token + special chars in paths round-trip intact + valid JSON
 //   - producer gating: anthropic+mcpSupport SET, non-anthropic ABSENT, anthropic
 //     mcpSupport:false ABSENT (fixture roster), and NO shared-state pollution across turns
-//   - apiBaseUrl (the port-fix) flows into BOTH callbackEnv.CLOWDER_API_URL AND the
-//     embedded MCP config env.CLOWDER_API_URL
+//   - apiBaseUrl (the port-fix) flows into BOTH callbackEnv.CHOCO_API_URL AND the
+//     embedded MCP config env.CHOCO_API_URL
 //   - buildArgs verbatim passthrough of --mcp-config <value>
 //
 // Real inputs only: real roster agent ids, real @mention triggers, real minted-shape
@@ -23,13 +23,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import Database from 'better-sqlite3';
-import { buildApp, type BuildAppOverrides, type BuiltApp } from '@clowder/api/app-factory';
+import { buildApp, type BuildAppOverrides, type BuiltApp } from '@choco/api/app-factory';
 import {
   buildClaudeMcpConfig,
   buildClaudeMcpConfigObject,
   type ClaudeMcpConfigObject,
-} from '@clowder/api/providers/mcp-config';
-import { buildArgs, MCP_CONFIG_ENV_KEY } from '@clowder/api/providers/claude/claude-service';
+} from '@choco/api/providers/mcp-config';
+import { buildArgs, MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { replyScript, CLAUDE, CODEX, GEMINI } from './helpers.js';
 
@@ -135,10 +135,10 @@ function parseConfigValue(value: string): ClaudeMcpConfigObject {
 describe('buildClaudeMcpConfigObject — paths & override precedence', () => {
   it('(edge) resolves BOTH args to ABSOLUTE paths (default repo resolution)', () => {
     // Ensure no env override is leaking from another test/process.
-    setEnv('CLOWDER_MCP_SERVER_PATH', undefined);
-    setEnv('CLOWDER_TSX_CLI_PATH', undefined);
+    setEnv('CHOCO_MCP_SERVER_PATH', undefined);
+    setEnv('CHOCO_TSX_CLI_PATH', undefined);
 
-    const server = buildClaudeMcpConfigObject(CONFIG_OPTS).mcpServers['clowder'];
+    const server = buildClaudeMcpConfigObject(CONFIG_OPTS).mcpServers['choco'];
     expect(server).toBeDefined();
     const [tsxCli, entry] = server?.args ?? [];
     expect(tsxCli).toBeDefined();
@@ -153,35 +153,35 @@ describe('buildClaudeMcpConfigObject — paths & override precedence', () => {
 
   it('(edge) explicit serverEntryPath/tsxCliPath BEAT the env override', () => {
     // Set env overrides; explicit args must still win (precedence: explicit > env).
-    setEnv('CLOWDER_MCP_SERVER_PATH', '/env/should/lose/entry.ts');
-    setEnv('CLOWDER_TSX_CLI_PATH', '/env/should/lose/cli.mjs');
+    setEnv('CHOCO_MCP_SERVER_PATH', '/env/should/lose/entry.ts');
+    setEnv('CHOCO_TSX_CLI_PATH', '/env/should/lose/cli.mjs');
 
     const server = buildClaudeMcpConfigObject({
       ...CONFIG_OPTS,
       serverEntryPath: '/explicit/wins/entry.ts',
       tsxCliPath: '/explicit/wins/cli.mjs',
-    }).mcpServers['clowder'];
+    }).mcpServers['choco'];
 
     expect(server?.args).toEqual(['/explicit/wins/cli.mjs', '/explicit/wins/entry.ts']);
   });
 
   it('(edge) env override BEATS the repo default for both paths', () => {
-    setEnv('CLOWDER_MCP_SERVER_PATH', '/srv/mcp/custom-entry.ts');
-    setEnv('CLOWDER_TSX_CLI_PATH', '/srv/tsx/custom-cli.mjs');
+    setEnv('CHOCO_MCP_SERVER_PATH', '/srv/mcp/custom-entry.ts');
+    setEnv('CHOCO_TSX_CLI_PATH', '/srv/tsx/custom-cli.mjs');
 
-    const server = buildClaudeMcpConfigObject(CONFIG_OPTS).mcpServers['clowder'];
+    const server = buildClaudeMcpConfigObject(CONFIG_OPTS).mcpServers['choco'];
     expect(server?.args).toEqual(['/srv/tsx/custom-cli.mjs', '/srv/mcp/custom-entry.ts']);
   });
 
   it('(adversarial) a BLANK explicit override falls THROUGH (does not emit an empty path)', () => {
-    setEnv('CLOWDER_MCP_SERVER_PATH', undefined);
-    setEnv('CLOWDER_TSX_CLI_PATH', undefined);
+    setEnv('CHOCO_MCP_SERVER_PATH', undefined);
+    setEnv('CHOCO_TSX_CLI_PATH', undefined);
 
     const server = buildClaudeMcpConfigObject({
       ...CONFIG_OPTS,
       serverEntryPath: '',
       tsxCliPath: '',
-    }).mcpServers['clowder'];
+    }).mcpServers['choco'];
 
     const [tsxCli, entry] = server?.args ?? [];
     // Empty string must NOT become the path — it must fall back to the resolved default.
@@ -193,36 +193,36 @@ describe('buildClaudeMcpConfigObject — paths & override precedence', () => {
   });
 
   it('(adversarial) a BLANK env override falls THROUGH to the repo default', () => {
-    setEnv('CLOWDER_MCP_SERVER_PATH', '');
-    setEnv('CLOWDER_TSX_CLI_PATH', '');
+    setEnv('CHOCO_MCP_SERVER_PATH', '');
+    setEnv('CHOCO_TSX_CLI_PATH', '');
 
-    const server = buildClaudeMcpConfigObject(CONFIG_OPTS).mcpServers['clowder'];
+    const server = buildClaudeMcpConfigObject(CONFIG_OPTS).mcpServers['choco'];
     const [tsxCli, entry] = server?.args ?? [];
     expect(tsxCli).not.toBe('');
     expect(entry).not.toBe('');
     expect((entry as string).replace(/\\/g, '/')).toMatch(/packages\/mcp-server\/src\/index\.ts$/);
   });
 
-  it('(edge) embeds EXACTLY the three CLOWDER_* callback keys with the passed values', () => {
-    const env = buildClaudeMcpConfigObject(CONFIG_OPTS).mcpServers['clowder']?.env;
+  it('(edge) embeds EXACTLY the three CHOCO_* callback keys with the passed values', () => {
+    const env = buildClaudeMcpConfigObject(CONFIG_OPTS).mcpServers['choco']?.env;
     expect(env).toBeDefined();
     expect(Object.keys(env ?? {}).sort()).toEqual([
-      'CLOWDER_API_URL',
-      'CLOWDER_CALLBACK_TOKEN',
-      'CLOWDER_INVOCATION_ID',
+      'CHOCO_API_URL',
+      'CHOCO_CALLBACK_TOKEN',
+      'CHOCO_INVOCATION_ID',
     ]);
-    expect(env?.['CLOWDER_API_URL']).toBe(CONFIG_OPTS.apiBaseUrl);
-    expect(env?.['CLOWDER_INVOCATION_ID']).toBe(CONFIG_OPTS.invocationId);
-    expect(env?.['CLOWDER_CALLBACK_TOKEN']).toBe(CONFIG_OPTS.callbackToken);
+    expect(env?.['CHOCO_API_URL']).toBe(CONFIG_OPTS.apiBaseUrl);
+    expect(env?.['CHOCO_INVOCATION_ID']).toBe(CONFIG_OPTS.invocationId);
+    expect(env?.['CHOCO_CALLBACK_TOKEN']).toBe(CONFIG_OPTS.callbackToken);
   });
 
   it('(adversarial) a very long callback token round-trips intact into the env block', () => {
     // A 4KB token (realistic for a signed/opaque token); must not be truncated.
     const longToken = `tok-${'a1B2c3D4'.repeat(512)}`; // 4 + 4096 chars
     const env = buildClaudeMcpConfigObject({ ...CONFIG_OPTS, callbackToken: longToken })
-      .mcpServers['clowder']?.env;
-    expect(env?.['CLOWDER_CALLBACK_TOKEN']).toBe(longToken);
-    expect(env?.['CLOWDER_CALLBACK_TOKEN']?.length).toBe(longToken.length);
+      .mcpServers['choco']?.env;
+    expect(env?.['CHOCO_CALLBACK_TOKEN']).toBe(longToken);
+    expect(env?.['CHOCO_CALLBACK_TOKEN']?.length).toBe(longToken.length);
   });
 });
 
@@ -262,7 +262,7 @@ describe('buildClaudeMcpConfig — platform wrapper', () => {
     expect(value.startsWith('{')).toBe(true);
     const parsed = JSON.parse(value) as ClaudeMcpConfigObject;
     expect(parsed).toEqual(buildClaudeMcpConfigObject(CONFIG_OPTS));
-    expect(parsed.mcpServers['clowder']?.command).toBe('node');
+    expect(parsed.mcpServers['choco']?.command).toBe('node');
   });
 
   it('(adversarial) two calls produce DISTINCT temp files (no collision across turns)', () => {
@@ -277,8 +277,8 @@ describe('buildClaudeMcpConfig — platform wrapper', () => {
     // Each file still holds its OWN config — no cross-contamination.
     const pa = JSON.parse(readFileSync(a, 'utf-8')) as ClaudeMcpConfigObject;
     const pb = JSON.parse(readFileSync(b, 'utf-8')) as ClaudeMcpConfigObject;
-    expect(pa.mcpServers['clowder']?.env['CLOWDER_INVOCATION_ID']).toBe('inv-aaaa-1111');
-    expect(pb.mcpServers['clowder']?.env['CLOWDER_INVOCATION_ID']).toBe('inv-bbbb-2222');
+    expect(pa.mcpServers['choco']?.env['CHOCO_INVOCATION_ID']).toBe('inv-aaaa-1111');
+    expect(pb.mcpServers['choco']?.env['CHOCO_INVOCATION_ID']).toBe('inv-bbbb-2222');
   });
 
   it('(adversarial) special chars in an override path stay valid + parseable JSON', () => {
@@ -293,7 +293,7 @@ describe('buildClaudeMcpConfig — platform wrapper', () => {
       tsxCliPath: weirdCli,
     });
     const parsed = JSON.parse(value) as ClaudeMcpConfigObject; // must not throw
-    expect(parsed.mcpServers['clowder']?.args).toEqual([weirdCli, weirdEntry]);
+    expect(parsed.mcpServers['choco']?.args).toEqual([weirdCli, weirdEntry]);
   });
 });
 
@@ -312,7 +312,7 @@ describe('MCP producer gating via buildApp', () => {
     expect(fake.calls).toHaveLength(1);
     const value = fake.calls[0]?.options?.callbackEnv?.[MCP_CONFIG_ENV_KEY];
     expect(value).toBeDefined();
-    expect(parseConfigValue(value as string).mcpServers['clowder']?.command).toBe('node');
+    expect(parseConfigValue(value as string).mcpServers['choco']?.command).toBe('node');
   });
 
   it('(adversarial) non-anthropic agent (gemini) → MCP_CONFIG_JSON ABSENT (no claude JSON leak)', async () => {
@@ -357,7 +357,7 @@ describe('MCP producer gating via buildApp', () => {
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0]?.options?.callbackEnv?.[MCP_CONFIG_ENV_KEY]).toBeUndefined();
     // Sanity: the OTHER two callback env keys are still present (gating only drops MCP).
-    expect(fake.calls[0]?.options?.callbackEnv?.['CLOWDER_INVOCATION_ID']).toBeDefined();
+    expect(fake.calls[0]?.options?.callbackEnv?.['CHOCO_INVOCATION_ID']).toBeDefined();
   });
 
   it('(adversarial) per-turn callbackEnv is isolated — a non-MCP turn is NOT polluted by a prior MCP turn', async () => {
@@ -387,11 +387,11 @@ describe('MCP producer gating via buildApp', () => {
     expect(codexFake.calls[0]?.options?.callbackEnv?.[MCP_CONFIG_ENV_KEY]).toBeUndefined();
 
     // Each claude turn mints a fresh invocation → distinct embedded invocationId.
-    const inv1 = parseConfigValue(claude1 as string).mcpServers['clowder']?.env[
-      'CLOWDER_INVOCATION_ID'
+    const inv1 = parseConfigValue(claude1 as string).mcpServers['choco']?.env[
+      'CHOCO_INVOCATION_ID'
     ];
-    const inv2 = parseConfigValue(claude2 as string).mcpServers['clowder']?.env[
-      'CLOWDER_INVOCATION_ID'
+    const inv2 = parseConfigValue(claude2 as string).mcpServers['choco']?.env[
+      'CHOCO_INVOCATION_ID'
     ];
     expect(inv1).toBeDefined();
     expect(inv2).toBeDefined();
@@ -415,13 +415,13 @@ describe('apiBaseUrl port-fix flows into the MCP callback target', () => {
     expect(fake.calls).toHaveLength(1);
     const callbackEnv = fake.calls[0]?.options?.callbackEnv;
     // 1. The turn-level callback env carries the configured base.
-    expect(callbackEnv?.['CLOWDER_API_URL']).toBe(apiBaseUrl);
+    expect(callbackEnv?.['CHOCO_API_URL']).toBe(apiBaseUrl);
     // 2. The SAME base is embedded in the MCP config the spawned server reads — so
     //    the MCP child calls back to the RIGHT port (the bug was port 80 with no port).
     const value = callbackEnv?.[MCP_CONFIG_ENV_KEY];
     expect(value).toBeDefined();
-    const embedded = parseConfigValue(value as string).mcpServers['clowder']?.env[
-      'CLOWDER_API_URL'
+    const embedded = parseConfigValue(value as string).mcpServers['choco']?.env[
+      'CHOCO_API_URL'
     ];
     expect(embedded).toBe(apiBaseUrl);
   });
@@ -451,7 +451,7 @@ describe('claude buildArgs MCP consumer hook', () => {
     // A non-MCP turn (e.g. the gated-off case) must not sprout a --mcp-config flag.
     const args = buildArgs(
       '@claude 普通对话，无 MCP',
-      { callbackEnv: { CLOWDER_API_URL: 'http://127.0.0.1:3100' } },
+      { callbackEnv: { CHOCO_API_URL: 'http://127.0.0.1:3100' } },
       'claude-opus-4-6',
       'bypassPermissions',
     );

@@ -16,14 +16,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { delimiter, join } from 'node:path';
 import Database from 'better-sqlite3';
-import type { AgentMessage } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
 import {
   isCliAvailable,
   probeAgentAvailability,
   type CliAvailabilityOptions,
-} from '@clowder/api/runtime/cli-availability';
-import type { AgentService } from '@clowder/api/providers/base';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
+} from '@choco/api/runtime/cli-availability';
+import type { AgentService } from '@choco/api/providers/base';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import { CLAUDE, CODEX, GEMINI } from './helpers.js';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 

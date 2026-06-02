@@ -15,8 +15,8 @@ import type {
   EvidenceItem,
   EvidenceKind,
   EvidenceSearchMode,
-} from '@clowder/shared';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
+} from '@choco/shared';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
 
 const EVIDENCE_KINDS = [
   'feature',

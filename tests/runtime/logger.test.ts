@@ -15,7 +15,7 @@ import {
   routeLoggerFrom,
   type StructuredLogger,
   type LogFields,
-} from '@clowder/api/infrastructure/logger';
+} from '@choco/api/infrastructure/logger';
 
 interface CapturedRecord {
   readonly level: 'info' | 'warn' | 'error';

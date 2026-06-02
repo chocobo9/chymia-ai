@@ -29,8 +29,8 @@ import type {
   SessionStatus,
   StoredMessage,
   StoredToolEvent,
-} from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+} from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 
 /**
  * Logical table name for the session archive.

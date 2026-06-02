@@ -33,7 +33,7 @@ import { ApiClient } from '../../packages/web/src/lib/api.js';
 import type { SocketLike, SocketConnector } from '../../packages/web/src/hooks/useSocket.js';
 import { useChatStore } from '../../packages/web/src/stores/chat-store.js';
 import { useAgentStore } from '../../packages/web/src/stores/agent-store.js';
-import type { StoredMessage, Thread } from '@clowder/shared';
+import type { StoredMessage, Thread } from '@choco/shared';
 import {
   CODEX,
   ROSTER,

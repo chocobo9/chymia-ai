@@ -13,9 +13,9 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AgentId, AgentMessage, StoredMessage } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import type { RouteLogger } from '@clowder/api/routing/agent-router';
+import type { AgentId, AgentMessage, StoredMessage } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import type { RouteLogger } from '@choco/api/routing/agent-router';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { CLAUDE, CODEX } from './helpers.js';
 

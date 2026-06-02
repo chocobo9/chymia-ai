@@ -51,7 +51,7 @@ interface PackWorkflow {
 }
 
 /** Display name embedded in compiled block headers. */
-const DEFAULT_PACK_LABEL = 'clowder-skills';
+const DEFAULT_PACK_LABEL = 'choco-skills';
 
 /**
  * Compile a pack directory into {@link CompiledPackBlocks}.

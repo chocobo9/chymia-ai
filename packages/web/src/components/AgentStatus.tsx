@@ -16,7 +16,7 @@
 // and the per-status labels.
 
 import { useMemo, useState, type ReactElement } from 'react';
-import type { AgentStatus as AgentStatusValue, StoredMessage } from '@clowder/shared';
+import type { AgentStatus as AgentStatusValue, StoredMessage } from '@choco/shared';
 import { useAgentStore } from '../stores/agent-store.js';
 import { useChatStore, type TranscriptNotice } from '../stores/chat-store.js';
 import { statusPresentation } from './choco/primitives.js';

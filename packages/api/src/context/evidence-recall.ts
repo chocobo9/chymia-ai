@@ -15,7 +15,7 @@ import type {
   EvidenceSearchResult,
   HierarchicalContextConfig,
   StoredMessage,
-} from '@clowder/shared';
+} from '@choco/shared';
 
 /** Composite-query slice sizes. Source: §B1 (300 / 200 / last-2). */
 const CURRENT_MESSAGE_SLICE = 300; // 用户消息前 300 字

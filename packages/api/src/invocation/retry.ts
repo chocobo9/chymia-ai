@@ -21,7 +21,7 @@ import {
   isPromptLimitError,
   isTransientCliError,
   isTimeoutError,
-} from '@clowder/api/providers/error-classifier';
+} from '@choco/api/providers/error-classifier';
 
 /**
  * Maximum number of retries after the initial attempt.

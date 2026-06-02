@@ -7,12 +7,12 @@
 // One agent's failure must not kill the others — that property is owned by
 // mergeStreams; in-band `error` AgentMessages already flow through normally.
 
-import type { AgentId, AgentMessage, InvocationContext } from '@clowder/shared';
-import { mergeStreams } from '@clowder/api/routing/stream-merge';
+import type { AgentId, AgentMessage, InvocationContext } from '@choco/shared';
+import { mergeStreams } from '@choco/api/routing/stream-merge';
 import type {
   InvokeAgentFn,
   RouteLogger,
-} from '@clowder/api/routing/agent-router';
+} from '@choco/api/routing/agent-router';
 
 /** Parameters for {@link routeParallel}. */
 export interface RouteParallelParams {

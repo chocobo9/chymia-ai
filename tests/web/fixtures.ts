@@ -9,8 +9,8 @@ import type {
   AgentState,
   StoredMessage,
   Thread,
-} from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+} from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import type { AgentRosterEntry } from '../../packages/web/src/lib/api.js';
 
 export const CLAUDE: AgentId = createAgentId('claude-opus');

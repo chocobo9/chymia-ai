@@ -16,7 +16,7 @@
 // 纯、确定性：输入 = 单个已 JSON.parse 的事件对象 + ParserState，输出 = 0..N 条 AgentMessage。
 // 不 spawn 任何进程、无 I/O。全部经 unknown + 类型守卫窄化，零 any（CLAUDE §2.1）。
 
-import type { AgentId, AgentMessage, AgentMessageType } from '@clowder/shared';
+import type { AgentId, AgentMessage, AgentMessageType } from '@choco/shared';
 
 /** provider 标识常量（写入 metadata.provider；来源：本项目 provider 命名约定） */
 export const CLAUDE_PROVIDER = 'claude' as const;

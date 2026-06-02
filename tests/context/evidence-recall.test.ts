@@ -3,9 +3,9 @@ import type {
   EvidenceSearchOptions,
   EvidenceSearchResult,
   HierarchicalContextConfig,
-} from '@clowder/shared';
-import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@clowder/shared';
-import { recallEvidence, type EvidenceRecaller } from '@clowder/api/context/evidence-recall';
+} from '@choco/shared';
+import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@choco/shared';
+import { recallEvidence, type EvidenceRecaller } from '@choco/api/context/evidence-recall';
 import { CLAUDE, makeMessage } from './fixtures';
 
 function searchResult(): EvidenceSearchResult {

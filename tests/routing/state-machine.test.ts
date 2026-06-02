@@ -2,7 +2,7 @@
 // M4 DEV happy-path: MultiMentionStateMachine lifecycle + aggregate roll-up.
 
 import { describe, test, expect } from 'vitest';
-import { MultiMentionStateMachine } from '@clowder/api/routing/state-machine';
+import { MultiMentionStateMachine } from '@choco/api/routing/state-machine';
 import { CLAUDE, CODEX } from './helpers';
 
 describe('MultiMentionStateMachine — happy path (unit)', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createAgentId, type AgentId, type StoredMessage } from '@clowder/shared';
-import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
+import { createAgentId, type AgentId, type StoredMessage } from '@choco/shared';
+import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
 
 /**
  * M5 QA edge + adversarial suite (independent of the dev's happy-path file).

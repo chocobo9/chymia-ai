@@ -8,7 +8,7 @@
 //
 // 设计来源：clowder-architecture-design.md §5.1。
 
-import type { AgentMessage } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
 
 /**
  * 多模态内容块（图片等）。

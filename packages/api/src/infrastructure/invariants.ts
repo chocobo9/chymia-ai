@@ -23,8 +23,8 @@
 //      spike errors (flags silent zero-output / error-burst turns).
 
 import { resolve, relative, isAbsolute } from 'node:path';
-import type { AgentId } from '@clowder/shared';
-import type { RouteLogger } from '@clowder/api/routing/agent-router';
+import type { AgentId } from '@choco/shared';
+import type { RouteLogger } from '@choco/api/routing/agent-router';
 
 /** Common identity carried on every probe warning for correlation. */
 export interface ProbeContext {

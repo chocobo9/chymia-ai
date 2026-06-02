@@ -3,10 +3,10 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createAgentId } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { InvocationRegistry } from '@clowder/api/invocation/invocation-registry';
-import { authenticateCallback } from '@clowder/api/routes/callback-auth';
+import { createAgentId } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
+import { authenticateCallback } from '@choco/api/routes/callback-auth';
 
 const CLAUDE = createAgentId('claude-opus');
 

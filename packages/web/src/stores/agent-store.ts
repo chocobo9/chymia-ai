@@ -7,7 +7,7 @@
 // when it ends. Updates are immutable (new map each time).
 
 import { create } from 'zustand';
-import type { AgentId, AgentState, AgentStatus } from '@clowder/shared';
+import type { AgentId, AgentState, AgentStatus } from '@choco/shared';
 import type { AgentRosterEntry } from '../lib/api.js';
 
 interface AgentStoreState {

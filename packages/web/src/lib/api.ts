@@ -24,7 +24,7 @@ import type {
   Thread,
   EvidenceSearchOptions,
   EvidenceSearchResult,
-} from '@clowder/shared';
+} from '@choco/shared';
 import { webConfig } from './config.js';
 
 /**

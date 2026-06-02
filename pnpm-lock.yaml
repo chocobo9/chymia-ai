@@ -8,22 +8,22 @@ importers:
 
   .:
     devDependencies:
-      '@clowder/adapters':
+      '@choco/adapters':
         specifier: workspace:*
         version: link:packages/adapters
-      '@clowder/api':
+      '@choco/api':
         specifier: workspace:*
         version: link:packages/api
-      '@clowder/mcp-server':
+      '@choco/mcp-server':
         specifier: workspace:*
         version: link:packages/mcp-server
-      '@clowder/shared':
+      '@choco/shared':
         specifier: workspace:*
         version: link:packages/shared
-      '@clowder/skills':
+      '@choco/skills':
         specifier: workspace:*
         version: link:packages/skills
-      '@clowder/web':
+      '@choco/web':
         specifier: workspace:*
         version: link:packages/web
       '@playwright/test':
@@ -71,7 +71,7 @@ importers:
 
   packages/adapters:
     dependencies:
-      '@clowder/shared':
+      '@choco/shared':
         specifier: workspace:*
         version: link:../shared
       fast-xml-parser:
@@ -83,10 +83,10 @@ importers:
 
   packages/api:
     dependencies:
-      '@clowder/shared':
+      '@choco/shared':
         specifier: workspace:*
         version: link:../shared
-      '@clowder/skills':
+      '@choco/skills':
         specifier: workspace:*
         version: link:../skills
       '@fastify/cors':
@@ -126,7 +126,7 @@ importers:
 
   packages/mcp-server:
     dependencies:
-      '@clowder/shared':
+      '@choco/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/sdk':
@@ -142,7 +142,7 @@ importers:
 
   packages/web:
     dependencies:
-      '@clowder/shared':
+      '@choco/shared':
         specifier: workspace:*
         version: link:../shared
       react:

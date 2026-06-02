@@ -3,9 +3,9 @@
 // (the Z5 fallback) and intent-driven strategy selection. Deterministic clock.
 
 import { describe, test, expect } from 'vitest';
-import type { StoredMessage } from '@clowder/shared';
-import { AgentRouter } from '@clowder/api/routing/agent-router';
-import type { RecentMessageReader } from '@clowder/api/routing/agent-router';
+import type { StoredMessage } from '@choco/shared';
+import { AgentRouter } from '@choco/api/routing/agent-router';
+import type { RecentMessageReader } from '@choco/api/routing/agent-router';
 import {
   makeRegistry,
   makeRecordingInvoke,

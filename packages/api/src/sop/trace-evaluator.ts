@@ -1,7 +1,7 @@
 // M12 trace evaluator — post-hoc SOP rule evaluation entry point.
 // Source: clowder-architecture-design.md §5.6 evaluateTrace + supplement §B3.
 
-import type { AgentId, SopDefinition, SopPredicate, SopRule, SopViolation } from '@clowder/shared';
+import type { AgentId, SopDefinition, SopPredicate, SopRule, SopViolation } from '@choco/shared';
 import { evaluateCommandPattern } from './predicates/command-pattern.js';
 import { evaluateGitState } from './predicates/git-state.js';
 import { evaluateHandleCheck } from './predicates/handle-check.js';

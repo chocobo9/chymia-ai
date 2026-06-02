@@ -6,12 +6,12 @@
 // 启用：RUN_CLI_SMOKE=1 npx vitest run tests/providers/real-cli-smoke.integration.test.ts
 
 import { describe, it, expect } from 'vitest';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
-import { ClaudeAgentService } from '@clowder/api/providers/claude/claude-service';
-import { CodexAgentService } from '@clowder/api/providers/codex/codex-service';
-import { GeminiAgentService } from '@clowder/api/providers/gemini/gemini-service';
-import type { AgentService } from '@clowder/api/providers/base';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
+import { ClaudeAgentService } from '@choco/api/providers/claude/claude-service';
+import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
+import { GeminiAgentService } from '@choco/api/providers/gemini/gemini-service';
+import type { AgentService } from '@choco/api/providers/base';
 
 const SMOKE_ENABLED = process.env.RUN_CLI_SMOKE === '1';
 const SMOKE_PROMPT = '用一句话说明 1+1 等于几（仅回答，无需工具）。';

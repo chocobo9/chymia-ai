@@ -14,12 +14,12 @@ import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { AgentMessage, Thread } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
-import { CallbackClient } from '@clowder/mcp-server/callback-client';
-import { createServer } from '@clowder/mcp-server/index';
+import type { AgentMessage, Thread } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
+import { CallbackClient } from '@choco/mcp-server/callback-client';
+import { createServer } from '@choco/mcp-server/index';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 
 const CLAUDE = createAgentId('claude-opus');

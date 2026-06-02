@@ -4,9 +4,9 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadManifest } from '@clowder/api/skills/manifest-loader';
-import { loadSkillContent } from '@clowder/api/skills/skill-reader';
-import { PackCompiler } from '@clowder/api/skills/pack-compiler';
+import { loadManifest } from '@choco/api/skills/manifest-loader';
+import { loadSkillContent } from '@choco/api/skills/skill-reader';
+import { PackCompiler } from '@choco/api/skills/pack-compiler';
 
 function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));

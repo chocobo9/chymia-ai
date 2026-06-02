@@ -20,7 +20,7 @@ import type {
   IncomingPlatformMessage,
   PlatformAdapter,
   StoredMessage,
-} from '@clowder/shared';
+} from '@choco/shared';
 
 import { parseWeChatXml } from './xml-parser.js';
 import { TokenManager, type FetchFn } from './token-manager.js';
@@ -58,13 +58,13 @@ const NOOP_LOGGER: AdapterLogger = { warn: () => {}, error: () => {} };
 
 /** WeChat adapter config — all secrets/urls come from env/config, never literals. */
 export interface WeChatAdapterConfig {
-  /** WeCom corpId (CLOWDER_WECHAT_CORP_ID). */
+  /** WeCom corpId (CHOCO_WECHAT_CORP_ID). */
   readonly corpId: string;
-  /** WeCom app secret (CLOWDER_WECHAT_SECRET). */
+  /** WeCom app secret (CHOCO_WECHAT_SECRET). */
   readonly secret: string;
-  /** Callback token for SHA1 signature verification (CLOWDER_WECHAT_TOKEN). */
+  /** Callback token for SHA1 signature verification (CHOCO_WECHAT_TOKEN). */
   readonly token: string;
-  /** API base (CLOWDER_WECHAT_API_BASE). */
+  /** API base (CHOCO_WECHAT_API_BASE). */
   readonly apiBase: string;
 }
 

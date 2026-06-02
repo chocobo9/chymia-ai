@@ -2,8 +2,8 @@
 // Realistic agent configs + thread messages (real @mentions, tool_use/tool_result
 // pairs, mixed Chinese/English). No placeholder data.
 
-import { createAgentId, type AgentConfig, type AgentId, type StoredMessage } from '@clowder/shared';
-import type { ResolveAgentConfig } from '@clowder/api/context/context-assembler';
+import { createAgentId, type AgentConfig, type AgentId, type StoredMessage } from '@choco/shared';
+import type { ResolveAgentConfig } from '@choco/api/context/context-assembler';
 
 export const CLAUDE: AgentId = createAgentId('claude-opus');
 export const CODEX: AgentId = createAgentId('codex-gpt');

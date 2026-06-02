@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import type { EvidenceSearchResult } from '@clowder/shared';
-import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@clowder/shared';
+import type { EvidenceSearchResult } from '@choco/shared';
+import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@choco/shared';
 import {
   buildHierarchicalContext,
   extractQueryTerms,
-} from '@clowder/api/context/hierarchical-context';
-import type { EvidenceRecaller } from '@clowder/api/context/evidence-recall';
+} from '@choco/api/context/hierarchical-context';
+import type { EvidenceRecaller } from '@choco/api/context/evidence-recall';
 import { build25MessageThread, CLAUDE, makeMessage, resolveConfig, THREAD_ID } from './fixtures';
 
 function evidenceStore(): EvidenceRecaller {

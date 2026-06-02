@@ -5,9 +5,9 @@
 //
 // WHY (research, from Clowder context-transport.ts buildCoverageMap): a flat input
 // object is normalized into the nested CoverageMap shape the prompt renderer reads.
-// Re-authored against our frozen M1 CoverageMap type (@clowder/shared).
+// Re-authored against our frozen M1 CoverageMap type (@choco/shared).
 
-import type { CoverageMap, CoverageMapThreadMemory, TimeRange } from '@clowder/shared';
+import type { CoverageMap, CoverageMapThreadMemory, TimeRange } from '@choco/shared';
 
 /** Flat input for {@link buildCoverageMap} (normalized into the nested CoverageMap). */
 export interface CoverageMapInput {

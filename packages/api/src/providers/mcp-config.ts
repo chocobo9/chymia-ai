@@ -3,7 +3,7 @@
 // server (the 8-tool subsystem) for an invocation.
 //
 // Source: clowder-design-supplement.md §C3 (MCP run model — the agent CLI spawns
-// the MCP server as a stdio subprocess; the server name is `clowder`). Claude's
+// the MCP server as a stdio subprocess; the server name is `choco`). Claude's
 // CLI consumes this via `--mcp-config <value>` (claude-service buildArgs).
 //
 // The descriptor launches the server with `node <tsx-cli> <server-entry>` — NOT
@@ -22,12 +22,12 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { APP_FACTORY_DIR, CALLBACK_ENV_KEYS } from '@clowder/api/app-factory';
+import { APP_FACTORY_DIR, CALLBACK_ENV_KEYS } from '@choco/api/app-factory';
 
 /**
  * Repo-relative path (from {@link APP_FACTORY_DIR} = `packages/api/src`, three
  * levels up to the repo root) of the M10 MCP server entry. Overridable via the
- * `CLOWDER_MCP_SERVER_PATH` env var (config-as-data, CLAUDE.md §3.3) — never a
+ * `CHOCO_MCP_SERVER_PATH` env var (config-as-data, CLAUDE.md §3.3) — never a
  * hardcoded absolute path in source.
  */
 const MCP_SERVER_ENTRY_RELATIVE: readonly string[] = [
@@ -42,7 +42,7 @@ const MCP_SERVER_ENTRY_RELATIVE: readonly string[] = [
 
 /**
  * Repo-relative path of the tsx CLI used to launch the .ts MCP entry under
- * `node`. Overridable via `CLOWDER_TSX_CLI_PATH`.
+ * `node`. Overridable via `CHOCO_TSX_CLI_PATH`.
  */
 const TSX_CLI_RELATIVE: readonly string[] = [
   '..',
@@ -55,11 +55,11 @@ const TSX_CLI_RELATIVE: readonly string[] = [
 ];
 
 /** Env-var names that override the resolved entry / tsx paths (config-as-data). */
-const MCP_SERVER_PATH_ENV = 'CLOWDER_MCP_SERVER_PATH';
-const TSX_CLI_PATH_ENV = 'CLOWDER_TSX_CLI_PATH';
+const MCP_SERVER_PATH_ENV = 'CHOCO_MCP_SERVER_PATH';
+const TSX_CLI_PATH_ENV = 'CHOCO_TSX_CLI_PATH';
 
 /** MCP server name advertised under `mcpServers` (design supplement §C3). */
-const MCP_SERVER_NAME = 'clowder';
+const MCP_SERVER_NAME = 'choco';
 
 /** Launch command for the MCP server subprocess (node, not npx — see header). */
 const MCP_LAUNCH_COMMAND = 'node';
@@ -70,11 +70,11 @@ const WIN_CONFIG_FILENAME = 'mcp-config.json';
 
 /** Inputs to {@link buildClaudeMcpConfig}. The three ids come from the minted record. */
 export interface ClaudeMcpConfigOptions {
-  /** Base URL the spawned MCP server calls back to (CLOWDER_API_URL). */
+  /** Base URL the spawned MCP server calls back to (CHOCO_API_URL). */
   readonly apiBaseUrl: string;
-  /** This turn's invocation id (CLOWDER_INVOCATION_ID). */
+  /** This turn's invocation id (CHOCO_INVOCATION_ID). */
   readonly invocationId: string;
-  /** This turn's callback token (CLOWDER_CALLBACK_TOKEN). */
+  /** This turn's callback token (CHOCO_CALLBACK_TOKEN). */
   readonly callbackToken: string;
   /** Override the resolved MCP server entry path (else env/default). */
   readonly serverEntryPath?: string;

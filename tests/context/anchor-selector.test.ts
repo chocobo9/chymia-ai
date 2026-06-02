@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scoreImportance, selectAnchors, formatAnchors } from '@clowder/api/context/anchor-selector';
+import { scoreImportance, selectAnchors, formatAnchors } from '@choco/api/context/anchor-selector';
 import { CLAUDE, CODEX, makeMessage, resolveConfig } from './fixtures';
 
 describe('anchor selection (unit, happy path)', () => {

@@ -23,8 +23,8 @@ import type {
   HierarchicalContextConfig,
   ScoredMessage,
   StoredMessage,
-} from '@clowder/shared';
-import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@clowder/shared';
+} from '@choco/shared';
+import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@choco/shared';
 import {
   ContextAssembler,
   DEFAULT_MAX_CONTENT_LENGTH,

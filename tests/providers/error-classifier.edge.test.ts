@@ -11,7 +11,7 @@ import {
   isPromptLimitError,
   isTransientCliError,
   isTimeoutError,
-} from '@clowder/api/providers/error-classifier';
+} from '@choco/api/providers/error-classifier';
 
 describe('isMissingSessionError (edge)', () => {
   it('matches the real Claude Code resume failure', () => {

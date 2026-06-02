@@ -11,8 +11,8 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
-import { advanceStageWithEval } from '@clowder/api/sop/advance-stage.js';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
+import { advanceStageWithEval } from '@choco/api/sop/advance-stage.js';
 
 /** Body schema for POST /api/threads (all fields optional). */
 const CreateThreadBodySchema = z

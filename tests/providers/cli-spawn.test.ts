@@ -4,7 +4,7 @@
 // Verifies line splitting, UTF-8 (Chinese) round-trip, stdin, and exit info.
 
 import { describe, it, expect } from 'vitest';
-import { spawnCliLineStream } from '@clowder/api/providers/cli-spawn';
+import { spawnCliLineStream } from '@choco/api/providers/cli-spawn';
 
 const NODE = process.execPath;
 const TEN_SECONDS = 10_000;

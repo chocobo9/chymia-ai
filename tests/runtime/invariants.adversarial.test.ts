@@ -11,14 +11,14 @@
 
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
-import { createAgentId } from '@clowder/shared';
-import type { RouteLogger } from '@clowder/api/routing/agent-router';
+import { createAgentId } from '@choco/shared';
+import type { RouteLogger } from '@choco/api/routing/agent-router';
 import {
   checkWorkspaceMatch,
   checkReplyNotDuplicated,
   checkToolWritePathInside,
   checkInvocationProductive,
-} from '@clowder/api/infrastructure/invariants';
+} from '@choco/api/infrastructure/invariants';
 
 interface CapturedWarn {
   readonly level: 'info' | 'warn';

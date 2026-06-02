@@ -5,11 +5,11 @@
 
 import { describe, test, expect } from 'vitest';
 import Database from 'better-sqlite3';
-import { createAgentId } from '@clowder/shared';
-import type { AgentId } from '@clowder/shared';
-import { SessionStore } from '@clowder/api/invocation/session-store';
-import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
-import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
+import { createAgentId } from '@choco/shared';
+import type { AgentId } from '@choco/shared';
+import { SessionStore } from '@choco/api/invocation/session-store';
+import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
+import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 
 const CLAUDE: AgentId = createAgentId('claude-opus');
 const CODEX: AgentId = createAgentId('codex');

@@ -11,9 +11,9 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { createAgentId } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { INVOCATION_ID_HEADER, CALLBACK_TOKEN_HEADER } from '@clowder/api/routes/callback-auth';
+import { createAgentId } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { INVOCATION_ID_HEADER, CALLBACK_TOKEN_HEADER } from '@choco/api/routes/callback-auth';
 
 const CLAUDE = createAgentId('claude-opus');
 

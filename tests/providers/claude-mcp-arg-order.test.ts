@@ -17,8 +17,8 @@ import {
   CLAUDE_PERMISSION_MODE_FLAG,
   CLAUDE_DEFAULT_PERMISSION_MODE,
   MCP_CONFIG_ENV_KEY,
-} from '@clowder/api/providers/claude/claude-service';
-import type { InvokeOptions } from '@clowder/api/providers/base';
+} from '@choco/api/providers/claude/claude-service';
+import type { InvokeOptions } from '@choco/api/providers/base';
 
 // `CLAUDE_MCP_CONFIG_FLAG` is module-private in claude-service.ts (not exported); we mirror
 // the literal here. This is the exact flag claude exposes as `--mcp-config <configs...>`,
@@ -85,7 +85,7 @@ describe('claude buildArgs — --mcp-config variadic arg-order (QA regression)',
         ...withMcp(mcpValue),
         sessionId: 'sess_018ab3f2-claude',
         model: 'claude-opus-4-6',
-        systemPrompt: '你是 Clowder 团队的架构师，回答用中文。',
+        systemPrompt: '你是 Choco 团队的架构师，回答用中文。',
       };
 
       // Act

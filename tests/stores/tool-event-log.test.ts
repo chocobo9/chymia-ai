@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createAgentId } from '@clowder/shared';
-import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
+import { createAgentId } from '@choco/shared';
+import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 
 /**
  * M5-amend dev happy-path suite (unit) for the A6 ToolEventLog. QA owns edge +

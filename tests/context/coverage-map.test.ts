@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCoverageMap, formatCoverageMap } from '@clowder/api/context/coverage-map';
+import { buildCoverageMap, formatCoverageMap } from '@choco/api/context/coverage-map';
 
 function makeInput() {
   return {

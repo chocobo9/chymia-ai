@@ -20,9 +20,9 @@ import type {
   AgentMessage,
   StoredMessage,
   IncomingPlatformMessage,
-} from '@clowder/shared';
-import type { AgentService, InvokeOptions } from '@clowder/api/providers/base';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
+} from '@choco/shared';
+import type { AgentService, InvokeOptions } from '@choco/api/providers/base';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import { CLAUDE, CODEX, replyScript } from './helpers.js';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 

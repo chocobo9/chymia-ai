@@ -7,7 +7,7 @@ import type {
   TelegramApiPort,
   TelegramBotPort,
   TelegramUpdateContext,
-} from '@clowder/adapters/telegram/telegram-adapter';
+} from '@choco/adapters/telegram/telegram-adapter';
 
 /** One recorded outbound send. */
 export interface SentMessage {

@@ -3,14 +3,14 @@
 // 用真实 codex 事件形状（item.completed / thread.started 信封）+ 真实中文内容，不 spawn CLI。
 
 import { describe, it, expect } from 'vitest';
-import type { AgentMessage } from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+import type { AgentMessage } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import {
   createCodexParserState,
   parseCodexLine,
   type CodexParserState,
   type CodexParserDeps,
-} from '@clowder/api/providers/codex/codex-parser';
+} from '@choco/api/providers/codex/codex-parser';
 
 const agentId = createAgentId('codex');
 const FIXED_TS = 1_700_000_111_000;
@@ -77,14 +77,14 @@ describe('codex-parser (unit, happy path)', () => {
     // Arrange
     const line = JSON.stringify({
       type: 'item.started',
-      item: { type: 'mcp_tool_call', id: 'call_9', server: 'clowder', tool: 'evidence_search', arguments: { query: '数据库选型' } },
+      item: { type: 'mcp_tool_call', id: 'call_9', server: 'choco', tool: 'evidence_search', arguments: { query: '数据库选型' } },
     });
 
     // Act
     const { messages } = run([line]);
 
     // Assert
-    expect(messages[0]).toMatchObject({ type: 'tool_use', toolName: 'clowder__evidence_search', toolUseId: 'call_9' });
+    expect(messages[0]).toMatchObject({ type: 'tool_use', toolName: 'choco__evidence_search', toolUseId: 'call_9' });
     expect(messages[0].toolInput).toEqual({ query: '数据库选型' });
   });
 

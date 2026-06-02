@@ -1,4 +1,4 @@
-// @clowder/shared — public barrel re-exporting all shared types (M1).
+// @choco/shared — public barrel re-exporting all shared types (M1).
 
 export * from './types/agent.js';
 export * from './types/message.js';

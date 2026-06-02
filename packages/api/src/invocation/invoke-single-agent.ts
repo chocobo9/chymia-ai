@@ -24,10 +24,10 @@
 // fresh CLI session now SEALS the active session (preserving history + digest)
 // rather than deleting it.
 
-import type { AgentId, AgentMessage, ISessionStore } from '@clowder/shared';
-import type { AgentService, InvokeOptions } from '@clowder/api/providers/base';
-import type { SessionMutex } from '@clowder/api/invocation/session-mutex';
-import { decideRetry, MAX_RETRIES } from '@clowder/api/invocation/retry';
+import type { AgentId, AgentMessage, ISessionStore } from '@choco/shared';
+import type { AgentService, InvokeOptions } from '@choco/api/providers/base';
+import type { SessionMutex } from '@choco/api/invocation/session-mutex';
+import { decideRetry, MAX_RETRIES } from '@choco/api/invocation/retry';
 
 /** Clock used to stamp synthesized error events (injectable for tests). */
 export type NowFn = () => number;

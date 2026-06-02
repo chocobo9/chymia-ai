@@ -25,15 +25,15 @@ import type {
   SopViolationPayload,
   StoredToolEvent,
   Thread,
-} from '@clowder/shared';
-import { createAgentId } from '@clowder/shared';
+} from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import { resolve } from 'node:path';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
-import { advanceStageWithEval } from '@clowder/api/sop/advance-stage';
-import { buildSopTraceContext } from '@clowder/api/sop/sop-trace-adapter';
-import { SopServiceImpl } from '@clowder/api/sop/sop-service';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
-import type { SopEvalResult, SopTraceInput } from '@clowder/api/sop/trace-evaluator';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
+import { advanceStageWithEval } from '@choco/api/sop/advance-stage';
+import { buildSopTraceContext } from '@choco/api/sop/sop-trace-adapter';
+import { SopServiceImpl } from '@choco/api/sop/sop-service';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
+import type { SopEvalResult, SopTraceInput } from '@choco/api/sop/trace-evaluator';
 import { connectClient, startTestApp, replyScript, type TestApp } from './helpers.js';
 import type { Socket as ClientSocket } from 'socket.io-client';
 
@@ -673,7 +673,7 @@ describe('edge: callback advance is scoped to the VERIFIED record thread only', 
   });
 });
 
-describe('edge: SopViolation type-move to @clowder/shared did not regress evaluateTrace consumers', () => {
+describe('edge: SopViolation type-move to @choco/shared did not regress evaluateTrace consumers', () => {
   it('evaluateTrace still produces shared-shaped violations with ruleId/text/severity', () => {
     // Built through the real SopService over the live development.yaml so the shared
     // SopViolation shape is what consumers actually receive.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@clowder/shared';
-import { buildTombstone, formatTombstone } from '@clowder/api/context/tombstone';
+import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@choco/shared';
+import { buildTombstone, formatTombstone } from '@choco/api/context/tombstone';
 import { CLAUDE, CODEX, makeMessage, resolveConfig } from './fixtures';
 
 describe('buildTombstone (unit, happy path)', () => {

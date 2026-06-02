@@ -11,7 +11,7 @@
 // OpenId-shaped ids, real CJK). NO "hello"/"test123" placeholders.
 
 import { describe, it, expect } from 'vitest';
-import { parseWeChatXml } from '@clowder/adapters/wechat/xml-parser';
+import { parseWeChatXml } from '@choco/adapters/wechat/xml-parser';
 
 const OFFICIAL_ACCOUNT = 'gh_7f3a9c2e1b08';
 const SENDER_OPENID = 'oWxYz09876543210abcdEFghIJklmn';

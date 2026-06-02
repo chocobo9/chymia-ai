@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@clowder/shared': resolve(root, '../shared/src/index.ts'),
+      '@choco/shared': resolve(root, '../shared/src/index.ts'),
     },
   },
   server: {

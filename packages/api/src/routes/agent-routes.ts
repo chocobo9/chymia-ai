@@ -12,8 +12,8 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { AgentConfig, AgentStatus } from '@clowder/shared';
-import type { AppServices } from '@clowder/api/infrastructure/app-services';
+import type { AgentConfig, AgentStatus } from '@choco/shared';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
 
 /** Baseline status reported by the REST roster (live updates flow over Socket.io). */
 const BASELINE_STATUS: AgentStatus = 'idle';

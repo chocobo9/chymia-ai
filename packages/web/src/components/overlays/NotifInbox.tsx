@@ -11,7 +11,7 @@
 // Ported visual from choco-panels.jsx NotifInbox + directions.css `.notif-*`.
 
 import { useMemo, type ReactElement } from 'react';
-import type { AgentStatus } from '@clowder/shared';
+import type { AgentStatus } from '@choco/shared';
 import { useAgentStore } from '../../stores/agent-store.js';
 import type { AgentRosterEntry } from '../../lib/api.js';
 import type { HealthInfo } from '../../hooks/useHealth.js';

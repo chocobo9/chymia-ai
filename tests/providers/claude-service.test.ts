@@ -13,9 +13,9 @@ import {
   CLAUDE_DEFAULT_PERMISSION_MODE,
   PERMISSION_MODES,
   ClaudeAgentService,
-} from '@clowder/api/providers/claude/claude-service';
-import type { InvokeOptions } from '@clowder/api/providers/base';
-import { createAgentId } from '@clowder/shared';
+} from '@choco/api/providers/claude/claude-service';
+import type { InvokeOptions } from '@choco/api/providers/base';
+import { createAgentId } from '@choco/shared';
 
 const DEFAULT_MODEL = 'claude-opus-4-6';
 const PROMPT = '@claude write a TODO API with CRUD endpoints';
@@ -68,7 +68,7 @@ describe('claude-service buildArgs — permission mode (unit, happy path)', () =
     const options: InvokeOptions = {
       sessionId: 'sess_018ab3f2-claude',
       model: 'claude-opus-4-6',
-      systemPrompt: '你是 Clowder 团队的架构师，回答用中文。',
+      systemPrompt: '你是 Choco 团队的架构师，回答用中文。',
     };
 
     // Act

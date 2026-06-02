@@ -3,9 +3,9 @@
 // Authored independently of the M7 product code (dev≠QA).
 
 import { describe, it, expect } from 'vitest';
-import type { HierarchicalContextConfig } from '@clowder/shared';
-import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@clowder/shared';
-import { detectRecentBurst } from '@clowder/api/context/burst-detector';
+import type { HierarchicalContextConfig } from '@choco/shared';
+import { DEFAULT_HIERARCHICAL_CONTEXT_CONFIG } from '@choco/shared';
+import { detectRecentBurst } from '@choco/api/context/burst-detector';
 import { CLAUDE, CODEX, makeMessage } from './fixtures';
 
 const GAP_MIN = 20; // 20 min > 15 min default burstSilenceGapMs

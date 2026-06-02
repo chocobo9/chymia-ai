@@ -9,7 +9,7 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { EvidenceItem } from '@clowder/shared';
+import type { EvidenceItem } from '@choco/shared';
 import { WorkspacePanel } from '../../packages/web/src/components/overlays/WorkspacePanel.js';
 import type { ApiClient } from '../../packages/web/src/lib/api.js';
 

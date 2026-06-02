@@ -13,20 +13,20 @@
 //
 // CLAUDE.md compliance: no `any`, no console, no default export, no hardcoded
 // config (permissionMode comes in via deps from env at the composition root),
-// immutability (returns a fresh frozen record), cross-pkg types from @clowder/shared.
+// immutability (returns a fresh frozen record), cross-pkg types from @choco/shared.
 //
 // codex/gemini CLIs may not be installed on the host — that is fine: the provider
 // still constructs, and at invocation time cli-spawn surfaces a graceful
 // `spawn_error` event (finalizeStream) rather than crashing the server. So we
 // wire all three regardless of local CLI availability.
 
-import { createAgentId, type AgentId, type ClientId } from '@clowder/shared';
-import type { AgentService } from '@clowder/api/providers/base';
-import { ClaudeAgentService, assertValidPermissionMode } from '@clowder/api/providers/claude/claude-service';
-import type { ClaudePermissionMode } from '@clowder/api/providers/claude/claude-service';
-import { CodexAgentService } from '@clowder/api/providers/codex/codex-service';
-import { GeminiAgentService } from '@clowder/api/providers/gemini/gemini-service';
-import { loadAgentConfigs } from '@clowder/api/config/agent-config-loader';
+import { createAgentId, type AgentId, type ClientId } from '@choco/shared';
+import type { AgentService } from '@choco/api/providers/base';
+import { ClaudeAgentService, assertValidPermissionMode } from '@choco/api/providers/claude/claude-service';
+import type { ClaudePermissionMode } from '@choco/api/providers/claude/claude-service';
+import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
+import { GeminiAgentService } from '@choco/api/providers/gemini/gemini-service';
+import { loadAgentConfigs } from '@choco/api/config/agent-config-loader';
 
 /**
  * Documented default Claude permission mode for the running server. Externalized

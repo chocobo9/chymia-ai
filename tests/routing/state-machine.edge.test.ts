@@ -4,7 +4,7 @@
 // ordering (failed > timeout > done), and untracked/empty edge cases.
 
 import { describe, test, expect } from 'vitest';
-import { MultiMentionStateMachine } from '@clowder/api/routing/state-machine';
+import { MultiMentionStateMachine } from '@choco/api/routing/state-machine';
 import { CLAUDE, CODEX } from './helpers';
 
 describe('MultiMentionStateMachine — edge', () => {

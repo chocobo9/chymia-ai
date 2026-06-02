@@ -6,7 +6,7 @@
 import { test, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Database as BetterSqliteDatabase } from 'better-sqlite3';
-import type { EvidenceItem } from '@clowder/shared';
+import type { EvidenceItem } from '@choco/shared';
 import { SqliteEvidenceStore } from '../../packages/api/src/evidence/sqlite-evidence-store.js';
 
 let db: BetterSqliteDatabase;

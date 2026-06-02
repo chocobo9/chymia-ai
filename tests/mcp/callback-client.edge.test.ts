@@ -15,13 +15,13 @@ import {
   NO_CONFIG_ERROR,
   readCallbackConfig,
   buildAuthHeaders,
-} from '@clowder/mcp-server/callback-client';
+} from '@choco/mcp-server/callback-client';
 
 /** A real invocation-shaped env (the CLI sets these for the subprocess). */
 const liveEnv = {
-  CLOWDER_API_URL: 'http://127.0.0.1:7700',
-  CLOWDER_INVOCATION_ID: 'inv_01HXYZ_codex_thread42',
-  CLOWDER_CALLBACK_TOKEN: 'cbt_9f3a1c7e2b8d4f60a1c2',
+  CHOCO_API_URL: 'http://127.0.0.1:7700',
+  CHOCO_INVOCATION_ID: 'inv_01HXYZ_codex_thread42',
+  CHOCO_CALLBACK_TOKEN: 'cbt_9f3a1c7e2b8d4f60a1c2',
 } satisfies NodeJS.ProcessEnv;
 
 /** A fetch stub returning a fixed status + body, recording the outgoing request. */
@@ -220,7 +220,7 @@ describe('CallbackClient.post — auth headers carry exact env values (edge)', (
     const client = new CallbackClient({ fetchImpl, env: mutableEnv });
 
     await client.post('list_session_chain', {});
-    mutableEnv.CLOWDER_CALLBACK_TOKEN = 'cbt_rotated_2222';
+    mutableEnv.CHOCO_CALLBACK_TOKEN = 'cbt_rotated_2222';
     await client.post('list_session_chain', {});
 
     const h0 = calls[0]?.init.headers as Record<string, string>;
@@ -245,7 +245,7 @@ describe('CallbackClient.post — auth headers carry exact env values (edge)', (
     const { fetchImpl, calls } = fetchReturning(200, '{}');
     const client = new CallbackClient({
       fetchImpl,
-      env: { ...liveEnv, CLOWDER_API_URL: 'http://127.0.0.1:7700/' },
+      env: { ...liveEnv, CHOCO_API_URL: 'http://127.0.0.1:7700/' },
     });
 
     await client.post('read_file', { path: 'a.txt' });
@@ -257,14 +257,14 @@ describe('CallbackClient.post — auth headers carry exact env values (edge)', (
 // --- partial / blank env: no malformed request is ever sent ------------------
 describe('readCallbackConfig + post — partial env graceful degradation (adversarial)', () => {
   it('returns null when only the API url is set (1 of 3)', () => {
-    expect(readCallbackConfig({ CLOWDER_API_URL: 'http://127.0.0.1:7700' })).toBeNull();
+    expect(readCallbackConfig({ CHOCO_API_URL: 'http://127.0.0.1:7700' })).toBeNull();
   });
 
   it('returns null when the token is missing (2 of 3 set)', () => {
     expect(
       readCallbackConfig({
-        CLOWDER_API_URL: 'http://127.0.0.1:7700',
-        CLOWDER_INVOCATION_ID: 'inv_x',
+        CHOCO_API_URL: 'http://127.0.0.1:7700',
+        CHOCO_INVOCATION_ID: 'inv_x',
       }),
     ).toBeNull();
   });
@@ -272,9 +272,9 @@ describe('readCallbackConfig + post — partial env graceful degradation (advers
   it('treats a whitespace-only var as missing (no blank-credentialed request)', () => {
     expect(
       readCallbackConfig({
-        CLOWDER_API_URL: 'http://127.0.0.1:7700',
-        CLOWDER_INVOCATION_ID: '   ',
-        CLOWDER_CALLBACK_TOKEN: 'cbt_real',
+        CHOCO_API_URL: 'http://127.0.0.1:7700',
+        CHOCO_INVOCATION_ID: '   ',
+        CHOCO_CALLBACK_TOKEN: 'cbt_real',
       }),
     ).toBeNull();
   });
@@ -283,7 +283,7 @@ describe('readCallbackConfig + post — partial env graceful degradation (advers
     const { fetchImpl, calls } = fetchReturning(200, '{}');
     const client = new CallbackClient({
       fetchImpl,
-      env: { CLOWDER_API_URL: 'http://127.0.0.1:7700', CLOWDER_INVOCATION_ID: 'inv_only' },
+      env: { CHOCO_API_URL: 'http://127.0.0.1:7700', CHOCO_INVOCATION_ID: 'inv_only' },
     });
 
     const result = await client.post('post_message', { content: '只配了两个变量' });
@@ -301,9 +301,9 @@ describe('readCallbackConfig + post — partial env graceful degradation (advers
     const client = new CallbackClient({
       fetchImpl,
       env: {
-        CLOWDER_API_URL: '  http://127.0.0.1:7700  ',
-        CLOWDER_INVOCATION_ID: ' inv_trim ',
-        CLOWDER_CALLBACK_TOKEN: ' cbt_trim ',
+        CHOCO_API_URL: '  http://127.0.0.1:7700  ',
+        CHOCO_INVOCATION_ID: ' inv_trim ',
+        CHOCO_CALLBACK_TOKEN: ' cbt_trim ',
       },
     });
 

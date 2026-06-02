@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createAgentId } from '@clowder/shared';
-import { SqliteThreadStore } from '@clowder/api/stores/sqlite-thread-store';
-import { SqliteMessageStore } from '@clowder/api/stores/sqlite-message-store';
-import { SqliteToolEventLog } from '@clowder/api/stores/sqlite-tool-event-log';
+import { createAgentId } from '@choco/shared';
+import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
+import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
+import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 
 /**
  * M5-amend dev happy-path suite (unit). QA owns edge + adversarial coverage.

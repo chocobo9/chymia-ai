@@ -9,11 +9,11 @@
 // ids (createAgentId) / threadId / client message ids are used throughout.
 
 import { describe, it, expect } from 'vitest';
-import { createAgentId } from '@clowder/shared';
+import { createAgentId } from '@choco/shared';
 import {
   InvocationRegistry,
   INVOCATION_TTL_MS,
-} from '@clowder/api/invocation/invocation-registry';
+} from '@choco/api/invocation/invocation-registry';
 
 const USER = 'user-makima';
 const THREAD = 'thread-todo-api';

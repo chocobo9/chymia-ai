@@ -6,7 +6,7 @@
 // Ported from the Claude-Design handoff (choco-core.jsx atoms). Named exports.
 
 import type { ReactElement } from 'react';
-import type { AgentStatus } from '@clowder/shared';
+import type { AgentStatus } from '@choco/shared';
 import type { AgentRosterEntry } from '../../lib/api.js';
 
 /** Per-status presentation: label + the CSS var that carries the dot color. */

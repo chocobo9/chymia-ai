@@ -14,7 +14,7 @@
 // run at any point in the thread satisfies a command_pattern rule. Noted here so
 // a future cycle that wants per-stage precision knows the boundary.
 
-import type { AgentId, StoredToolEvent } from '@clowder/shared';
+import type { AgentId, StoredToolEvent } from '@choco/shared';
 import type { SopTraceContext } from './predicates/predicate-types.js';
 
 /**

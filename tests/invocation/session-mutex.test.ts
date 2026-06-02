@@ -3,7 +3,7 @@
 // Deterministic: ordering asserted via a shared log; no real timers used.
 
 import { describe, test, expect } from 'vitest';
-import { SessionMutex } from '@clowder/api/invocation/session-mutex';
+import { SessionMutex } from '@choco/api/invocation/session-mutex';
 
 describe('SessionMutex — happy path (unit)', () => {
   test('a single acquire resolves immediately and returns a release function', async () => {

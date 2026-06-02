@@ -9,7 +9,7 @@
 // store). When the thread has no messages we show the honest empty state.
 
 import { useMemo, type ReactElement } from 'react';
-import type { AgentId, StoredMessage } from '@clowder/shared';
+import type { AgentId, StoredMessage } from '@choco/shared';
 import {
   useChatStore,
   type StreamingMessage,

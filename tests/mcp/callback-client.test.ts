@@ -12,13 +12,13 @@ import {
   CALLBACK_TOKEN_HEADER,
   NO_CONFIG_ERROR,
   readCallbackConfig,
-} from '@clowder/mcp-server/callback-client';
+} from '@choco/mcp-server/callback-client';
 
 /** A real invocation-shaped env (the CLI sets these for the subprocess). */
 const liveEnv = {
-  CLOWDER_API_URL: 'http://127.0.0.1:7700',
-  CLOWDER_INVOCATION_ID: 'inv_01HXYZ_codex_thread42',
-  CLOWDER_CALLBACK_TOKEN: 'cbt_9f3a1c7e2b8d4f60a1c2',
+  CHOCO_API_URL: 'http://127.0.0.1:7700',
+  CHOCO_INVOCATION_ID: 'inv_01HXYZ_codex_thread42',
+  CHOCO_CALLBACK_TOKEN: 'cbt_9f3a1c7e2b8d4f60a1c2',
 } satisfies NodeJS.ProcessEnv;
 
 /** Build a fetch stub that records the last call and returns a fixed JSON body. */
@@ -38,7 +38,7 @@ function recordingFetch(body: unknown, status = 200): {
 }
 
 describe('readCallbackConfig (unit)', () => {
-  it('reads all three CLOWDER_* vars from the env', () => {
+  it('reads all three CHOCO_* vars from the env', () => {
     const config = readCallbackConfig(liveEnv);
     expect(config).not.toBeNull();
     expect(config?.apiUrl).toBe('http://127.0.0.1:7700');
@@ -50,8 +50,8 @@ describe('readCallbackConfig (unit)', () => {
     expect(readCallbackConfig({})).toBeNull();
     expect(
       readCallbackConfig({
-        CLOWDER_API_URL: 'http://127.0.0.1:7700',
-        CLOWDER_INVOCATION_ID: 'inv_x',
+        CHOCO_API_URL: 'http://127.0.0.1:7700',
+        CHOCO_INVOCATION_ID: 'inv_x',
       }),
     ).toBeNull();
   });

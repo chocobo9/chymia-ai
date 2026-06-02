@@ -15,8 +15,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
-import type { AgentId, AgentMessage, StoredMessage, IncomingPlatformMessage } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
+import type { AgentId, AgentMessage, StoredMessage, IncomingPlatformMessage } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 import { CLAUDE, CODEX, replyScript } from './helpers.js';
 

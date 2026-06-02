@@ -1,5 +1,5 @@
 {
-  "name": "@clowder/mcp-server",
+  "name": "@choco/mcp-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@clowder/shared": "workspace:*",
+    "@choco/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "zod": "^3.24.1"
   }

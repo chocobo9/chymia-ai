@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import {
   splitHtmlMessage,
   TELEGRAM_MAX_MESSAGE_LENGTH as LIMIT,
-} from '@clowder/adapters/telegram/message-splitter';
+} from '@choco/adapters/telegram/message-splitter';
 
 const HIGH_SURROGATE_MIN = 0xd800;
 const HIGH_SURROGATE_MAX = 0xdbff;

@@ -10,12 +10,12 @@
 // Authored independently from the design docs (§5.8 / §A10), NOT the impl.
 
 import { describe, it, expect } from 'vitest';
-import { createAgentId } from '@clowder/shared';
+import { createAgentId } from '@choco/shared';
 import type {
   AgentId,
   PlatformAdapter,
   IncomingPlatformMessage,
-} from '@clowder/shared';
+} from '@choco/shared';
 
 const CLAUDE: AgentId = createAgentId('claude-opus');
 

@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
 import type {
   IPlatformMappingStore,
   PlatformMappingType,
-} from '@clowder/shared';
+} from '@choco/shared';
 import {
   PLATFORM_MAPPINGS_TABLE,
   createPlatformMappingsTable,

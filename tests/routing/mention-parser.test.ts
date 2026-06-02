@@ -5,7 +5,7 @@ import { describe, test, expect } from 'vitest';
 import {
   parseUserMentions,
   parseA2AMentions,
-} from '@clowder/api/routing/mention-parser';
+} from '@choco/api/routing/mention-parser';
 import { CLAUDE, CODEX, GEMINI, ALL_CONFIGS } from './helpers';
 
 const ENTRIES = ALL_CONFIGS.flatMap((c) =>

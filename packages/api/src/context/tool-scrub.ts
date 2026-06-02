@@ -11,7 +11,7 @@
 // `extra.toolEvents`, which is the structured channel the design reserves for
 // exactly this kind of tracing metadata. See DEV report "deviations".
 
-import type { StoredMessage } from '@clowder/shared';
+import type { StoredMessage } from '@choco/shared';
 
 /**
  * Minimal tool-event shape consumed by the context layers. Persisted under

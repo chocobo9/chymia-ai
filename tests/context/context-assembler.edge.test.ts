@@ -10,7 +10,7 @@ import {
   formatPromptTime,
   formatPromptTimeRange,
   getSenderName,
-} from '@clowder/api/context/context-assembler';
+} from '@choco/api/context/context-assembler';
 import { BASE_TS, CLAUDE, GEMINI, makeMessage, resolveConfig } from './fixtures';
 
 describe('estimateTokens (edge)', () => {

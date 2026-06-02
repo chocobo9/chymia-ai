@@ -16,7 +16,7 @@ import {
   DEFAULT_LOG_DIR,
   type StructuredLogger,
   type LogFields,
-} from '@clowder/api/infrastructure/logger';
+} from '@choco/api/infrastructure/logger';
 
 interface CapturedRecord {
   readonly level: 'info' | 'warn' | 'error';

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import type { InvocationContext } from '@clowder/shared';
+import type { InvocationContext } from '@choco/shared';
 import {
   buildSystemPrompt,
   buildStaticIdentity,
   buildInvocationContext,
-} from '@clowder/api/context/system-prompt-builder';
+} from '@choco/api/context/system-prompt-builder';
 import { CLAUDE, CODEX, GEMINI, resolveConfig } from './fixtures';
 
 /**

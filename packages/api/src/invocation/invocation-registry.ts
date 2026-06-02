@@ -5,7 +5,7 @@
 // AuthFailureReason, VerifyResult) and §6.2 (create → mark latest; verify the
 // four failure classes; per-client-message idempotency).
 //
-// Imports the FROZEN M1 shapes from @clowder/shared (InvocationRecord etc.) —
+// Imports the FROZEN M1 shapes from @choco/shared (InvocationRecord etc.) —
 // does NOT redefine them. State is purely in memory; nothing is created at
 // import time. `idFactory` and `now` are injectable for deterministic tests.
 
@@ -14,7 +14,7 @@ import type {
   AgentId,
   InvocationRecord,
   VerifyResult,
-} from '@clowder/shared';
+} from '@choco/shared';
 
 /**
  * Invocation TTL: how long after creation a record stays valid for callbacks.

@@ -9,7 +9,7 @@
 // guarantee (AC-C3) so the thread opener is never dropped. Re-authored against
 // our StoredMessage (mentions[], tool events via extra).
 
-import type { ImportanceSignals, ScoredMessage, StoredMessage } from '@clowder/shared';
+import type { ImportanceSignals, ScoredMessage, StoredMessage } from '@choco/shared';
 import { getSenderName, type ResolveAgentConfig } from './context-assembler.js';
 import { getToolEvents } from './tool-scrub.js';
 

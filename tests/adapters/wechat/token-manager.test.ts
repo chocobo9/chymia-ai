@@ -4,7 +4,7 @@
 // Verifies fetch+cache+refresh-by-expiry with an injected FetchFn + clock.
 
 import { describe, it, expect } from 'vitest';
-import { TokenManager, type FetchFn } from '@clowder/adapters/wechat/token-manager';
+import { TokenManager, type FetchFn } from '@choco/adapters/wechat/token-manager';
 
 const API_BASE = 'https://qyapi.weixin.qq.com/cgi-bin';
 const CORP_ID = 'ww1a2b3c4d5e6f7g8';

@@ -5,7 +5,7 @@
 // including a stream that rejects BEFORE its first yield and multiple failures.
 
 import { describe, test, expect } from 'vitest';
-import { mergeStreams } from '@clowder/api/routing/stream-merge';
+import { mergeStreams } from '@choco/api/routing/stream-merge';
 
 async function* labeled(label: string, count: number): AsyncGenerator<string> {
   for (let i = 0; i < count; i += 1) {

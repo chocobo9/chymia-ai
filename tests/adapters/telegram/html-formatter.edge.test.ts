@@ -11,7 +11,7 @@
 // suite). Realistic injection payloads + CJK/emoji content — no placeholders.
 
 import { describe, it, expect } from 'vitest';
-import { formatToTelegramHtml, escapeHtml } from '@clowder/adapters/telegram/html-formatter';
+import { formatToTelegramHtml, escapeHtml } from '@choco/adapters/telegram/html-formatter';
 
 // The complete set of literal tags the formatter is ALLOWED to emit. Any other
 // literal `<...>` in the output is an injection / leak.

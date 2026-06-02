@@ -17,13 +17,13 @@
 // default. CODEX → @codex, GEMINI → @gemini.
 
 import { describe, it, expect } from 'vitest';
-import type { AgentConfig, AgentId, StoredMessage } from '@clowder/shared';
-import type { AgentService } from '@clowder/api/providers/base';
-import { AgentRegistryImpl } from '@clowder/api/routing/agent-registry';
+import type { AgentConfig, AgentId, StoredMessage } from '@choco/shared';
+import type { AgentService } from '@choco/api/providers/base';
+import { AgentRegistryImpl } from '@choco/api/routing/agent-registry';
 import {
   AgentRouter,
   type RecentMessageReader,
-} from '@clowder/api/routing/agent-router';
+} from '@choco/api/routing/agent-router';
 import {
   ALL_CONFIGS,
   CLAUDE,

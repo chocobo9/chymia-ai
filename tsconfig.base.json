@@ -21,18 +21,18 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@clowder/shared": ["packages/shared/src/index.ts"],
-      "@clowder/shared/*": ["packages/shared/src/*"],
-      "@clowder/api": ["packages/api/src/index.ts"],
-      "@clowder/api/*": ["packages/api/src/*"],
-      "@clowder/web": ["packages/web/src/index.ts"],
-      "@clowder/web/*": ["packages/web/src/*"],
-      "@clowder/mcp-server": ["packages/mcp-server/src/index.ts"],
-      "@clowder/mcp-server/*": ["packages/mcp-server/src/*"],
-      "@clowder/adapters": ["packages/adapters/index.ts"],
-      "@clowder/adapters/*": ["packages/adapters/*"],
-      "@clowder/skills": ["packages/skills/src/index.ts"],
-      "@clowder/skills/*": ["packages/skills/src/*"]
+      "@choco/shared": ["packages/shared/src/index.ts"],
+      "@choco/shared/*": ["packages/shared/src/*"],
+      "@choco/api": ["packages/api/src/index.ts"],
+      "@choco/api/*": ["packages/api/src/*"],
+      "@choco/web": ["packages/web/src/index.ts"],
+      "@choco/web/*": ["packages/web/src/*"],
+      "@choco/mcp-server": ["packages/mcp-server/src/index.ts"],
+      "@choco/mcp-server/*": ["packages/mcp-server/src/*"],
+      "@choco/adapters": ["packages/adapters/index.ts"],
+      "@choco/adapters/*": ["packages/adapters/*"],
+      "@choco/skills": ["packages/skills/src/index.ts"],
+      "@choco/skills/*": ["packages/skills/src/*"]
     }
   }
 }

@@ -13,9 +13,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createAgentId } from '@clowder/shared';
-import type { AgentMessage, SessionRecord, SessionDigest, SessionEvent } from '@clowder/shared';
-import { buildApp, type BuiltApp } from '@clowder/api/app-factory';
+import { createAgentId } from '@choco/shared';
+import type { AgentMessage, SessionRecord, SessionDigest, SessionEvent } from '@choco/shared';
+import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 
 const CLAUDE = createAgentId('claude-opus');
