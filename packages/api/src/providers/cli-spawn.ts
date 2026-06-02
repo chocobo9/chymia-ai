@@ -14,8 +14,19 @@
 //   - 进程结束时 buffer 残留的最后一行（无结尾换行）：flush 出去。
 //
 // Pattern from Clowder spawn 层（spawn 与行缓冲 / parser 分离），此处独立 re-author。
+//
+// Windows shim handling: on win32 a CLI is often a PATH shim (e.g. `gemini.cmd` /
+// `gemini.ps1` from an npm install) rather than a `.exe`. Node's native
+// `child_process.spawn(cmd)` (no shell) only resolves `.exe`, so a shim throws
+// `spawn ENOENT` even though the PATHEXT-aware availability probe found it. We
+// spawn via `cross-spawn` (the de-facto standard, used by npm/jest): it resolves
+// `.cmd`/`.bat` shims and escapes argv correctly for cmd.exe on win32, and is a
+// pure pass-through on POSIX — so a free-text prompt arg is never mis-quoted (the
+// reason we do NOT use a bare `shell: true`). Same resolve→shim-aware-spawn intent
+// as Clowder's hand-rolled cli-spawn-win, via a battle-tested lib (no escaping to
+// hand-maintain). Dep rationale (CLAUDE.md §2.3): correct Windows shim spawning.
 
-import { spawn } from 'node:child_process';
+import crossSpawn from 'cross-spawn';
 import { StringDecoder } from 'node:string_decoder';
 
 /** spawn 参数（全部外部化，无默认硬编码值） */
@@ -66,7 +77,7 @@ export interface CliLineStream {
 export function spawnCliLineStream(params: CliSpawnParams): CliLineStream {
   const mergedEnv: NodeJS.ProcessEnv = { ...process.env, ...params.env };
 
-  const child = spawn(params.command, [...params.args], {
+  const child = crossSpawn(params.command, [...params.args], {
     cwd: params.cwd,
     env: mergedEnv,
     stdio: ['pipe', 'pipe', 'pipe'],

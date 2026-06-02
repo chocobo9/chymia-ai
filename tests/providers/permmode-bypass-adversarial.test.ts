@@ -176,13 +176,15 @@ describe('Path B — constructor rejects every invalid mode (adversarial)', () =
 });
 
 // ── Path C: the instance invoke() → buildArgs → spawn argv wiring ────────────────────────────
-// We fake node:child_process.spawn so invoke() runs with no real CLI, then capture the argv.
+// We fake the spawn so invoke() runs with no real CLI, then capture the argv.
+// cli-spawn.ts spawns via `cross-spawn` (default import), NOT node:child_process,
+// so we mock cross-spawn's default export to intercept the spawn through ESM.
 
 const spawnCalls: Array<{ command: string; args: readonly string[] }> = [];
 
-vi.mock('node:child_process', () => {
+vi.mock('cross-spawn', () => {
   return {
-    spawn: (command: string, args: readonly string[]) => {
+    default: (command: string, args: readonly string[]) => {
       spawnCalls.push({ command, args });
       // Minimal fake child: empty stdout that ends immediately, empty stderr, clean close.
       const child = new EventEmitter() as EventEmitter & {

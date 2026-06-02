@@ -15,12 +15,19 @@ import {
   type CodexParserState,
 } from './codex-parser.js';
 
-// ── CLI 接入常量（来源：extraction §2.2「Codex 集成」） ──
+// ── CLI 接入常量（来源：extraction §2.2「Codex 集成」 + codex-cli 0.136 实测） ──
 const CODEX_CLI_COMMAND = 'codex';
-/** 固定子命令 + JSON 输出，来源 extraction §2.2（codex exec --json） */
-const CODEX_BASE_ARGS: readonly string[] = ['exec', '--json'];
-/** session resume 子命令，来源 extraction §2.2（experimental-resume <id>） */
-const CODEX_RESUME_SUBCOMMAND = 'experimental-resume';
+/** 非交互子命令：`codex exec [OPTIONS] [PROMPT]`。 */
+const CODEX_EXEC_SUBCOMMAND = 'exec';
+/** JSON 流式输出 flag。 */
+const CODEX_JSON_FLAG = '--json';
+/**
+ * Session-resume 子命令。codex-cli 0.136 是 `codex exec resume [OPTIONS]
+ * [SESSION_ID] [PROMPT]` —— `resume` 是 `exec` 的子命令、session id 是它的第一个
+ * 位置参数。旧的 `experimental-resume <id>` 形式已移除：再传它会让 codex 把 id 当成
+ * 多余的位置参数 → "unexpected argument '<uuid>'"（实测 0.136）。
+ */
+const CODEX_RESUME_SUBCOMMAND = 'resume';
 /** MCP 配置注入 flag，来源 补充 §C3（--config 注入） */
 const CODEX_CONFIG_FLAG = '--config';
 /** model 选择 flag */
@@ -54,15 +61,19 @@ function appendContentText(
   return textParts.length > 0 ? `${prompt}\n${textParts.join('\n')}` : prompt;
 }
 
-function buildArgs(
+export function buildArgs(
   prompt: string,
   options: InvokeOptions | undefined,
   defaultModel: string,
 ): string[] {
-  const args = [...CODEX_BASE_ARGS];
+  // Fresh: `codex exec --json … <prompt>`. Resume: `codex exec resume <SESSION_ID>
+  // --json … <prompt>` — the `resume` subcommand + positional session id MUST come
+  // right after `exec`, before the flags (codex-cli 0.136).
+  const args: string[] = [CODEX_EXEC_SUBCOMMAND];
   if (options?.sessionId) {
     args.push(CODEX_RESUME_SUBCOMMAND, options.sessionId);
   }
+  args.push(CODEX_JSON_FLAG);
   const model = options?.model ?? defaultModel;
   if (model) {
     args.push(CODEX_MODEL_FLAG, model);

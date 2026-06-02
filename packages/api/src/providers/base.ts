@@ -33,7 +33,7 @@ export type MessageContent =
  * 取消信号 / 多模态内容 / 模型 / 超时）都通过此结构传入，provider 内部不硬编码这些值。
  */
 export interface InvokeOptions {
-  /** CLI session resume 标识；存在则以 --resume / experimental-resume 续接历史 */
+  /** CLI session resume 标识；存在则续接该会话（claude `--resume <id>` / codex `exec resume <id>`）。 */
   readonly sessionId?: string;
   /** 注入的 system prompt（identity + context） */
   readonly systemPrompt?: string;
