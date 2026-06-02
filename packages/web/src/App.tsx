@@ -18,6 +18,7 @@
 // (SettingsOverlay) — see frontend SCOPE.
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import type { Thread } from '@clowder/shared';
 import { apiClient, ApiClient } from './lib/api.js';
 import { useChatStore } from './stores/chat-store.js';
 import { useAgentStore } from './stores/agent-store.js';
@@ -53,6 +54,7 @@ export function App(props: AppProps = {}): ReactElement {
   const setThreads = useChatStore((s) => s.setThreads);
   const threads = useChatStore((s) => s.threads);
   const upsertThread = useChatStore((s) => s.upsertThread);
+  const removeThread = useChatStore((s) => s.removeThread);
   const setActiveThread = useChatStore((s) => s.setActiveThread);
   const setMessages = useChatStore((s) => s.setMessages);
   const messagesByThread = useChatStore((s) => s.messagesByThread);
@@ -134,6 +136,33 @@ export function App(props: AppProps = {}): ReactElement {
     }
   }, [client, upsertThread, setActiveThread, setMessages]);
 
+  const renameThread = useCallback(
+    async (threadId: string, title: string) => {
+      try {
+        const updated = await client.renameThread(threadId, title);
+        upsertThread(updated);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'rename failed');
+      }
+    },
+    [client, upsertThread],
+  );
+
+  const deleteThread = useCallback(
+    async (threadId: string) => {
+      try {
+        await client.deleteThread(threadId);
+        // removeThread drops the thread + its messages and clears the active
+        // thread when it was the one deleted (the UI then lands on the empty
+        // state until another thread is selected).
+        removeThread(threadId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'delete failed');
+      }
+    },
+    [client, removeThread],
+  );
+
   const sendMessage = useCallback(
     async (content: string) => {
       if (activeThreadId === null) return;
@@ -177,6 +206,15 @@ export function App(props: AppProps = {}): ReactElement {
     () => threads.find((t) => t.id === activeThreadId),
     [threads, activeThreadId],
   );
+
+  // The main-bar branch .tag follows the active thread's branch. Our Thread model
+  // has NO `branch` field (out of scope to add), so this is effectively always
+  // hidden — honest with the design's "无分支则隐藏". Read it through an optional
+  // extension so the day the model gains one it renders without a type change.
+  const activeBranch =
+    activeThread === undefined
+      ? undefined
+      : (activeThread as Thread & { branch?: string }).branch;
 
   // Derived "waiting on you" count for the bell badge (real signals only:
   // blocked/error agents + a down /health probe), minus locally-resolved ones.
@@ -249,6 +287,8 @@ export function App(props: AppProps = {}): ReactElement {
             onCreateThread={() => void createThread()}
             onSelectThread={(id) => void selectThread(id)}
             onOpenSettings={() => setOverlay('settings')}
+            onRenameThread={(id, title) => void renameThread(id, title)}
+            onDeleteThread={(id) => void deleteThread(id)}
           />
         </aside>
 
@@ -260,6 +300,11 @@ export function App(props: AppProps = {}): ReactElement {
             <span className="main-title">
               {activeThread?.title ?? (activeThreadId === null ? '未选择会话' : '会话')}
             </span>
+            {activeBranch !== undefined && activeBranch.length > 0 && (
+              <span className="tag" data-testid="main-branch-tag">
+                {activeBranch}
+              </span>
+            )}
             <div style={{ flex: 1 }} />
             <span className="main-meta">
               {online} agents · {messageCount} messages

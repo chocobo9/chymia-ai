@@ -62,6 +62,30 @@ describe('thread routes (happy path)', () => {
     expect(deleted.statusCode).toBe(200);
     expect(deleted.json<{ deleted: boolean }>().deleted).toBe(true);
   });
+
+  it('PATCH /api/threads/:id renames the thread (persisted, distinct from sop-stage)', async () => {
+    const app = injectApp({ 'claude-opus': [] });
+    cleanups.push(app.close);
+
+    const created = await app.api.inject({
+      method: 'POST',
+      url: '/api/threads',
+      payload: { title: 'A2A 路由 bug' },
+    });
+    const thread = created.json<Thread>();
+
+    const renamed = await app.api.inject({
+      method: 'PATCH',
+      url: `/api/threads/${thread.id}`,
+      payload: { title: 'A2A 路由 bug 复盘' },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json<Thread>().title).toBe('A2A 路由 bug 复盘');
+
+    // Persisted: a subsequent GET reflects the new title.
+    const fetched = await app.api.inject({ method: 'GET', url: `/api/threads/${thread.id}` });
+    expect(fetched.json<Thread>().title).toBe('A2A 路由 bug 复盘');
+  });
 });
 
 describe('agent routes (happy path)', () => {

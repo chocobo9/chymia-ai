@@ -62,6 +62,25 @@
 .thread-dots { display: flex; flex: 0 0 auto; }
 .thread-dots .dot { width: 7px; height: 7px; border-radius: 50%; margin-left: -3px; box-shadow: 0 0 0 1.5px var(--panel); }
 .thread-dots .dot:first-child { margin-left: 0; }
+.thread-badge { font-family: var(--mono); font-size: 10px; font-weight: var(--fw-bold); color: var(--brand); background: var(--brand-soft); border-radius: var(--r-pill); min-width: 17px; height: 17px; padding: 0 5px; display: grid; place-items: center; flex: 0 0 auto; }
+
+/* thread kebab + inline rename + delete (ported from directions.css §.thread-kebab) */
+.thread-kebab { flex: 0 0 auto; width: 26px; height: 26px; margin-right: -5px; border: none; background: none; border-radius: var(--r-xs); color: var(--ink-2); display: none; place-items: center; cursor: pointer; transition: background .12s, color .12s; }
+.thread:hover .thread-kebab, .thread.active .thread-kebab { display: grid; }
+.thread:hover .thread-dots, .thread:hover .thread-badge,
+.thread.active .thread-dots, .thread.active .thread-badge { display: none; }
+.thread-kebab:hover { background: var(--soft-2); color: var(--ink); }
+.thread.active .thread-kebab { color: var(--brand); }
+.thread.active .thread-kebab:hover { background: color-mix(in oklab, var(--brand) 14%, transparent); }
+.thread.editing { background: var(--soft); }
+.thread-edit { width: 100%; font-family: var(--font); font-size: var(--fs-secondary); font-weight: var(--fw-semi); color: var(--ink); background: var(--panel); border: 1.5px solid var(--brand); border-radius: var(--r-xs); padding: 4px 7px; outline: none; }
+.thread-menu-scrim { position: fixed; inset: 0; z-index: 64; }
+.thread-pop { position: fixed; z-index: 65; transform: translateX(-100%); min-width: 148px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--sh-pop); padding: 5px; display: flex; flex-direction: column; gap: 2px; }
+.thread-pop button { display: flex; align-items: center; gap: 9px; width: 100%; border: none; background: none; border-radius: var(--r-xs); padding: 8px 10px; font-family: var(--font); font-size: 12.5px; font-weight: var(--fw-semi); color: var(--ink-2); cursor: pointer; text-align: left; }
+.thread-pop button:hover { background: var(--soft); color: var(--ink); }
+.thread-pop button.danger { color: var(--st-error); }
+.thread-pop button.danger:hover { background: color-mix(in oklab, var(--st-error) 10%, transparent); }
+.thread-pop button svg { flex: 0 0 auto; }
 .thread-empty { padding: 16px; font-size: var(--fs-secondary); color: var(--ink-3); text-align: center; }
 .cvo { padding: 11px 14px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; cursor: default; transition: background .12s; }
 .cvo-mark { width: 32px; height: 32px; border-radius: var(--r-avatar); background: var(--soft-2); color: var(--ink-2); display: grid; place-items: center; font-family: var(--mono); font-weight: var(--fw-bold); font-size: var(--fs-secondary); }

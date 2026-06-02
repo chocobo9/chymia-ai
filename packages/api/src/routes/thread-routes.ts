@@ -35,6 +35,9 @@ const SetSopStageBodySchema = z
   .object({ stageId: z.string().min(1).nullable() })
   .strict();
 
+/** Body schema for PATCH /api/threads/:id (inline rename): a non-empty title. */
+const RenameThreadBodySchema = z.object({ title: z.string().min(1) }).strict();
+
 /**
  * Register Thread CRUD routes on `app` using the wired {@link AppServices}.
  */
@@ -94,6 +97,31 @@ export function registerThreadRoutes(app: FastifyInstance, services: AppServices
     // ADVISORY socket/log signal. The transition + this response are unchanged —
     // the eval is additive, advisory ("只提示不拦截"), and best-effort (never throws).
     await advanceStageWithEval(services, params.data.id, stageId);
+    const updated = await threadStore.get(params.data.id);
+    if (updated !== null) {
+      await socket.broadcastThreadUpdate(updated.id, updated);
+    }
+    return reply.send(updated);
+  });
+
+  // Inline rename: set a thread's title. The body must carry a non-empty title
+  // (empty/whitespace-only → 400). On success the new title is persisted and a
+  // thread_update is broadcast so connected clients refresh, mirroring
+  // create/delete/sop-stage. Distinct from PATCH …/sop-stage above.
+  app.patch('/api/threads/:id', async (request, reply) => {
+    const params = ThreadParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.code(400).send({ error: 'invalid_params' });
+    }
+    const body = RenameThreadBodySchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
+    }
+    const existing = await threadStore.get(params.data.id);
+    if (existing === null) {
+      return reply.code(404).send({ error: 'thread_not_found' });
+    }
+    await threadStore.updateTitle(params.data.id, body.data.title);
     const updated = await threadStore.get(params.data.id);
     if (updated !== null) {
       await socket.broadcastThreadUpdate(updated.id, updated);

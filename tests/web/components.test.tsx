@@ -64,6 +64,100 @@ describe('ThreadList (render, happy path)', () => {
   });
 });
 
+describe('ThreadList kebab menu + rename + delete (happy path)', () => {
+  it('opens the kebab menu (重命名 / 删除会话) and closes it via the outside-click scrim', async () => {
+    useChatStore.setState({ threads: [makeThread()] });
+    render(<ThreadList onCreateThread={vi.fn()} onSelectThread={vi.fn()} />);
+
+    await userEvent.click(screen.getByTestId('thread-kebab'));
+    const menu = screen.getByTestId('thread-menu');
+    expect(within(menu).getByText('重命名')).toBeInTheDocument();
+    expect(within(menu).getByText('删除会话')).toBeInTheDocument();
+
+    // The outside-click scrim dismisses the menu.
+    await userEvent.click(screen.getByTestId('thread-menu-scrim'));
+    expect(screen.queryByTestId('thread-menu')).toBeNull();
+  });
+
+  it('opening the kebab does NOT select the thread (propagation stopped)', async () => {
+    const onSelect = vi.fn();
+    useChatStore.setState({ threads: [makeThread()] });
+    render(<ThreadList onCreateThread={vi.fn()} onSelectThread={onSelect} />);
+
+    await userEvent.click(screen.getByTestId('thread-kebab'));
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('重命名 enters inline edit seeded with the title; Enter commits via onRenameThread', async () => {
+    const onRename = vi.fn();
+    useChatStore.setState({ threads: [makeThread()] });
+    render(
+      <ThreadList onCreateThread={vi.fn()} onSelectThread={vi.fn()} onRenameThread={onRename} />,
+    );
+
+    await userEvent.click(screen.getByTestId('thread-kebab'));
+    await userEvent.click(screen.getByText('重命名'));
+
+    const input = screen.getByTestId('thread-rename-input') as HTMLInputElement;
+    expect(input.value).toBe('TODO API 设计与实现');
+
+    await userEvent.clear(input);
+    await userEvent.type(input, 'TODO API 设计与实现 v2{Enter}');
+    expect(onRename).toHaveBeenCalledWith('thread_todo_api', 'TODO API 设计与实现 v2');
+    // Edit mode exits after commit.
+    expect(screen.queryByTestId('thread-rename-input')).toBeNull();
+  });
+
+  it('Escape during inline rename cancels without calling onRenameThread', async () => {
+    const onRename = vi.fn();
+    useChatStore.setState({ threads: [makeThread()] });
+    render(
+      <ThreadList onCreateThread={vi.fn()} onSelectThread={vi.fn()} onRenameThread={onRename} />,
+    );
+
+    await userEvent.click(screen.getByTestId('thread-kebab'));
+    await userEvent.click(screen.getByText('重命名'));
+    const input = screen.getByTestId('thread-rename-input');
+    await userEvent.type(input, ' 草稿{Escape}');
+
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('thread-rename-input')).toBeNull();
+  });
+
+  it('删除会话 opens a confirm modal naming the thread; 删除 fires onDeleteThread', async () => {
+    const onDelete = vi.fn();
+    useChatStore.setState({ threads: [makeThread()] });
+    render(
+      <ThreadList onCreateThread={vi.fn()} onSelectThread={vi.fn()} onDeleteThread={onDelete} />,
+    );
+
+    await userEvent.click(screen.getByTestId('thread-kebab'));
+    await userEvent.click(screen.getByText('删除会话'));
+
+    const confirm = screen.getByTestId('thread-delete-confirm');
+    expect(within(confirm).getByText('TODO API 设计与实现')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('thread-delete-confirm-button'));
+    expect(onDelete).toHaveBeenCalledWith('thread_todo_api');
+    expect(screen.queryByTestId('thread-delete-confirm')).toBeNull();
+  });
+
+  it('删除 confirm 取消 dismisses the modal without deleting', async () => {
+    const onDelete = vi.fn();
+    useChatStore.setState({ threads: [makeThread()] });
+    render(
+      <ThreadList onCreateThread={vi.fn()} onSelectThread={vi.fn()} onDeleteThread={onDelete} />,
+    );
+
+    await userEvent.click(screen.getByTestId('thread-kebab'));
+    await userEvent.click(screen.getByText('删除会话'));
+    await userEvent.click(screen.getByText('取消'));
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('thread-delete-confirm')).toBeNull();
+  });
+});
+
 describe('ChatInput @mention autocomplete (render, happy path)', () => {
   it('shows mention suggestions matching the typed @token from the roster', async () => {
     render(<ChatInput onSend={vi.fn()} />);

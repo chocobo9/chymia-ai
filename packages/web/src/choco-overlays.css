@@ -275,6 +275,18 @@
 .usage-name .set-mono { font-weight: 500; }
 .set-mono { font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-weight: 500; }
 .set-mono.dim { opacity: .8; }
+
+/* confirm modal (delete-thread dialog — ported from directions.css §.modal) */
+.modal-scrim { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 28px; background: color-mix(in oklab, var(--bg) 28%, rgba(28,18,6,.5)); backdrop-filter: blur(3px); }
+.modal { width: min(660px, 96%); max-height: 92%; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--sh-pop); overflow: hidden; position: relative; }
+.modal.sm { width: min(470px, 96%); }
+.modal-h { display: flex; align-items: center; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+.modal-h b { font-family: var(--font-display); font-weight: 800; font-size: 17px; color: var(--ink); flex: 1; }
+.modal .set-close { top: 16px; right: 18px; }
+.modal-body { padding: 18px 20px; overflow-y: auto; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 9px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.thread-delete-text { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+.thread-delete-text strong { color: var(--ink); }
 .sdot-wrap { display: inline-flex; align-items: center; gap: 6px; }
 .stext { font-size: 10.5px; font-weight: 700; }
 

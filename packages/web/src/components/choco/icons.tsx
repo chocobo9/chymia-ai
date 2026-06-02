@@ -112,6 +112,34 @@ export function IconCheck(): ReactElement {
   );
 }
 
+export function IconPencil(): ReactElement {
+  return (
+    <Ic size={14} strokeWidth={1.7}>
+      <path d="M14 5l5 5M4 20l1-4L16 5l3 3L8 19l-4 1z" />
+    </Ic>
+  );
+}
+
+export function IconTrash(): ReactElement {
+  return (
+    <Ic size={14} strokeWidth={1.7}>
+      <path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12M10 11v5M14 11v5" />
+    </Ic>
+  );
+}
+
+export function IconMore(): ReactElement {
+  return (
+    <Ic size={18} strokeWidth={0} fill="currentColor">
+      <>
+        <circle cx="5" cy="12" r="1.5" />
+        <circle cx="12" cy="12" r="1.5" />
+        <circle cx="19" cy="12" r="1.5" />
+      </>
+    </Ic>
+  );
+}
+
 export function IconWrench(): ReactElement {
   return (
     <Ic size={14}>

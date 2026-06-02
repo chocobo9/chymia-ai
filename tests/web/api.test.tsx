@@ -55,6 +55,29 @@ describe('ApiClient (unit, happy path)', () => {
     expect(thread.id).toBe('thread_new');
   });
 
+  it('renameThread PATCHes { title } to /api/threads/:id and returns the updated Thread', async () => {
+    const updated = makeThread({ title: 'bootstrap 加 --resume 续跑' });
+    const { fetchFn, calls } = recordingFetch(updated);
+    const client = new ApiClient({ baseUrl: BASE, fetchFn });
+
+    const thread = await client.renameThread('thread_todo_api', 'bootstrap 加 --resume 续跑');
+
+    expect(calls[0].url).toBe(`${BASE}/api/threads/thread_todo_api`);
+    expect(calls[0].init?.method).toBe('PATCH');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ title: 'bootstrap 加 --resume 续跑' });
+    expect(thread.title).toBe('bootstrap 加 --resume 续跑');
+  });
+
+  it('deleteThread DELETEs /api/threads/:id and resolves on the { deleted, id } envelope', async () => {
+    const { fetchFn, calls } = recordingFetch({ deleted: true, id: 'thread_todo_api' });
+    const client = new ApiClient({ baseUrl: BASE, fetchFn });
+
+    await client.deleteThread('thread_todo_api');
+
+    expect(calls[0].url).toBe(`${BASE}/api/threads/thread_todo_api`);
+    expect(calls[0].init?.method).toBe('DELETE');
+  });
+
   it('getMessages GETs history and unwraps the messages array', async () => {
     const { fetchFn, calls } = recordingFetch({
       messages: [makeUserMessage(), makeAgentReply()],

@@ -4,6 +4,7 @@
 //   GET    /api/threads                       → { threads: Thread[] }
 //   POST   /api/threads                       → Thread (201)
 //   GET    /api/threads/:id                   → Thread
+//   PATCH  /api/threads/:id                   → Thread (rename, { title })
 //   DELETE /api/threads/:id                   → { deleted, id }
 //   GET    /api/threads/:id/messages          → { messages: StoredMessage[] }
 //   POST   /api/threads/:id/messages          → { userMessage, replies }  (SYNCHRONOUS)
@@ -140,6 +141,15 @@ export class ApiClient {
   async deleteThread(id: string): Promise<void> {
     const res = await this.fetchFn(this.url(`/api/threads/${id}`), this.jsonInit('DELETE'));
     await parseJson<{ deleted: boolean; id: string }>(res);
+  }
+
+  /** PATCH /api/threads/:id — inline rename; returns the updated thread. */
+  async renameThread(id: string, title: string): Promise<Thread> {
+    const res = await this.fetchFn(
+      this.url(`/api/threads/${id}`),
+      this.jsonInit('PATCH', { title }),
+    );
+    return parseJson<Thread>(res);
   }
 
   async getMessages(threadId: string, limit?: number): Promise<readonly StoredMessage[]> {
