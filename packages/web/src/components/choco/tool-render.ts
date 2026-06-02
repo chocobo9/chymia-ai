@@ -7,6 +7,7 @@
 
 import type { StreamingToolBlock } from '../../stores/chat-store.js';
 import type { DiffLine } from './blocks.js';
+import { langFromPath, type CodeLang } from './highlight.js';
 
 /** Tool names that denote a file mutation. */
 const FILE_EDIT_TOOL = /(write|edit|apply_patch|create|str_replace|update)[_-]?(file)?/i;
@@ -16,6 +17,15 @@ const PATH_KEYS = ['path', 'file_path', 'filePath', 'filename', 'file', 'target'
 
 /** Common keys that carry a unified-diff / patch payload. */
 const DIFF_KEYS = ['diff', 'patch', 'unified_diff', 'unifiedDiff'] as const;
+
+/** Keys carrying the OLD text of a string-replace edit (Edit / str_replace). */
+const OLD_KEYS = ['old_string', 'old_str', 'oldText', 'oldString'] as const;
+
+/** Keys carrying the NEW text of a string-replace edit (Edit / str_replace). */
+const NEW_KEYS = ['new_string', 'new_str', 'newText', 'newString'] as const;
+
+/** Keys carrying the FULL file content of a create/write (rendered as all-add). */
+const CONTENT_KEYS = ['content', 'contents', 'file_text', 'fileText'] as const;
 
 /** Keys that tend to carry the most telling one-liner for a tool (path > query > command > …). */
 const DETAIL_KEYS = [
@@ -78,9 +88,43 @@ export function parseDiffPayload(payload: string): {
   return { lines, added, removed };
 }
 
+/** Split a multi-line string into lines; an empty string yields zero lines. */
+function splitLines(value: string): readonly string[] {
+  return value.length === 0 ? [] : value.split(/\r?\n/);
+}
+
+interface DiffBody {
+  readonly lines: readonly DiffLine[];
+  readonly added: number;
+  readonly removed: number;
+}
+
+/**
+ * Build a replace-hunk diff for an Edit/str_replace tool: every old line as a
+ * `del`, then every new line as an `add`. Lines keep a leading `- `/`+ ` marker
+ * (the highlighter renders the marker as plain text, the code after it colored).
+ */
+function buildReplaceDiff(oldStr: string, newStr: string): DiffBody {
+  const removedLines = splitLines(oldStr);
+  const addedLines = splitLines(newStr);
+  const lines: DiffLine[] = [
+    ...removedLines.map((text) => ({ text: `- ${text}`, kind: 'del' as const })),
+    ...addedLines.map((text) => ({ text: `+ ${text}`, kind: 'add' as const })),
+  ];
+  return { lines, added: addedLines.length, removed: removedLines.length };
+}
+
+/** Build an all-added diff for a create/write tool carrying full file content. */
+function buildAddDiff(content: string): DiffBody {
+  const addedLines = splitLines(content).map((text) => ({ text: `+ ${text}`, kind: 'add' as const }));
+  return { lines: addedLines, added: addedLines.length, removed: 0 };
+}
+
 export interface DiffRender {
   readonly kind: 'diff';
   readonly file: string;
+  /** Language family for syntax highlighting, derived from the file path. */
+  readonly lang: CodeLang;
   readonly added: number;
   readonly removed: number;
   readonly lines: readonly DiffLine[];
@@ -95,20 +139,32 @@ export interface ToolRender {
 export type BlockRender = DiffRender | ToolRender;
 
 /**
- * Decide how to render a tool block. Returns a Diff render ONLY when the block
- * is a file-edit tool that carries BOTH a resolvable file path AND a real
- * unified-diff/patch payload (so the +/- counts come from actual content, never
- * fabricated). Every other tool — including a plain write_file with just a path
- * — renders as a generic Tool block whose body is the pretty-printed JSON input.
+ * Decide how to render a tool block. Returns a Diff render when the block is a
+ * file-edit tool that carries a resolvable file path AND real edit content —
+ * either a unified-diff/patch payload, a string-replace (old/new), or full file
+ * content (create/write). The +/- counts always come from actual content, never
+ * fabricated. A file-edit tool with ONLY a path (no content) and every non-edit
+ * tool render as a generic Tool block whose body is the pretty-printed JSON.
  */
 export function renderForToolBlock(block: StreamingToolBlock): BlockRender {
   const input = block.toolInput;
   if (input !== undefined && FILE_EDIT_TOOL.test(block.toolName)) {
     const file = firstString(input, PATH_KEYS);
-    const diffPayload = firstString(input, DIFF_KEYS);
-    if (file !== undefined && diffPayload !== undefined) {
-      const parsed = parseDiffPayload(diffPayload);
-      return { kind: 'diff', file, ...parsed };
+    if (file !== undefined) {
+      const lang = langFromPath(file);
+      const diffPayload = firstString(input, DIFF_KEYS);
+      if (diffPayload !== undefined) {
+        return { kind: 'diff', file, lang, ...parseDiffPayload(diffPayload) };
+      }
+      const oldStr = firstString(input, OLD_KEYS);
+      const newStr = firstString(input, NEW_KEYS);
+      if (oldStr !== undefined || newStr !== undefined) {
+        return { kind: 'diff', file, lang, ...buildReplaceDiff(oldStr ?? '', newStr ?? '') };
+      }
+      const content = firstString(input, CONTENT_KEYS);
+      if (content !== undefined) {
+        return { kind: 'diff', file, lang, ...buildAddDiff(content) };
+      }
     }
   }
   const inputJson = input === undefined ? '' : JSON.stringify(input, null, 2);

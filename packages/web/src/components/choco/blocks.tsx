@@ -4,9 +4,10 @@
 // (choco-core.jsx). All blocks are presentational; they render REAL data passed
 // from AgentMessage (no fabricated content). Named exports only.
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { IconChevron, IconCheck, IconWrench } from './icons.js';
 import { StreamDots } from './primitives.js';
+import { highlightCode, type CodeLang } from './highlight.js';
 
 /* ---------------- Think ---------------- */
 
@@ -74,10 +75,27 @@ export interface DiffProps {
   readonly added: number;
   readonly removed: number;
   readonly lines: readonly DiffLine[];
+  /** Language family for syntax highlighting (derived from the file path). */
+  readonly lang?: CodeLang;
 }
 
-/** File-edit diff visualization (header + +/- stats + colored lines). */
-export function Diff({ file, added, removed, lines }: DiffProps): ReactElement {
+/** Tokenize a diff line into colored spans; empty lines render their raw text. */
+function highlightLine(text: string, lang: CodeLang): ReactNode {
+  const tokens = highlightCode(text, lang);
+  if (tokens.length === 0) return text;
+  return tokens.map((t, i) =>
+    t.cls === undefined ? (
+      <span key={i}>{t.text}</span>
+    ) : (
+      <span key={i} className={`tk-${t.cls}`}>
+        {t.text}
+      </span>
+    ),
+  );
+}
+
+/** File-edit diff visualization (header + +/- stats + syntax-highlighted lines). */
+export function Diff({ file, added, removed, lines, lang = 'generic' }: DiffProps): ReactElement {
   return (
     <div className="diff" data-testid="diff-block">
       <div className="diff-h">
@@ -89,7 +107,7 @@ export function Diff({ file, added, removed, lines }: DiffProps): ReactElement {
       <div className="diff-b">
         {lines.map((line, i) => (
           <span key={i} className={`ln${line.kind !== undefined ? ` ${line.kind}` : ''}`}>
-            {line.text}
+            {highlightLine(line.text, lang)}
           </span>
         ))}
       </div>

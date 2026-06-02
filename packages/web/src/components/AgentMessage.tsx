@@ -18,6 +18,7 @@ import type { StreamingToolBlock } from '../stores/chat-store.js';
 import { Avatar } from './choco/primitives.js';
 import { Think, Diff, ToolGroup, type ToolRowData, type DiffLine } from './choco/blocks.js';
 import { renderForToolBlock, toolDetailPreview } from './choco/tool-render.js';
+import type { CodeLang } from './choco/highlight.js';
 
 /** Normalized view of one agent turn for rendering. */
 export interface AgentMessageView {
@@ -40,6 +41,7 @@ export interface AgentMessageView {
 interface DiffBlockData {
   readonly key: string;
   readonly file: string;
+  readonly lang: CodeLang;
   readonly added: number;
   readonly removed: number;
   readonly lines: readonly DiffLine[];
@@ -68,6 +70,7 @@ function partitionBlocks(blocks: readonly StreamingToolBlock[]): PartitionedBloc
       diffs.push({
         key,
         file: render.file,
+        lang: render.lang,
         added: render.added,
         removed: render.removed,
         lines: render.lines,
@@ -121,7 +124,14 @@ export function AgentMessage({ view }: AgentMessageProps): ReactElement {
 
           {/* File edits stay prominent — substantive content the user wants to see. */}
           {diffs.map((d) => (
-            <Diff key={d.key} file={d.file} added={d.added} removed={d.removed} lines={d.lines} />
+            <Diff
+              key={d.key}
+              file={d.file}
+              lang={d.lang}
+              added={d.added}
+              removed={d.removed}
+              lines={d.lines}
+            />
           ))}
 
           {/* The noisy tool_use calls fold into ONE collapsible group (Clowder spirit). */}

@@ -181,6 +181,12 @@
 .diff-b .ln { display: block; padding: 0 12px; white-space: pre; color: var(--ink-2); }
 .diff-b .ln.add { background: color-mix(in oklab, var(--st-working) 14%, transparent); color: color-mix(in oklab, var(--st-working) 55%, var(--ink)); }
 .diff-b .ln.del { background: color-mix(in oklab, var(--st-error) 12%, transparent); color: color-mix(in oklab, var(--st-error) 58%, var(--ink)); }
+/* Syntax highlight tokens (highlight.ts) — set color directly on the span so it
+   wins over the inherited add/del line color, the way an editor renders a diff. */
+.diff-b .tk-kw { color: var(--hl-kw); font-weight: 600; }
+.diff-b .tk-str { color: var(--hl-str); }
+.diff-b .tk-num { color: var(--hl-num); }
+.diff-b .tk-com { color: var(--hl-com); font-style: italic; }
 
 /* decision */
 .decision { margin: 9px 0 2px; border-radius: var(--r-sm); border: 1px solid color-mix(in oklab, var(--ac) 30%, transparent); background: color-mix(in oklab, var(--ac) 7%, var(--bubble-bg)); padding: 11px 12px; }
@@ -333,6 +339,7 @@
   --bubble-shadow: 0 1px 2px rgba(60,42,20,.05);
   --think-bg: color-mix(in oklab, var(--ac) 6%, var(--panel-2)); --think-border: 1px dashed color-mix(in oklab, var(--ac) 34%, var(--line));
   --code-bg: #fffcf7;
+  --hl-kw: #9a4ea6; --hl-str: #b9744a; --hl-num: #3a6ea5; --hl-com: #a99a82; /* diff syntax tokens */
   --user-bg: linear-gradient(150deg, #b9744a, #99572f); --user-ink: #fff8f1; --user-code-bg: rgba(255,255,255,.22); --user-shadow: 0 5px 16px rgba(153,87,47,.24);
   --composer-bg: var(--panel); --composer-border: 1.5px solid var(--line-strong); --composer-shadow: 0 2px 4px rgba(60,42,20,.05), 0 12px 28px rgba(80,56,24,.09);
   --work-glow: 0 0 0 3px color-mix(in oklab, var(--st-working) 9%, transparent);

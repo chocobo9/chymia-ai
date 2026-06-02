@@ -11,11 +11,13 @@
 // role="listbox"/"option". Enter sends, Shift+Enter inserts a newline.
 
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactElement,
   type ChangeEvent,
+  type KeyboardEvent,
 } from 'react';
 import { useAgentStore } from '../stores/agent-store.js';
 import type { AgentRosterEntry } from '../lib/api.js';
@@ -75,6 +77,11 @@ function activeMentionToken(value: string): string | null {
 export function ChatInput(props: ChatInputProps): ReactElement {
   const { onSend, disabled = false, busy = false, onCancel } = props;
   const [value, setValue] = useState('');
+  // Index of the highlighted @mention suggestion (keyboard ↑/↓ navigation).
+  const [activeIndex, setActiveIndex] = useState(0);
+  // True after the user presses Esc to dismiss the dropdown without picking;
+  // reset whenever the active @token changes so typing more re-opens it.
+  const [dismissed, setDismissed] = useState(false);
   const roster = useAgentStore((s) => s.roster);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -86,6 +93,18 @@ export function ChatInput(props: ChatInputProps): ReactElement {
     const needle = `@${token}`.toLowerCase();
     return allSuggestions.filter((s) => s.pattern.toLowerCase().startsWith(needle));
   }, [token, allSuggestions]);
+
+  // The dropdown is open only when there are matches AND it hasn't been
+  // Esc-dismissed for the current token. While open, Enter PICKS the highlighted
+  // suggestion (it does NOT send) and ↑/↓ move the highlight — so "@" + Enter
+  // chooses an agent instead of firing a bare "@" message.
+  const showSuggestions = suggestions.length > 0 && !dismissed;
+
+  // Reset the highlight + un-dismiss every time the typed @token changes.
+  useEffect(() => {
+    setActiveIndex(0);
+    setDismissed(false);
+  }, [token]);
 
   const handleChange = (event: ChangeEvent<HTMLTextAreaElement>): void => {
     setValue(event.target.value);
@@ -105,17 +124,49 @@ export function ChatInput(props: ChatInputProps): ReactElement {
     setValue('');
   };
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (showSuggestions) {
+      const count = suggestions.length;
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setActiveIndex((i) => (i + 1) % count);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setActiveIndex((i) => (i - 1 + count) % count);
+        return;
+      }
+      if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+        // Enter/Tab confirm the highlighted agent rather than sending the message.
+        event.preventDefault();
+        applySuggestion(suggestions[Math.min(activeIndex, count - 1)].pattern);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setDismissed(true);
+        return;
+      }
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      submit();
+    }
+  };
+
   return (
     <div className="composer-wrap chat-input" data-testid="chat-input">
-      {suggestions.length > 0 && (
+      {showSuggestions && (
         <ul className="mentions chat-input__suggestions" data-testid="mention-suggestions" role="listbox">
           {suggestions.map((s, i) => (
-            <li key={`${s.agentId}:${s.pattern}`} role="option" aria-selected="false">
+            <li key={`${s.agentId}:${s.pattern}`} role="option" aria-selected={i === activeIndex}>
               <button
                 type="button"
-                className={`mention chat-input__suggestion${i === 0 ? ' active' : ''}`}
+                className={`mention chat-input__suggestion${i === activeIndex ? ' active' : ''}`}
                 data-testid="mention-suggestion"
                 data-pattern={s.pattern}
+                onMouseEnter={() => setActiveIndex(i)}
                 onClick={() => applySuggestion(s.pattern)}
               >
                 <Avatar agentId={s.agentId} name={s.shortName} accent={s.accent} small />
@@ -144,12 +195,7 @@ export function ChatInput(props: ChatInputProps): ReactElement {
           disabled={disabled}
           placeholder="给团队下达指令…  输入 @ 点名某个 agent"
           onChange={handleChange}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
+          onKeyDown={handleKeyDown}
         />
         {busy ? (
           <button
@@ -175,9 +221,15 @@ export function ChatInput(props: ChatInputProps): ReactElement {
         )}
       </div>
       <div className="composer-hint">
-        <span>
-          <b>Enter</b> 发送 · <b>Shift+Enter</b> 换行
-        </span>
+        {showSuggestions ? (
+          <span>
+            <b>↑↓</b> 选择 · <b>Enter</b> 确认 · <b>Esc</b> 关闭
+          </span>
+        ) : (
+          <span>
+            <b>Enter</b> 发送 · <b>Shift+Enter</b> 换行
+          </span>
+        )}
         <span style={{ marginLeft: 'auto' }}>@claude 架构 · @codex 评审 · @gemini 设计</span>
       </div>
     </div>
