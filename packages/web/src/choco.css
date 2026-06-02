@@ -276,6 +276,10 @@
 .sb-tabs button:hover { color: var(--ink); }
 .sb-tabs button.on { color: var(--brand); border-bottom-color: var(--brand); }
 .sb-audit { display: flex; flex-direction: column; gap: 6px; }
+.sb-search { display: flex; align-items: center; gap: 7px; padding: 6px 9px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--panel-2); color: var(--ink-3); }
+.sb-search svg { flex: 0 0 auto; width: 13px; height: 13px; }
+.sb-search input { flex: 1; min-width: 0; border: none; background: none; outline: none; font-family: var(--font); font-size: var(--fs-secondary); color: var(--ink); }
+.sb-search input::placeholder { color: var(--ink-3); }
 .audit-row { display: flex; align-items: center; gap: 9px; }
 .audit-tag { font-family: var(--mono); font-size: var(--fs-mono-tag); font-weight: var(--fw-semi); color: var(--ink-2); background: var(--soft); padding: 2px 8px; border-radius: 5px; }
 .audit-tag.err { color: var(--st-error); background: color-mix(in oklab, var(--st-error) 12%, transparent); }
@@ -294,7 +298,12 @@
    ============================================================ */
 .d-choco {
   --rk: 1.75; --air: 1;
-  --font: 'Nunito', system-ui, sans-serif; --font-display: 'Baloo 2', sans-serif; --mono: 'JetBrains Mono', monospace;
+  /* CJK fallback — Nunito/Baloo 2/JetBrains Mono are Latin-only (no Chinese
+     glyphs), so without this every Chinese string (most of the UI) would fall to
+     an inconsistent system font. Latin renders in the brand fonts, CJK in a clean
+     system Han font. Covers Windows (YaHei) / macOS (PingFang) / Linux (Noto). */
+  --cjk: 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
+  --font: 'Nunito', var(--cjk); --font-display: 'Baloo 2', var(--cjk); --mono: 'JetBrains Mono', 'Microsoft YaHei', 'PingFang SC', monospace;
 
   /* ---- Typography tokens (from docs/choco-type-tokens.css) ----
      Not a global enlargement: Nunito lifts legibility, body line-height 1.6,

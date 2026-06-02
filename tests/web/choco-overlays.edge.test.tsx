@@ -690,9 +690,10 @@ describe('reconciled deferred-affordance assertion (re-validated)', () => {
     await userEvent.click(screen.getByTestId('bell-button'));
     expect(screen.getByTestId('notif-inbox')).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
-    // Inside the WorkspacePanel, the search/lock affordances remain deferred (disabled).
+    // The WorkspacePanel global search is now ENABLED (routes to evidence search);
+    // the lock affordance is still deferred (disabled).
     await userEvent.click(screen.getByTestId('workspace-button'));
-    expect(screen.getByLabelText('搜索 Workspace')).toBeDisabled();
+    expect(screen.getByLabelText('搜索 Workspace')).toBeEnabled();
     expect(screen.getByLabelText('锁定面板')).toBeDisabled();
   });
 });

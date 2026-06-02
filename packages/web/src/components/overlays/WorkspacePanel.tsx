@@ -56,10 +56,10 @@ function SoonPane(props: SoonProps): ReactElement {
   );
 }
 
-function tabBody(tab: WorkspaceTab, client: ApiClient): ReactElement {
+function tabBody(tab: WorkspaceTab, client: ApiClient, searchQuery: string): ReactElement {
   switch (tab) {
     case 'mem':
-      return <WorkspaceMemory client={client} />;
+      return <WorkspaceMemory client={client} initialQuery={searchQuery} />;
     case 'dev':
       return (
         <SoonPane
@@ -102,6 +102,17 @@ export interface WorkspacePanelProps {
 export function WorkspacePanel(props: WorkspacePanelProps): ReactElement {
   const { onClose, client, startTab = 'dev' } = props;
   const [tab, setTab] = useState<WorkspaceTab>(startTab);
+  // Global search: the only real search backend is evidence (the 记忆 tab), so
+  // submitting here jumps to 记忆 and runs the evidence search with the query.
+  const [globalQuery, setGlobalQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const submitGlobalSearch = (): void => {
+    const q = globalQuery.trim();
+    if (q.length === 0) return;
+    setTab('mem');
+    setSearchQuery(q);
+  };
 
   useOverlayDismiss(true, onClose);
 
@@ -129,11 +140,24 @@ export function WorkspacePanel(props: WorkspacePanelProps): ReactElement {
           </button>
         </div>
 
-        <div className="wsp-search">
+        <form
+          className="wsp-search"
+          data-testid="wsp-search-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitGlobalSearch();
+          }}
+        >
           <IconSearch />
-          <input placeholder="搜索全部…" aria-label="搜索 Workspace" disabled title="即将上线" />
+          <input
+            placeholder="搜索全部…"
+            aria-label="搜索 Workspace"
+            value={globalQuery}
+            onChange={(e) => setGlobalQuery(e.target.value)}
+            data-testid="wsp-search-input"
+          />
           <span className="wsp-all">All</span>
-        </div>
+        </form>
 
         <div className="wsp-tabs" role="tablist" aria-label="Workspace 标签">
           {TABS.map((t) => (
@@ -153,7 +177,7 @@ export function WorkspacePanel(props: WorkspacePanelProps): ReactElement {
         </div>
 
         <div className="wsp-body" data-testid="workspace-panel-body">
-          {tabBody(tab, client)}
+          {tabBody(tab, client, searchQuery)}
         </div>
       </div>
     </div>

@@ -9,7 +9,7 @@
 //
 // Ported visual from choco-wsp.jsx WspMemory + directions.css `.mem-*`.
 
-import { useCallback, useState, type FormEvent, type ReactElement } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import type { EvidenceItem, EvidenceKind } from '@clowder/shared';
 import type { ApiClient } from '../../lib/api.js';
 import { IconSearch } from '../choco/icons.js';
@@ -27,6 +27,12 @@ type SearchState =
 
 export interface WorkspaceMemoryProps {
   readonly client: ApiClient;
+  /**
+   * A query pushed from the WorkspacePanel's global search bar. When it changes
+   * to a non-empty value, this tab seeds its box with it and runs the search —
+   * so the top "搜索全部" routes here (evidence is the one real search backend).
+   */
+  readonly initialQuery?: string;
 }
 
 /** Map an evidence kind to one of the design's tag styles. */
@@ -38,8 +44,8 @@ function tagClass(kind: EvidenceKind): string {
 
 /** The 记忆 tab — live evidence search. */
 export function WorkspaceMemory(props: WorkspaceMemoryProps): ReactElement {
-  const { client } = props;
-  const [query, setQuery] = useState('');
+  const { client, initialQuery } = props;
+  const [query, setQuery] = useState(initialQuery ?? '');
   const [state, setState] = useState<SearchState>({ phase: 'idle' });
 
   const runSearch = useCallback(
@@ -72,6 +78,15 @@ export function WorkspaceMemory(props: WorkspaceMemoryProps): ReactElement {
     },
     [query, runSearch],
   );
+
+  // When the global search bar pushes a (non-empty) query, mirror it into the box
+  // and run the search. Empty/undefined leaves the tab's own idle behavior intact.
+  useEffect(() => {
+    const q = initialQuery?.trim() ?? '';
+    if (q.length === 0) return;
+    setQuery(initialQuery ?? '');
+    void runSearch(q);
+  }, [initialQuery, runSearch]);
 
   const resultCount = state.phase === 'done' ? state.items.length : 0;
 

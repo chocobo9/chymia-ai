@@ -18,8 +18,9 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentStatus as AgentStatusValue, StoredMessage } from '@clowder/shared';
 import { useAgentStore } from '../stores/agent-store.js';
-import { useChatStore } from '../stores/chat-store.js';
+import { useChatStore, type TranscriptNotice } from '../stores/chat-store.js';
 import { statusPresentation } from './choco/primitives.js';
+import { IconSearch } from './choco/icons.js';
 
 /** Human-readable label per status (matches the design's STATUS labels). */
 const STATUS_LABEL: Readonly<Record<AgentStatusValue, string>> = {
@@ -92,6 +93,50 @@ function AgentStatusItem(props: AgentStatusItemProps): ReactElement {
 const AUDIT_TABS = ['审计事件', 'Session', '搜索'] as const;
 type AuditTab = (typeof AUDIT_TABS)[number];
 
+/** One distinct session with its message count, derived from the thread. */
+interface SessionRow {
+  readonly id: string;
+  readonly count: number;
+}
+
+/** Short relative-time label (…前) from a timestamp; never fabricates. */
+function relativeTime(now: number, ts: number): string {
+  const sec = Math.max(0, Math.floor((now - ts) / 1000));
+  if (sec < 60) return '刚刚';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} 分钟前`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} 小时前`;
+  return `${Math.floor(hr / 24)} 天前`;
+}
+
+/** Aggregate distinct sessionIds (with message counts) from the thread. */
+function sessionRows(messages: readonly StoredMessage[]): readonly SessionRow[] {
+  const counts = new Map<string, number>();
+  for (const m of messages) {
+    if (m.sessionId !== undefined && m.sessionId.length > 0) {
+      counts.set(m.sessionId, (counts.get(m.sessionId) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()].map(([id, count]) => ({ id, count }));
+}
+
+/** Audit-event tag for a transcript notice (mirrors the design's tag style). */
+function noticeTag(kind: TranscriptNotice['kind']): string {
+  return kind === 'error' ? 'agent_error' : 'system_info';
+}
+
+/** One audit row for a notice (tag + detail + optional time). */
+function NoticeRow({ notice, now }: { readonly notice: TranscriptNotice; readonly now?: number }): ReactElement {
+  return (
+    <div className="audit-row" data-testid="sb-audit-row">
+      <span className={`audit-tag ${notice.kind === 'error' ? 'err' : ''}`}>{noticeTag(notice.kind)}</span>
+      <span className="audit-d" title={notice.text}>{notice.text}</span>
+      {now !== undefined && <span className="audit-t">{relativeTime(now, notice.timestamp)}</span>}
+    </div>
+  );
+}
+
 /** Render the right-column status bar. */
 export function AgentStatus(): ReactElement {
   const roster = useAgentStore((s) => s.roster);
@@ -99,7 +144,9 @@ export function AgentStatus(): ReactElement {
   const activeThreadId = useChatStore((s) => s.activeThreadId);
   const threads = useChatStore((s) => s.threads);
   const messagesByThread = useChatStore((s) => s.messagesByThread);
+  const noticesByThread = useChatStore((s) => s.noticesByThread);
   const [tab, setTab] = useState<AuditTab>('审计事件');
+  const [query, setQuery] = useState('');
 
   const messages = useMemo(
     () => (activeThreadId === null ? [] : messagesByThread[activeThreadId] ?? []),
@@ -110,6 +157,24 @@ export function AgentStatus(): ReactElement {
     () => threads.find((t) => t.id === activeThreadId),
     [threads, activeThreadId],
   );
+  // Audit feed: there is no backend audit API yet, so the 审计事件 tab surfaces the
+  // REAL agent errors / system notices we already capture for the thread (newest
+  // first) — honest data, never fabricated rows. Sessions come from the thread's
+  // own sessionIds. The 搜索 tab filters the same notices locally.
+  const notices = useMemo(
+    () => (activeThreadId === null ? [] : noticesByThread[activeThreadId] ?? []),
+    [activeThreadId, noticesByThread],
+  );
+  const noticesNewestFirst = useMemo(() => notices.slice().reverse(), [notices]);
+  const sessions = useMemo(() => sessionRows(messages), [messages]);
+  const searchHits = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length === 0) return noticesNewestFirst;
+    return noticesNewestFirst.filter(
+      (n) => n.text.toLowerCase().includes(q) || noticeTag(n.kind).includes(q),
+    );
+  }, [query, noticesNewestFirst]);
+  const now = Date.now();
 
   const anyWorking = roster.some((a) => (statusById[a.id] ?? a.status) === 'working');
 
@@ -190,20 +255,64 @@ export function AgentStatus(): ReactElement {
           <div className="sb-sec-h">
             <span>审计 &amp; Session</span>
           </div>
-          <div className="sb-tabs">
+          <div className="sb-tabs" role="tablist">
             {AUDIT_TABS.map((t) => (
               <button
                 key={t}
                 type="button"
+                role="tab"
+                aria-selected={tab === t}
                 className={tab === t ? 'on' : ''}
+                data-testid={`sb-audit-tab-${t}`}
                 onClick={() => setTab(t)}
               >
                 {t}
               </button>
             ))}
           </div>
-          <div className="sb-audit">
-            <div className="sb-empty">暂无审计记录。</div>
+          <div className="sb-audit" data-testid="sb-audit-body">
+            {tab === '审计事件' &&
+              (noticesNewestFirst.length === 0 ? (
+                <div className="sb-empty">暂无审计记录。</div>
+              ) : (
+                noticesNewestFirst.map((n) => <NoticeRow key={n.id} notice={n} now={now} />)
+              ))}
+
+            {tab === 'Session' &&
+              (sessions.length === 0 ? (
+                <div className="sb-empty">暂无 session 记录。</div>
+              ) : (
+                sessions.map((s) => (
+                  <div key={s.id} className="audit-row" data-testid="sb-session-row">
+                    <span className="audit-tag" title={s.id}>
+                      {s.id.length > 16 ? `${s.id.slice(0, 16)}…` : s.id}
+                    </span>
+                    <span className="audit-t">{s.count} 条</span>
+                  </div>
+                ))
+              ))}
+
+            {tab === '搜索' && (
+              <>
+                <div className="sb-search">
+                  <IconSearch />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="搜索审计 / session…"
+                    aria-label="搜索审计记录"
+                    data-testid="sb-audit-search"
+                  />
+                </div>
+                {notices.length === 0 ? (
+                  <div className="sb-empty">暂无可搜索的记录。</div>
+                ) : searchHits.length === 0 ? (
+                  <div className="sb-empty">没有匹配「{query}」的记录。</div>
+                ) : (
+                  searchHits.map((n) => <NoticeRow key={n.id} notice={n} />)
+                )}
+              </>
+            )}
           </div>
         </section>
 
