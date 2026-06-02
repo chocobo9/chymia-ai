@@ -48,6 +48,30 @@ describe('buildAgentServicesFromRoster (happy path)', () => {
   });
 });
 
+describe('buildAgentServicesFromRoster (CLI command overrides — CHOCO_*_CMD)', () => {
+  it('forwards a per-client command override to the matching provider (probe + spawn both use cliCommand)', () => {
+    const services = buildAgentServicesFromRoster({
+      commandByClient: { openai: 'D:\\tools\\codex\\codex.exe' },
+    });
+    expect(services['codex-gpt']?.cliCommand?.()).toBe('D:\\tools\\codex\\codex.exe');
+    // The other clients keep their built-in defaults (only openai was overridden).
+    expect(services['claude-opus']?.cliCommand?.()).toBe('claude');
+    expect(services['gemini-pro']?.cliCommand?.()).toBe('gemini');
+  });
+
+  it('[edge] an empty-string override is ignored → provider keeps its default command', () => {
+    const services = buildAgentServicesFromRoster({ commandByClient: { openai: '' } });
+    expect(services['codex-gpt']?.cliCommand?.()).toBe('codex');
+  });
+
+  it('[edge] no commandByClient → every provider uses its default command', () => {
+    const services = buildAgentServicesFromRoster();
+    expect(services['claude-opus']?.cliCommand?.()).toBe('claude');
+    expect(services['codex-gpt']?.cliCommand?.()).toBe('codex');
+    expect(services['gemini-pro']?.cliCommand?.()).toBe('gemini');
+  });
+});
+
 describe('resolvePermissionMode (happy path)', () => {
   it('falls back to the documented default when unset', () => {
     expect(resolvePermissionMode(undefined)).toBe(CHOCO_DEFAULT_PERMISSION_MODE);

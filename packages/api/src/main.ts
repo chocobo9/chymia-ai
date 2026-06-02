@@ -16,6 +16,12 @@
 //                          dontAsk | plan) or boot fails fast.
 //   PORT                   Listen port. Default 3000.
 //   HOST                   Bind host.  Default 0.0.0.0.
+//   CHOCO_CLAUDE_CMD       Override the claude CLI command/path (default 'claude').
+//   CHOCO_CODEX_CMD        Override the codex  CLI command/path (default 'codex').
+//   CHOCO_GEMINI_CMD       Override the gemini CLI command/path (default 'gemini').
+//                          Use when a CLI is installed under a different name or is
+//                          NOT on PATH — set an ABSOLUTE path and the boot
+//                          availability probe resolves it directly (off-PATH OK).
 //
 // This file is the operability EDGE: it constructs the REAL structured file
 // logger (createFileLogger — stdout + rolling file under LOG_DIR), installs the
@@ -30,6 +36,7 @@
 //   LOG_LEVEL  Minimum level emitted (trace…fatal). Default 'info'.
 
 import { mkdirSync } from 'node:fs';
+import type { ClientId } from '@choco/shared';
 import { buildApp } from '@choco/api/app-factory';
 import {
   buildAgentServicesFromRoster,
@@ -59,6 +66,24 @@ function resolveWorkspace(): { readonly dir: string; readonly isDefault: boolean
     return { dir: configured, isDefault: false };
   }
   return { dir: process.cwd(), isDefault: true };
+}
+
+/**
+ * Resolve per-client CLI command overrides from the CHOCO_{CLAUDE,CODEX,GEMINI}_CMD
+ * env vars. Only non-empty values are forwarded; unset → the provider's default.
+ */
+function resolveCommandByClient(): Partial<Record<ClientId, string>> {
+  const out: Partial<Record<ClientId, string>> = {};
+  const map: ReadonlyArray<readonly [ClientId, string]> = [
+    ['anthropic', 'CHOCO_CLAUDE_CMD'],
+    ['openai', 'CHOCO_CODEX_CMD'],
+    ['google', 'CHOCO_GEMINI_CMD'],
+  ];
+  for (const [client, envKey] of map) {
+    const value = process.env[envKey];
+    if (value !== undefined && value.length > 0) out[client] = value;
+  }
+  return out;
 }
 
 /** Resolve the listen port from PORT, falling back to {@link DEFAULT_PORT}. */
@@ -130,9 +155,13 @@ async function main(): Promise<void> {
   // so the router routes only to available agents and surfaces a visible notice
   // for an explicit @mention of an unavailable one — never a silent spawn-fail.
   // Derived at boot (deployment-agnostic), NOT hardcoded in agents.yaml.
-  const agentServices = buildAgentServicesFromRoster({ permissionMode });
+  const commandByClient = resolveCommandByClient();
+  const agentServices = buildAgentServicesFromRoster({ permissionMode, commandByClient });
   const agentAvailability = probeAgentAvailability(agentServices);
-  logger.info({ agentAvailability }, 'agent CLI availability probed');
+  logger.info(
+    { agentAvailability, commandOverrides: commandByClient },
+    'agent CLI availability probed',
+  );
 
   const { api } = buildApp({
     agentServices,

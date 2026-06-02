@@ -54,6 +54,15 @@ export interface BuildAgentServicesDeps {
   readonly permissionMode?: ClaudePermissionMode;
   /** Injectable clock forwarded to every provider (deterministic tests). */
   readonly now?: () => number;
+  /**
+   * Per-client CLI command/path override. The composition root reads the
+   * `CHOCO_{CLAUDE,CODEX,GEMINI}_CMD` env vars and passes them here so a CLI that
+   * is installed under a different name or is NOT on PATH (e.g. an absolute path)
+   * can still be resolved + spawned. Empty/unset → the provider's built-in default
+   * (`claude` / `codex` / `gemini`). An absolute path is checked directly by the
+   * boot availability probe (isCliAvailable), so it works off-PATH.
+   */
+  readonly commandByClient?: Partial<Record<ClientId, string>>;
 }
 
 /**
@@ -80,8 +89,12 @@ function buildServiceForClient(
   agentId: AgentId,
   permissionMode: ClaudePermissionMode,
   now: (() => number) | undefined,
+  command: string | undefined,
 ): AgentService {
-  const common = now !== undefined ? { now } : {};
+  // Only forward a non-empty override; otherwise let the provider fall back to its
+  // built-in default command. `command: undefined` is also accepted by each deps.
+  const cmd = command !== undefined && command.length > 0 ? { command } : {};
+  const common = now !== undefined ? { now, ...cmd } : { ...cmd };
   switch (clientId) {
     case 'anthropic':
       return new ClaudeAgentService({ agentId, permissionMode, ...common });
@@ -116,6 +129,7 @@ export function buildAgentServicesFromRoster(
       agentId,
       permissionMode,
       deps.now,
+      deps.commandByClient?.[config.clientId],
     );
   }
   return Object.freeze(services);
