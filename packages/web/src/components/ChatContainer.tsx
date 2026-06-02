@@ -8,7 +8,7 @@
 // short name (avatar), model badge, and accent come from the roster (agent
 // store). When the thread has no messages we show the honest empty state.
 
-import { useMemo, type ReactElement } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from 'react';
 import type { AgentId, StoredMessage } from '@choco/shared';
 import {
   useChatStore,
@@ -21,6 +21,13 @@ import { AgentMessage, type AgentMessageView } from './AgentMessage.js';
 import type { AgentRosterEntry } from '../lib/api.js';
 import { modelBadge, shortName } from './choco/primitives.js';
 import { IconHash } from './choco/icons.js';
+
+/**
+ * Treat the view as "pinned to the bottom" when within this many px of it. Above
+ * this gap we assume the user scrolled up to read history and STOP auto-following
+ * (so streaming output never yanks them back down).
+ */
+const BOTTOM_THRESHOLD_PX = 80;
 
 interface AgentDisplay {
   readonly displayName: string;
@@ -217,6 +224,34 @@ export function ChatContainer(): ReactElement {
     [liveNotices, persistedSystemKeys],
   );
 
+  // ── Auto-scroll: follow the bottom as messages + streaming tokens arrive, so the
+  // live output stays in view (the missing piece that made streaming feel janky).
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Start pinned; flips to false when the user scrolls up to read history.
+  const pinnedRef = useRef(true);
+
+  const handleScroll = useCallback((): void => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    pinnedRef.current = distanceFromBottom <= BOTTOM_THRESHOLD_PX;
+  }, []);
+
+  // Follow new content ONLY when pinned. useLayoutEffect pins before paint so a
+  // streamed token never flashes below the fold before snapping into view.
+  useLayoutEffect(() => {
+    if (!pinnedRef.current) return;
+    const el = scrollRef.current;
+    if (el !== null) el.scrollTop = el.scrollHeight;
+  }, [messages, streaming, visibleNotices]);
+
+  // Switching threads: jump to the bottom and re-pin (a fresh transcript).
+  useLayoutEffect(() => {
+    pinnedRef.current = true;
+    const el = scrollRef.current;
+    if (el !== null) el.scrollTop = el.scrollHeight;
+  }, [activeThreadId]);
+
   if (activeThreadId === null) {
     return (
       <div className="stream chat-container chat-container--empty" data-testid="chat-container">
@@ -236,7 +271,12 @@ export function ChatContainer(): ReactElement {
     messages.length === 0 && streaming.length === 0 && visibleNotices.length === 0;
 
   return (
-    <div className="stream chat-container" data-testid="chat-container">
+    <div
+      className="stream chat-container"
+      data-testid="chat-container"
+      ref={scrollRef}
+      onScroll={handleScroll}
+    >
       <div className="stream-inner">
         {isEmpty && <EmptyThread />}
         {messages.map((message) =>
