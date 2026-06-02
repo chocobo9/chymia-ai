@@ -49,6 +49,11 @@ import { SopServiceImpl, type SopService } from '@choco/api/sop/sop-service';
 import type { EvidenceRecaller } from '@choco/api/context/evidence-recall';
 import type { ResolveAgentConfig } from '@choco/api/context/context-assembler';
 import { loadAgentConfigs } from '@choco/api/config/agent-config-loader';
+import {
+  applyAgentOverride,
+  NullAgentOverrideStore,
+  type AgentOverrideStore,
+} from '@choco/api/config/agent-overrides';
 import { SocketManager } from '@choco/api/infrastructure/socket-manager';
 import type { AppServices } from '@choco/api/infrastructure/app-services';
 import { registerThreadRoutes } from '@choco/api/routes/thread-routes';
@@ -78,6 +83,15 @@ export interface BuildAppOverrides {
   readonly db?: DatabaseType;
   /** Override the agents.yaml roster path. */
   readonly agentsConfigPath?: string;
+  /**
+   * M-MEMBER mutable RUNTIME OVERLAY over the static roster — holds per-agent
+   * edits (roleDescription/personality/strengths/displayName/name/color) that
+   * take effect on the NEXT turn's system prompt without a restart. OMITTED (the
+   * default, incl. tests with injected fakes) ⇒ a {@link NullAgentOverrideStore}
+   * (no persistence, no overrides), so the static roster flows through unchanged.
+   * main.ts injects a {@link JsonAgentOverrideStore} so web edits persist.
+   */
+  readonly agentOverrideStore?: AgentOverrideStore;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
   /**
@@ -221,7 +235,21 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
       : {}),
   });
 
-  const resolveConfig: ResolveAgentConfig = (id) => registry.get(id);
+  // M-MEMBER: the mutable overlay store. Default = no persistence/no overrides,
+  // so injected-fake tests and the prior behavior are unaffected.
+  const agentOverrideStore = overrides.agentOverrideStore ?? new NullAgentOverrideStore();
+
+  // Wrap the resolver so EVERY config read (system prompt, roster, teammate
+  // table) reflects the live overlay — this is the seam that makes a member edit
+  // take effect on the NEXT turn without a restart. The static registry still
+  // backs routing/spawn (clientId/mentionPatterns/defaultModel/mcpSupport), which
+  // the overlay never touches.
+  const resolveConfig: ResolveAgentConfig = (id) => {
+    const base = registry.get(id);
+    return base === undefined
+      ? undefined
+      : applyAgentOverride(base, agentOverrideStore.get(id as string));
+  };
   const apiBaseUrl = overrides.apiBaseUrl ?? `http://127.0.0.1`;
 
   // M12 SOP 告示牌 producer/consumer wiring: load the definition once and share
@@ -273,6 +301,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     logger,
     now,
     sopService,
+    agentOverrides: agentOverrideStore,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),

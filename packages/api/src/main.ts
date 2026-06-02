@@ -34,10 +34,16 @@
 //
 //   LOG_DIR    Directory rolling log files are written under. Default ./data/logs/api.
 //   LOG_LEVEL  Minimum level emitted (trace…fatal). Default 'info'.
+//   CHOCO_AGENT_OVERRIDES  JSON file the runtime member-edit overlay persists to
+//                          (M-MEMBER). Default ./data/agent-overrides.json
+//                          (relative to cwd). Edits made in Settings → 成员管理
+//                          are written here and survive a restart.
 
 import { mkdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import type { ClientId } from '@choco/shared';
 import { buildApp } from '@choco/api/app-factory';
+import { JsonAgentOverrideStore } from '@choco/api/config/agent-overrides';
 import {
   buildAgentServicesFromRoster,
   resolvePermissionMode,
@@ -53,6 +59,21 @@ import {
 const DEFAULT_PORT = 3000;
 /** Default bind host when HOST is unset. */
 const DEFAULT_HOST = '0.0.0.0';
+/** Default file the runtime member-edit overlay persists to (M-MEMBER). */
+const DEFAULT_AGENT_OVERRIDES_PATH = 'data/agent-overrides.json';
+
+/**
+ * Resolve the agent-overrides file path from CHOCO_AGENT_OVERRIDES, falling back
+ * to {@link DEFAULT_AGENT_OVERRIDES_PATH} (relative to cwd → absolute).
+ */
+function resolveAgentOverridesPath(): string {
+  const configured = process.env['CHOCO_AGENT_OVERRIDES'];
+  const raw =
+    configured !== undefined && configured.length > 0
+      ? configured
+      : DEFAULT_AGENT_OVERRIDES_PATH;
+  return resolvePath(process.cwd(), raw);
+}
 
 /**
  * Resolve the workspace directory from CHOCO_WORKSPACE, falling back to the
@@ -163,9 +184,16 @@ async function main(): Promise<void> {
     'agent CLI availability probed',
   );
 
+  // M-MEMBER: the persisted runtime overlay for member edits. Loaded fail-open
+  // (a missing/corrupt file → no overrides), so a bad file never blocks boot.
+  const agentOverridesPath = resolveAgentOverridesPath();
+  const agentOverrideStore = new JsonAgentOverrideStore(agentOverridesPath);
+  logger.info({ agentOverridesPath }, 'agent overrides store loaded');
+
   const { api } = buildApp({
     agentServices,
     agentAvailability,
+    agentOverrideStore,
     fileRoot: workspace,
     defaultWorkspace: workspace,
     // The base URL the spawned MCP server calls back to. buildApp defaults this

@@ -17,6 +17,7 @@ import type { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapp
 import type { SessionStore } from '@choco/api/invocation/session-store';
 import type { SocketManager } from '@choco/api/infrastructure/socket-manager';
 import type { SopService } from '@choco/api/sop/sop-service';
+import type { AgentOverrideStore } from '@choco/api/config/agent-overrides';
 
 /**
  * The wired service bundle shared by all routes. Immutable references — routes
@@ -48,6 +49,15 @@ export interface AppServices {
    * sop_advance_stage callback); the invoke seam reads it for the prompt hint.
    */
   readonly sopService: SopService;
+  /**
+   * M-MEMBER agent-override store — the mutable RUNTIME OVERLAY over the static
+   * agents.yaml roster. Routes read it to reflect live member edits
+   * (roleDescription/personality/strengths/displayName/name/color) and the agent
+   * PATCH route writes through it. The same overlay is layered onto the invoke
+   * seam's `resolveConfig` in buildApp, so edits take effect on the NEXT turn's
+   * system prompt without a server restart.
+   */
+  readonly agentOverrides: AgentOverrideStore;
   readonly socket: SocketManager;
   /**
    * Structured logger for non-fatal route notes (the same {@link RouteLogger}

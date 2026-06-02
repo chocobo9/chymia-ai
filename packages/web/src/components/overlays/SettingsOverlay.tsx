@@ -16,7 +16,7 @@
 
 import { useState, type ReactElement } from 'react';
 import { useAgentStore } from '../../stores/agent-store.js';
-import type { AgentRosterEntry } from '../../lib/api.js';
+import type { AgentRosterEntry, AgentUpdatePatch, ApiClient } from '../../lib/api.js';
 import type { HealthInfo } from '../../hooks/useHealth.js';
 import { useOverlayDismiss } from '../../hooks/useOverlayDismiss.js';
 import { Avatar, StatusDot, statusPresentation, shortName, modelBadge } from '../choco/primitives.js';
@@ -76,10 +76,11 @@ interface MemberCardProps {
   readonly entry: AgentRosterEntry;
   readonly status: ReturnType<typeof statusPresentation>;
   readonly statusValue: AgentRosterEntry['status'];
+  readonly onEdit: (entry: AgentRosterEntry) => void;
 }
 
 function MemberCard(props: MemberCardProps): ReactElement {
-  const { entry, status, statusValue } = props;
+  const { entry, status, statusValue, onEdit } = props;
   const online = statusValue !== 'offline';
   return (
     <div
@@ -106,25 +107,191 @@ function MemberCard(props: MemberCardProps): ReactElement {
           </span>
         ))}
       </div>
+      <button
+        type="button"
+        className="member-edit-btn"
+        data-testid="member-edit-open"
+        data-agent={entry.id}
+        onClick={() => onEdit(entry)}
+      >
+        编辑成员
+      </button>
+    </div>
+  );
+}
+
+/** Split a comma/、-separated 擅长领域 string into trimmed, non-empty tags. */
+function parseStrengths(raw: string): string[] {
+  return raw
+    .split(/[,、]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+interface MemberEditModalProps {
+  readonly entry: AgentRosterEntry;
+  readonly client: ApiClient;
+  readonly onClose: () => void;
+  readonly onSaved: () => Promise<void>;
+}
+
+/**
+ * 编辑成员 modal — edits a member's overlay fields (名称/昵称/角色描述/擅长领域/
+ * Background Color) and PATCHes them to /api/agents/:id. On success it refetches
+ * the roster (so the cards + status bar reflect the edit live) and closes; on
+ * failure it shows an inline error and stays open.
+ */
+function MemberEditModal(props: MemberEditModalProps): ReactElement {
+  const { entry, client, onClose, onSaved } = props;
+  const [displayName, setDisplayName] = useState(entry.displayName);
+  const [name, setName] = useState(entry.name);
+  const [roleDescription, setRoleDescription] = useState('');
+  const [strengthsText, setStrengthsText] = useState(entry.strengths.join('、'));
+  const [primary, setPrimary] = useState(entry.color.primary);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    // Build the patch from the edited fields. roleDescription is only sent when
+    // the operator filled it in (the roster payload does not carry it, so an
+    // empty field means "leave the existing role"). Color keeps the existing
+    // secondary; only the primary (Background Color) is editable here.
+    const trimmedRole = roleDescription.trim();
+    const patch: AgentUpdatePatch = {
+      displayName,
+      name,
+      strengths: parseStrengths(strengthsText),
+      color: { primary, secondary: entry.color.secondary },
+      ...(trimmedRole.length > 0 ? { roleDescription: trimmedRole } : {}),
+    };
+    try {
+      await client.updateAgent(entry.id, patch);
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="member-edit-overlay"
+      data-testid="member-edit-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="编辑成员"
+    >
+      <div className="member-edit-card" style={{ '--ac': primary } as React.CSSProperties}>
+        <div className="member-edit-head">
+          <h3>编辑成员 · {shortName(entry)}</h3>
+          <button
+            type="button"
+            className="set-close"
+            onClick={onClose}
+            aria-label="关闭编辑"
+          >
+            <IconClose />
+          </button>
+        </div>
+        <label className="member-edit-field">
+          <span>名称</span>
+          <input
+            data-testid="member-edit-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>昵称 / 显示后缀</span>
+          <input
+            data-testid="member-edit-displayName"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>角色描述</span>
+          <textarea
+            data-testid="member-edit-role"
+            value={roleDescription}
+            placeholder="留空则不修改当前角色"
+            onChange={(e) => setRoleDescription(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>擅长领域（逗号或顿号分隔）</span>
+          <input
+            data-testid="member-edit-strengths"
+            value={strengthsText}
+            onChange={(e) => setStrengthsText(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>Background Color</span>
+          <input
+            type="color"
+            data-testid="member-edit-color"
+            value={primary}
+            onChange={(e) => setPrimary(e.target.value)}
+          />
+        </label>
+        {error !== null && (
+          <div className="member-edit-error" data-testid="member-edit-error" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="member-edit-actions">
+          <button type="button" onClick={onClose} disabled={saving}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="member-edit-save"
+            data-testid="member-edit-save"
+            disabled={saving}
+            onClick={() => void save()}
+          >
+            {saving ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 export interface SettingsOverlayProps {
   readonly onClose: () => void;
+  /** API client for member edits (PATCH /api/agents/:id) + roster refetch. */
+  readonly client: ApiClient;
   readonly health: HealthInfo;
   readonly socketConnected: boolean;
 }
 
 /** The full settings surface. */
 export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
-  const { onClose, health, socketConnected } = props;
+  const { onClose, client, health, socketConnected } = props;
   const roster = useAgentStore((s) => s.roster);
   const statusById = useAgentStore((s) => s.statusById);
+  const setRoster = useAgentStore((s) => s.setRoster);
   const [nav, setNav] = useState<SettingsNavId>('members');
+  // The member currently being edited (its id; null = no modal open).
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useOverlayDismiss(true, onClose);
 
+  // After a successful PATCH, refetch the roster so the cards + status bar
+  // reflect the edit live (the store seeds new statuses, preserving live ones).
+  const refetchRoster = async (): Promise<void> => {
+    const agents = await client.listAgents();
+    setRoster(agents);
+  };
+
+  const editingEntry =
+    editingId === null ? undefined : roster.find((e) => e.id === editingId);
   const head = PANE_HEAD[nav];
 
   let pane: ReactElement;
@@ -140,6 +307,7 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
                 entry={entry}
                 status={statusPresentation(statusValue)}
                 statusValue={statusValue}
+                onEdit={(e) => setEditingId(e.id)}
               />
             );
           })}
@@ -284,6 +452,14 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
         </div>
         <div className="set-content">{pane}</div>
       </main>
+      {editingEntry !== undefined && (
+        <MemberEditModal
+          entry={editingEntry}
+          client={client}
+          onClose={() => setEditingId(null)}
+          onSaved={refetchRoster}
+        />
+      )}
     </div>
   );
 }

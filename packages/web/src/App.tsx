@@ -350,7 +350,12 @@ export function App(props: AppProps = {}): ReactElement {
         <MonitorGrid onClose={closeOverlay} health={health} socketConnected={socketConnected} />
       )}
       {overlay === 'settings' && (
-        <SettingsOverlay onClose={closeOverlay} health={health} socketConnected={socketConnected} />
+        <SettingsOverlay
+          onClose={closeOverlay}
+          client={client}
+          health={health}
+          socketConnected={socketConnected}
+        />
       )}
     </div>
   );

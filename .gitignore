@@ -17,6 +17,9 @@ test-results/
 .tmp/
 # Local runtime agent workspace (default CHOCO_WORKSPACE when unset) — runtime data, not source.
 .workspace/
+# Runtime data dir: rolling logs (LOG_DIR) + persisted member-edit overrides
+# (CHOCO_AGENT_OVERRIDES default data/agent-overrides.json). Runtime state, not source.
+data/
 # Third-party reference source (full Clowder codebase, ~117M) — used only as a
 # WHY/edge-case reference per CLAUDE.md §0.3; NOT this project's deliverable and
 # not ours to publish. Excluded from the repo.

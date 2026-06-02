@@ -42,6 +42,21 @@ export interface AgentRosterEntry {
   readonly status: AgentStatus;
 }
 
+/**
+ * AgentUpdatePatch — the editable member fields for PATCH /api/agents/:id
+ * (M-MEMBER). All optional (only what changed is sent). Mirrors the backend
+ * AgentOverride shape; clientId/mentionPatterns/defaultModel/mcpSupport are
+ * intentionally NOT editable (the registry + providers are built once at boot).
+ */
+export interface AgentUpdatePatch {
+  readonly displayName?: string;
+  readonly name?: string;
+  readonly roleDescription?: string;
+  readonly personality?: string;
+  readonly strengths?: readonly string[];
+  readonly color?: AgentColor;
+}
+
 /** Body for POST /api/threads. */
 export interface CreateThreadInput {
   readonly title?: string;
@@ -171,6 +186,20 @@ export class ApiClient {
     const res = await this.fetchFn(this.url('/api/agents'));
     const data = await parseJson<{ agents: AgentRosterEntry[] }>(res);
     return data.agents;
+  }
+
+  /**
+   * PATCH /api/agents/:id — edit a member (M-MEMBER). Sends the changed fields,
+   * returns the updated AgentRosterEntry (the backend responds with the merged
+   * { agent }, the same AgentListEntry shape GET /api/agents returns).
+   */
+  async updateAgent(id: string, patch: AgentUpdatePatch): Promise<AgentRosterEntry> {
+    const res = await this.fetchFn(
+      this.url(`/api/agents/${id}`),
+      this.jsonInit('PATCH', patch),
+    );
+    const data = await parseJson<{ agent: AgentRosterEntry }>(res);
+    return data.agent;
   }
 
   async searchEvidence(
