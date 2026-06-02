@@ -1,9 +1,9 @@
-// scripts/launch.mjs — one-command launcher for the Clowder platform.
+// scripts/launch.mjs — one-command launcher for the Choco platform.
 //
 // Spawns BOTH halves of the running system together and streams their logs with
 // a per-process prefix:
 //   - API  : `npx tsx packages/api/src/main.ts`         (the composition root)
-//   - WEB  : `pnpm --filter @clowder/web dev`           (the Vite dev server)
+//   - WEB  : `pnpm --filter @choco/web dev`           (the Vite dev server)
 //
 // Run with:  pnpm app    (root package.json script)  — or  node scripts/launch.mjs
 //
@@ -63,7 +63,7 @@ const procs = [
   {
     label: 'web',
     command: 'pnpm',
-    args: ['--filter', '@clowder/web', 'dev'],
+    args: ['--filter', '@choco/web', 'dev'],
   },
 ];
 
