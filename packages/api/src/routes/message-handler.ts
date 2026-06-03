@@ -80,6 +80,12 @@ const TOOL_EVENT_TYPES: ReadonlySet<AgentMessage['type']> = new Set([
 /** Well-known keys in {@link StoredMessage.extra} for a persisted agent reply. */
 const EXTRA_TOOL_EVENTS_KEY = 'toolEvents';
 const EXTRA_THINKING_KEY = 'thinking';
+/**
+ * The turn's invocationId, stamped onto the persisted reply so the web client can
+ * match this authoritative StoredMessage to the live streaming bubble of the same
+ * (agent, invocation) and replace it — instead of double-rendering the turn.
+ */
+const EXTRA_INVOCATION_ID_KEY = 'invocationId';
 
 /**
  * Run the full message pipeline for one inbound user message and return the
@@ -366,6 +372,11 @@ function buildReplyExtra(acc: ReplyAccumulator): Record<string, unknown> | undef
   }
   if (acc.thinking.length > 0) {
     extra[EXTRA_THINKING_KEY] = acc.thinking;
+  }
+  // Carry the turn's invocationId so the client can replace the settled live
+  // bubble of the same (agent, invocation) rather than render a duplicate.
+  if (acc.invocationId !== undefined) {
+    extra[EXTRA_INVOCATION_ID_KEY] = acc.invocationId;
   }
   return Object.keys(extra).length > 0 ? extra : undefined;
 }

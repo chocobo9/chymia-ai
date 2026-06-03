@@ -118,7 +118,10 @@ function streamingToView(
     text: stream.text,
     thinking: stream.thinking,
     toolBlocks: stream.toolBlocks,
-    isStreaming: true,
+    // A settled (done) buffer keeps its content but stops the live indicator,
+    // so it reads as a finished reply until reconcileReplies swaps in the
+    // persisted copy.
+    isStreaming: stream.done !== true,
     color: display.color,
   };
 }

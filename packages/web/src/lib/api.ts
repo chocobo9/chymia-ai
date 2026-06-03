@@ -42,6 +42,16 @@ export interface McpToolEntry {
 export interface SessionChainEntry extends Omit<SessionRecord, 'digest'> {
   readonly digest: SessionDigest | null;
 }
+
+/**
+ * TrustStatus — GET/POST /api/trust payload. `workspace` is the directory agents
+ * run their CLIs in (null when none is configured); `trusted` gates whether the
+ * providers' trust env is set (gemini's headless auto-approve).
+ */
+export interface TrustStatus {
+  readonly workspace: string | null;
+  readonly trusted: boolean;
+}
 import { webConfig } from './config.js';
 
 /**
@@ -326,6 +336,27 @@ export class ApiClient {
   async reopenSession(sessionId: string): Promise<{ status: string }> {
     const res = await this.fetchFn(this.url(`/api/sessions/${sessionId}/reopen`), this.jsonInit('POST'));
     return parseJson<{ status: string }>(res);
+  }
+
+  /**
+   * GET /api/trust — the workspace-trust status (VSCode-style). `workspace` is the
+   * directory agents run their CLIs in; `trusted` gates gemini's headless
+   * auto-approve. `workspace: null` (no workspace configured) ⇒ trusted:true,
+   * nothing to gate. The startup TrustGate reads this to decide whether to prompt.
+   */
+  async getTrust(): Promise<TrustStatus> {
+    const res = await this.fetchFn(this.url('/api/trust'));
+    return parseJson<TrustStatus>(res);
+  }
+
+  /**
+   * POST /api/trust — grant (`trust:true`) or decline (`trust:false`) trust for the
+   * workspace. Granting persists it (remembered) AND applies the providers' trust
+   * env on the live server so the next agent spawn picks it up — no restart.
+   */
+  async setTrust(trust: boolean): Promise<TrustStatus> {
+    const res = await this.fetchFn(this.url('/api/trust'), this.jsonInit('POST', { trust }));
+    return parseJson<TrustStatus>(res);
   }
 
   /** GET /api/audit/thread/:id — the per-thread audit timeline (replies/tools/seals). */

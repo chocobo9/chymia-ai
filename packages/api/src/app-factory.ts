@@ -66,6 +66,7 @@ import { handleThreadMessage } from '@choco/api/routes/message-handler';
 import { registerAgentRoutes } from '@choco/api/routes/agent-routes';
 import { registerEvidenceRoutes } from '@choco/api/routes/evidence-routes';
 import { registerSessionRoutes } from '@choco/api/routes/session-routes';
+import { registerTrustRoutes } from '@choco/api/routes/trust-routes';
 import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
 import { registerCatalogRoutes } from '@choco/api/routes/catalog-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
@@ -356,6 +357,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   void api.register(cors, { origin: true });
   registerThreadRoutes(api, appServices);
   registerSessionRoutes(api, appServices);
+  registerTrustRoutes(api, appServices);
   registerAuditRoutes(api, appServices);
   registerMessageRoutes(api, appServices);
   registerAgentRoutes(api, appServices);

@@ -33,6 +33,7 @@ import { IconBell, IconPanel, IconHash } from './components/choco/icons.js';
 import { NotifInbox, deriveNotifItems } from './components/overlays/NotifInbox.js';
 import { WorkspacePanel } from './components/overlays/WorkspacePanel.js';
 import { SettingsOverlay } from './components/overlays/SettingsOverlay.js';
+import { TrustGate } from './components/overlays/TrustGate.js';
 
 /** Which exclusive overlay surface (if any) is currently open. */
 type OverlaySurface = 'notif' | 'workspace' | 'settings' | null;
@@ -70,6 +71,15 @@ export function App(props: AppProps = {}): ReactElement {
   const [sending, setSending] = useState(false);
   const [overlay, setOverlay] = useState<OverlaySurface>(null);
   const [resolvedNotifs, setResolvedNotifs] = useState<ReadonlySet<string>>(new Set());
+  // Workspace-trust gate (VSCode-style). `checked` flips once GET /api/trust
+  // resolves; the gate shows only when the workspace is genuinely untrusted and the
+  // user hasn't dismissed it this session. Fail-open everywhere (a probe/POST error
+  // never traps the user behind the modal).
+  const [trustChecked, setTrustChecked] = useState(false);
+  const [trusted, setTrusted] = useState(true);
+  const [trustWorkspace, setTrustWorkspace] = useState<string | null>(null);
+  const [trustDismissed, setTrustDismissed] = useState(false);
+  const [trustBusy, setTrustBusy] = useState(false);
   // Per-thread locked target agent (roster id). Absent = 全体 (broadcast/default
   // route). Persists across messages so a 1:1 conversation needs no re-@ — owned
   // here (not in ChatInput) so switching threads restores that thread's target.
@@ -115,6 +125,50 @@ export function App(props: AppProps = {}): ReactElement {
       cancelled = true;
     };
   }, [client, setRoster, setThreads]);
+
+  // Startup workspace-trust probe (VSCode-style). Fail-open: a probe error leaves
+  // `trusted` true so the gate never blocks on a transient failure.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await client.getTrust();
+        if (cancelled) return;
+        setTrusted(status.trusted);
+        setTrustWorkspace(status.workspace);
+      } catch {
+        if (!cancelled) setTrusted(true);
+      } finally {
+        if (!cancelled) setTrustChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  // Grant / decline workspace trust. Grant persists + applies the env server-side
+  // (gemini unblocks for the next turn); decline dismisses the gate (restricted run).
+  const decideTrust = useCallback(
+    async (grant: boolean) => {
+      setTrustBusy(true);
+      try {
+        const status = await client.setTrust(grant);
+        setTrusted(grant ? status.trusted : true);
+        if (!grant) setTrustDismissed(true);
+      } catch (err) {
+        // Never trap the user behind the modal: surface the error and let them in.
+        setError(err instanceof Error ? err.message : 'trust failed');
+        setTrustDismissed(true);
+      } finally {
+        setTrustBusy(false);
+      }
+    },
+    [client],
+  );
+
+  const showTrustGate =
+    trustChecked && !trusted && !trustDismissed && trustWorkspace !== null;
 
   const selectThread = useCallback(
     async (threadId: string) => {
@@ -393,6 +447,9 @@ export function App(props: AppProps = {}): ReactElement {
           health={health}
           socketConnected={socketConnected}
         />
+      )}
+      {showTrustGate && trustWorkspace !== null && (
+        <TrustGate workspace={trustWorkspace} onDecide={(grant) => void decideTrust(grant)} busy={trustBusy} />
       )}
     </div>
   );

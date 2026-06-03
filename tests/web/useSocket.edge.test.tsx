@@ -25,6 +25,7 @@ import {
   CODEX,
   ROSTER,
   makeThread,
+  makeAgentReply,
   textFrame,
   doneFrame,
   workingStatus,
@@ -69,6 +70,7 @@ function resetStores(active: string | null = 'thread_todo_api'): void {
     threads: [],
     messagesByThread: {},
     streamingByThread: {},
+    noticesByThread: {},
     activeThreadId: active,
   });
   useAgentStore.setState({ roster: ROSTER, statusById: {} });
@@ -85,18 +87,49 @@ describe('registerSocketListeners — out-of-order / hostile frames (adversarial
     expect(useChatStore.getState().streamingByThread['thread_todo_api']).toBeUndefined();
   });
 
-  it('a text delta arriving AFTER done re-opens a fresh buffer (no resurrected text)', () => {
+  it('a stray SAME-invocation text delta AFTER done is IGNORED (settled reply not resurrected/mutated)', () => {
     const socket = new MockSocket();
     registerSocketListeners(socket, { getActiveThreadId: () => 'thread_todo_api' });
 
     socket.fire('agent_event', textFrame(CLAUDE, '已生成 CRUD 路由。', 1));
     socket.fire('agent_event', doneFrame(CLAUDE, 2));
-    expect(useChatStore.getState().streamingByThread['thread_todo_api']).toBeUndefined();
+    // `done` settles the buffer (kept, done:true), it is NOT dropped.
+    const settled = useChatStore.getState().streamingByThread['thread_todo_api'];
+    expect(settled).toHaveLength(1);
+    expect(settled[0].done).toBe(true);
+    expect(settled[0].text).toBe('已生成 CRUD 路由。');
 
+    // A stray text frame for the SAME invocation (same agentId:invocationId key)
+    // arrives after the turn already settled. The turn is over: the settled reply
+    // must NOT be resurrected, extended, or re-opened. The frame is a no-op.
     socket.fire('agent_event', textFrame(CLAUDE, '补充：加了分页。', 3));
+    const after = useChatStore.getState().streamingByThread['thread_todo_api'];
+    expect(after).toHaveLength(1);
+    expect(after[0].done).toBe(true);
+    expect(after[0].text).toBe('已生成 CRUD 路由。'); // unchanged — no resurrection
+  });
+
+  it('a NEW turn for the same agent (DIFFERENT invocationId) opens its own fresh buffer beside the settled one', () => {
+    const socket = new MockSocket();
+    registerSocketListeners(socket, { getActiveThreadId: () => 'thread_todo_api' });
+
+    // Turn 1 (inv_1) streams then settles on done.
+    socket.fire('agent_event', textFrame(CLAUDE, '已生成 CRUD 路由。', 1));
+    socket.fire('agent_event', doneFrame(CLAUDE, 2));
+
+    // Turn 2 is a genuinely new invocation for the SAME agent → distinct key, so
+    // it opens its own live buffer instead of being swallowed by the settled twin.
+    const newTurn: AgentMessage = { ...textFrame(CLAUDE, '新一轮：开始重构分页逻辑。', 3), invocationId: 'inv_2' };
+    socket.fire('agent_event', newTurn);
+
     const streams = useChatStore.getState().streamingByThread['thread_todo_api'];
-    expect(streams).toHaveLength(1);
-    expect(streams[0].text).toBe('补充：加了分页。');
+    expect(streams).toHaveLength(2);
+    const turn1 = streams.find((m) => m.invocationId === 'inv_1');
+    const turn2 = streams.find((m) => m.invocationId === 'inv_2');
+    expect(turn1?.done).toBe(true);
+    expect(turn1?.text).toBe('已生成 CRUD 路由。');
+    expect(turn2?.done).toBeUndefined(); // live
+    expect(turn2?.text).toBe('新一轮：开始重构分页逻辑。');
   });
 
   it('an error agent_event clears the live buffer just like done', () => {
@@ -106,6 +139,48 @@ describe('registerSocketListeners — out-of-order / hostile frames (adversarial
     socket.fire('agent_event', textFrame(CLAUDE, '流式中…', 1));
     socket.fire('agent_event', { type: 'error', agentId: CLAUDE, content: 'CLI 进程崩溃', invocationId: 'inv_1', timestamp: 2 } satisfies AgentMessage);
     expect(useChatStore.getState().streamingByThread['thread_todo_api']).toBeUndefined();
+  });
+
+  it('[parallel @all] one agent finishing (done) SETTLES it and does NOT wipe a sibling still streaming', () => {
+    // The reported bug: in an @all broadcast, the faster agent's `done` wiped the
+    // slower agent's live stream → "claude 输出到一半然后消失". The fix settles the
+    // finished agent (keeps it, done:true) AND never touches the sibling: both
+    // texts stay present.
+    const socket = new MockSocket();
+    registerSocketListeners(socket, { getActiveThreadId: () => 'thread_todo_api' });
+
+    socket.fire('agent_event', textFrame(CLAUDE, 'Claude 正在分析 两数之和…', 1));
+    socket.fire('agent_event', textFrame(CODEX, 'Codex 的思路…', 2));
+    expect(useChatStore.getState().streamingByThread['thread_todo_api']).toHaveLength(2);
+
+    // Codex finishes first → its done SETTLES codex (kept, done:true) and leaves
+    // Claude live and untouched.
+    socket.fire('agent_event', doneFrame(CODEX, 3));
+    const streams = useChatStore.getState().streamingByThread['thread_todo_api'];
+    expect(streams).toHaveLength(2);
+
+    const claude = streams.find((m) => m.agentId === CLAUDE);
+    const codex = streams.find((m) => m.agentId === CODEX);
+    // Claude is still live (no done flag) with its full text — NOT wiped.
+    expect(claude?.done).toBeUndefined();
+    expect(claude?.text).toBe('Claude 正在分析 两数之和…');
+    // Codex is settled (done:true) but its text survives.
+    expect(codex?.done).toBe(true);
+    expect(codex?.text).toBe('Codex 的思路…');
+  });
+
+  it('[parallel] an error for one agent clears only that agent, not a streaming sibling, + surfaces a notice', () => {
+    const socket = new MockSocket();
+    registerSocketListeners(socket, { getActiveThreadId: () => 'thread_todo_api' });
+
+    socket.fire('agent_event', textFrame(CLAUDE, 'Claude 流式中…', 1));
+    socket.fire('agent_event', textFrame(CODEX, 'Codex 流式中…', 2));
+    socket.fire('agent_event', { type: 'error', agentId: CODEX, content: 'codex 崩溃', invocationId: 'inv_1', timestamp: 3 } satisfies AgentMessage);
+
+    const streams = useChatStore.getState().streamingByThread['thread_todo_api'];
+    expect(streams).toHaveLength(1);
+    expect(streams[0].agentId).toBe(CLAUDE); // Claude's live stream survives
+    expect(useChatStore.getState().noticesByThread['thread_todo_api']?.some((n) => n.kind === 'error')).toBe(true);
   });
 
   it('events are scoped to the JOINED room: applies to getActiveThreadId(), not corrupting a different thread', () => {
@@ -196,6 +271,58 @@ describe('registerSocketListeners — out-of-order / hostile frames (adversarial
     expect(useChatStore.getState().streamingByThread['thread_todo_api']).toBeUndefined();
     expect(useAgentStore.getState().statusById).toEqual({});
     expect(useChatStore.getState().threads).toHaveLength(0);
+  });
+});
+
+describe('regression: a finished agent stays visible while a sibling streams (output does not disappear)', () => {
+  beforeEach(() => resetStores());
+
+  it('a finished agent\'s reply stays visible while a sibling is still streaming, then reconcile prunes the settled twin', () => {
+    // The exact reported bug: "每个 agent 输出完后立刻消失，下一个 agent 还在跑" —
+    // a settled agent's output vanished in the gap between its own `done` and the
+    // end-of-turn POST (reconcileReplies). The fix SETTLES the buffer so it stays.
+    const socket = new MockSocket();
+    registerSocketListeners(socket, { getActiveThreadId: () => 'thread_todo_api' });
+
+    // Claude finishes its turn: streams real prose, then `done` settles it.
+    socket.fire('agent_event', textFrame(CLAUDE, '我已实现 TODO API：GET/POST /todos，并加了 zod 校验。', 1));
+    socket.fire('agent_event', doneFrame(CLAUDE, 2));
+
+    // The NEXT agent is still working (a fresh frame arrives, no `done` yet).
+    socket.fire('agent_event', textFrame(CODEX, 'Codex 正在补充批量删除接口…', 3));
+
+    // CRUX: with the whole-turn POST NOT yet resolved (no reconcileReplies call),
+    // Claude's finished reply must STILL be present — it does not vanish while
+    // Codex works — AND Codex is live.
+    const live = useChatStore.getState().streamingByThread['thread_todo_api'];
+    expect(live).toHaveLength(2);
+    const claudeSettled = live.find((m) => m.agentId === CLAUDE);
+    const codexLive = live.find((m) => m.agentId === CODEX);
+    expect(claudeSettled?.done).toBe(true); // settled, not dropped
+    expect(claudeSettled?.text).toBe('我已实现 TODO API：GET/POST /todos，并加了 zod 校验。');
+    expect(codexLive?.done).toBeUndefined(); // still streaming
+    expect(codexLive?.text).toBe('Codex 正在补充批量删除接口…');
+    // The turn was never persisted yet — no StoredMessage exists for the thread.
+    expect(useChatStore.getState().messagesByThread['thread_todo_api']).toBeUndefined();
+
+    // End of turn: the POST resolves and reconcileReplies brings the authoritative
+    // persisted Claude reply (carrying extra.invocationId = 'inv_1', matching the
+    // streamed frames). It must PRUNE Claude's settled live twin (no duplicate) and
+    // leave Codex's still-live stream untouched.
+    const persistedClaude = makeAgentReply(); // agentId=CLAUDE, extra.invocationId='inv_1'
+    useChatStore.getState().reconcileReplies([persistedClaude]);
+
+    const afterReconcile = useChatStore.getState().streamingByThread['thread_todo_api'];
+    // Claude's settled twin is gone; only Codex's live stream remains.
+    expect(afterReconcile).toHaveLength(1);
+    expect(afterReconcile[0].agentId).toBe(CODEX);
+    expect(afterReconcile[0].done).toBeUndefined();
+    expect(afterReconcile[0].text).toBe('Codex 正在补充批量删除接口…');
+    // Claude is now the durable persisted message — exactly one bubble, no dupe.
+    const persisted = useChatStore.getState().messagesByThread['thread_todo_api'];
+    expect(persisted).toHaveLength(1);
+    expect(persisted?.[0].id).toBe(persistedClaude.id);
+    expect(persisted?.[0].agentId).toBe(CLAUDE);
   });
 });
 

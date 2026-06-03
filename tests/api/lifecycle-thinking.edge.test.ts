@@ -115,9 +115,12 @@ describe('Bug 3b persist — thinking accumulation (integration, edge/adversaria
     expect(extra && 'toolEvents' in extra).toBe(false);
   });
 
-  it('adversarial: a turn that emits ONLY a single empty-content thinking frame omits extra entirely', async () => {
-    // An empty thinking delta accumulates to '' → buildReplyExtra must treat the
-    // thinking as absent (non-empty-only) and, with no tools, OMIT extra.
+  it('adversarial: a turn with ONLY a single empty-content thinking frame carries just extra.invocationId (no thinking/toolEvents keys)', async () => {
+    // An empty thinking delta accumulates to '' → buildReplyExtra treats the
+    // thinking as absent (non-empty-only) and adds NO thinking key. With no tools
+    // there is also no toolEvents key. Under the NEW web settle/prune contract the
+    // reply STILL carries its turn's invocationId under extra (so the client can
+    // replace the settled live bubble), so extra = { invocationId } — not undefined.
     const turn: AgentMessage[] = [
       { type: 'session_init', agentId: CLAUDE, content: 'sess-emptythink', timestamp: TS },
       { type: 'thinking', agentId: CLAUDE, content: '', invocationId: 'inv_e', timestamp: TS + 1 },
@@ -127,7 +130,11 @@ describe('Bug 3b persist — thinking accumulation (integration, edge/adversaria
     const replies = await postTurn(injectApp({ 'claude-opus': [turn] }), 'thread-emptythink');
 
     expect(replies[0]?.content).toBe(REPLY_TEXT);
-    expect(replies[0]?.extra).toBeUndefined();
+    const extra = replies[0]?.extra;
+    expect(extra).toBeDefined();
+    expect(extra?.['invocationId']).toBe('inv_e');
+    expect(extra && 'thinking' in extra).toBe(false);
+    expect(extra && 'toolEvents' in extra).toBe(false);
   });
 
   it('the persisted history row (not just the POST result) also carries extra.thinking in order (edge)', async () => {

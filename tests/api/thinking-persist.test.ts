@@ -99,7 +99,7 @@ describe('thinking persistence (Bug 3b, happy path)', () => {
     expect(replyMsg?.extra?.['thinking']).toBe(`${REASONING_A}${REASONING_B}`);
   });
 
-  it('omits extra entirely when the turn produced no thinking and no tools', async () => {
+  it('carries ONLY extra.invocationId (no thinking, no toolEvents) when the turn produced no thinking and no tools', async () => {
     const ts = 1_700_000_000_000;
     const plainTurn: AgentMessage[] = [
       { type: 'session_init', agentId: CLAUDE, content: 'sess-plain', timestamp: ts },
@@ -115,6 +115,15 @@ describe('thinking persistence (Bug 3b, happy path)', () => {
       payload: { content: '@claude 简单回个话' },
     });
     const body = res.json<{ replies: StoredMessage[] }>();
-    expect(body.replies[0]?.extra).toBeUndefined();
+    // NEW contract (web settle/prune fix): every persisted reply now carries its
+    // turn's invocationId under extra so the web client can replace the settled
+    // live bubble of the same (agent, invocation) instead of double-rendering it.
+    // A no-thinking/no-tool turn therefore has extra = { invocationId } — NOT
+    // undefined — and still omits the thinking + toolEvents keys.
+    const extra = body.replies[0]?.extra;
+    expect(extra).toBeDefined();
+    expect(extra?.['invocationId']).toBe('inv_plain');
+    expect(extra && 'thinking' in extra).toBe(false);
+    expect(extra && 'toolEvents' in extra).toBe(false);
   });
 });

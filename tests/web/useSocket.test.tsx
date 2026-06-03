@@ -83,14 +83,22 @@ describe('registerSocketListeners (unit, happy path)', () => {
     expect(streams[0].text).toBe('CRUD 路由已生成。');
   });
 
-  it('clears the streaming buffer on a done agent_event', () => {
+  it('settles (keeps) the streaming buffer on a done agent_event with its text intact', () => {
     const socket = new MockSocket();
     registerSocketListeners(socket, { getActiveThreadId: () => 'thread_todo_api' });
 
     socket.fire('agent_event', textFrame(CLAUDE, '流式中…', 1));
     expect(useChatStore.getState().streamingByThread['thread_todo_api']).toHaveLength(1);
+
+    // `done` SETTLES the buffer (marks it done:true) — it does NOT drop it. The
+    // reply stays visible immediately instead of vanishing until the end-of-turn
+    // POST persists it. The live indicator stops (isStreaming flips off in render),
+    // but the assembled text is preserved.
     socket.fire('agent_event', doneFrame(CLAUDE, 2));
-    expect(useChatStore.getState().streamingByThread['thread_todo_api']).toBeUndefined();
+    const streams = useChatStore.getState().streamingByThread['thread_todo_api'];
+    expect(streams).toHaveLength(1);
+    expect(streams[0].done).toBe(true);
+    expect(streams[0].text).toBe('流式中…');
   });
 
   it('dispatches agent_status frames into the agent store', () => {

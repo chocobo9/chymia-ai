@@ -99,10 +99,11 @@ export function registerSocketListeners(
     // §D: an `error` frame (an agent call failed) or a `system_info` notice (an
     // explicit @mention of an unavailable agent) must NOT be silently dropped —
     // a turn that yields only one of these would otherwise leave the user staring
-    // at silence. Clear the live stream buffer (the turn ended/failed) AND add a
-    // VISIBLE notice/error bubble to the transcript.
+    // at silence. Clear ONLY THIS agent's live stream (NOT the whole thread — in a
+    // parallel @all turn a sibling may still be streaming) AND add a VISIBLE
+    // notice/error bubble to the transcript.
     if (event.type === 'error' || event.type === 'system_info') {
-      chat.clearStreaming(threadId);
+      chat.clearStreamingMessage(threadId, event);
       chat.addNotice(threadId, {
         id: noticeId(event),
         agentId: event.agentId,
@@ -112,8 +113,12 @@ export function registerSocketListeners(
       });
       return;
     }
+    // `done` ends ONE agent's turn — SETTLE (don't drop) that agent's stream so
+    // its reply stays visible immediately, instead of vanishing until the
+    // end-of-turn POST persists every agent's reply at once. A faster sibling
+    // finishing first never touches a slower agent's still-live output.
     if (event.type === 'done') {
-      chat.clearStreaming(threadId);
+      chat.settleStreamingMessage(threadId, event);
       return;
     }
     chat.applyAgentEvent(threadId, event);

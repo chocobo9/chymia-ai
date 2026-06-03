@@ -87,6 +87,10 @@ export function makeAgentReply(overrides: Partial<StoredMessage> = {}): StoredMe
     content: '我已经实现了 TODO API：GET/POST /todos、GET/PATCH/DELETE /todos/:id，并加了 zod 校验。',
     mentions: [],
     origin: 'stream',
+    // The backend stamps the turn's invocationId into extra so the client can
+    // replace the settled live bubble of the same (agent, invocation). Matches the
+    // invocationId the streaming frame fixtures (textFrame/doneFrame) carry.
+    extra: { invocationId: 'inv_1' },
     timestamp: Date.UTC(2026, 4, 31, 12, 0, 9),
     ...overrides,
   };

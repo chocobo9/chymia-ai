@@ -8,9 +8,16 @@
 // renders the turn. As `text`/`tool_use`/`thinking` frames arrive over the
 // socket we fold them into ONE evolving StreamingMessage per (thread, agent,
 // invocation). `text` deltas concatenate; `thinking` deltas concatenate; each
-// `tool_use` appends a block. On `done` we drop the streaming buffer; the final
-// persisted StoredMessage(s) arrive via reconcileReplies (from the POST result)
-// or a future history refresh.
+// `tool_use` appends a block.
+//
+// On `done` we SETTLE the streaming buffer in place (mark it `done`, stop the
+// "正在输出…" indicator) — we do NOT drop it. Dropping it on `done` made each
+// agent's reply VANISH in the gap between its own `done` and the end-of-turn
+// POST that persists every agent's reply at once: with multiple agents (or a
+// slow sibling) a finished agent showed nothing until the WHOLE turn completed.
+// The settled buffer keeps the reply visible immediately; the authoritative
+// persisted StoredMessage later REPLACES the settled twin via reconcileReplies
+// (matched by agentId+invocationId), giving it a durable id for reloads.
 
 import { create } from 'zustand';
 import type { AgentId, AgentMessage, StoredMessage, Thread } from '@choco/shared';
@@ -55,6 +62,12 @@ export interface StreamingMessage {
   readonly thinking: string;
   readonly toolBlocks: readonly StreamingToolBlock[];
   readonly startedAt: number;
+  /**
+   * True once this turn's `done` frame settled it: the content stays rendered
+   * but the live "正在输出…" indicator stops. It remains here (still keyed per
+   * turn) until reconcileReplies swaps in the authoritative persisted reply.
+   */
+  readonly done?: boolean;
 }
 
 interface ChatState {
@@ -90,7 +103,24 @@ interface ChatState {
 
   // Streaming actions (driven by agent_event frames).
   applyAgentEvent(threadId: string, event: AgentMessage): void;
+  /** Drop the ENTIRE thread's streaming buffer (all agents). */
   clearStreaming(threadId: string): void;
+  /**
+   * Drop ONLY the streaming buffer of the agent/turn that `event` belongs to.
+   * Used on a per-agent `error` / `system_info` frame (the turn produced no
+   * renderable reply — an error/notice bubble is surfaced instead) so one agent
+   * failing does NOT wipe a sibling's still-live stream in a parallel (@all) turn.
+   */
+  clearStreamingMessage(threadId: string, event: AgentMessage): void;
+  /**
+   * SETTLE the agent's streaming buffer on its `done` frame: keep the assembled
+   * reply visible but stop its live indicator. An empty turn (no text/thinking/
+   * tool output) is dropped instead. Unlike {@link clearStreamingMessage} this
+   * does NOT remove a reply — that fixed the bug where output vanished between an
+   * agent's `done` and the end-of-turn POST. reconcileReplies later replaces the
+   * settled twin with the persisted StoredMessage (matched by agentId+invocationId).
+   */
+  settleStreamingMessage(threadId: string, event: AgentMessage): void;
 
   // Notice/error actions (§D — render an agent error / availability notice
   // visibly in the transcript instead of dropping it).
@@ -159,6 +189,21 @@ function withStreamingMessage(
 /** True for event types that should NOT create/extend a streaming buffer. */
 function isStreamingFrame(type: AgentMessage['type']): boolean {
   return type === 'text' || type === 'thinking' || type === 'tool_use';
+}
+
+/**
+ * The invocationId a persisted reply belongs to, read from its `extra` bag (the
+ * backend stamps it there). Lets reconcileReplies drop the settled live twin of
+ * the same (agent, invocation) so the authoritative reply doesn't double-render.
+ */
+function replyInvocationId(reply: StoredMessage): string | undefined {
+  const raw = reply.extra?.['invocationId'];
+  return typeof raw === 'string' ? raw : undefined;
+}
+
+/** A streaming message has renderable content (else its `done` is an empty turn). */
+function hasRenderableContent(msg: StreamingMessage): boolean {
+  return msg.text.length > 0 || msg.thinking.length > 0 || msg.toolBlocks.length > 0;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -264,12 +309,34 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => {
       if (replies.length === 0) return {};
       const next: Record<string, readonly StoredMessage[]> = { ...state.messagesByThread };
+      const streamingNext: Record<string, readonly StreamingMessage[]> = {
+        ...state.streamingByThread,
+      };
+      let streamingChanged = false;
       for (const reply of replies) {
         const existing = next[reply.threadId] ?? [];
-        if (existing.some((m) => m.id === reply.id)) continue;
-        next[reply.threadId] = [...existing, reply];
+        if (!existing.some((m) => m.id === reply.id)) {
+          next[reply.threadId] = [...existing, reply];
+        }
+        // The persisted reply is authoritative — drop its settled live twin (same
+        // agent + invocation) so the turn renders as ONE bubble, now with a durable
+        // id. Only the matching turn is pruned; siblings' live streams stay put.
+        const inv = replyInvocationId(reply);
+        const liveList = streamingNext[reply.threadId];
+        if (inv !== undefined && reply.agentId !== null && liveList !== undefined) {
+          const pruned = liveList.filter(
+            (m) => !(m.agentId === reply.agentId && m.invocationId === inv),
+          );
+          if (pruned.length !== liveList.length) {
+            streamingChanged = true;
+            if (pruned.length === 0) delete streamingNext[reply.threadId];
+            else streamingNext[reply.threadId] = pruned;
+          }
+        }
       }
-      return { messagesByThread: next };
+      return streamingChanged
+        ? { messagesByThread: next, streamingByThread: streamingNext }
+        : { messagesByThread: next };
     }),
 
   applyAgentEvent: (threadId, event) =>
@@ -277,7 +344,13 @@ export const useChatStore = create<ChatState>((set) => ({
       if (!isStreamingFrame(event.type)) return {};
       const list = state.streamingByThread[threadId] ?? [];
       const key = streamingKey(event);
-      const current = list.find((m) => m.key === key) ?? emptyStreaming(event);
+      const existing = list.find((m) => m.key === key);
+      // A stray streaming frame for an already-settled (done) turn must NOT
+      // resurrect/mutate it — the turn is over. A genuinely new turn for the same
+      // agent carries a fresh invocationId (different key), so it still opens its
+      // own buffer below.
+      if (existing?.done === true) return {};
+      const current = existing ?? emptyStreaming(event);
       const updated = foldEvent(current, event);
       return {
         streamingByThread: {
@@ -292,6 +365,53 @@ export const useChatStore = create<ChatState>((set) => ({
       if (state.streamingByThread[threadId] === undefined) return {};
       const { [threadId]: _cleared, ...streamingByThread } = state.streamingByThread;
       return { streamingByThread };
+    }),
+
+  clearStreamingMessage: (threadId, event) =>
+    set((state) => {
+      const list = state.streamingByThread[threadId];
+      if (list === undefined) return {};
+      // Match by agentId, NOT the full agentId:invocationId key: an agent has at
+      // most one live stream per turn, and a terminal `done`/`error` frame may carry
+      // a different (or absent) invocationId than the text frames. Clearing by agent
+      // is robust to that AND still leaves siblings' streams alone.
+      const next = list.filter((m) => m.agentId !== event.agentId);
+      if (next.length === list.length) return {}; // this agent had no live stream
+      if (next.length === 0) {
+        const { [threadId]: _emptied, ...streamingByThread } = state.streamingByThread;
+        return { streamingByThread };
+      }
+      return { streamingByThread: { ...state.streamingByThread, [threadId]: next } };
+    }),
+
+  settleStreamingMessage: (threadId, event) =>
+    set((state) => {
+      const list = state.streamingByThread[threadId];
+      if (list === undefined) return {};
+      // Settle by agentId (one live stream per agent per turn); a terminal `done`
+      // may carry a different/absent invocationId than the text frames.
+      const idx = list.findIndex((m) => m.agentId === event.agentId);
+      if (idx === -1) return {}; // already reconciled/cleared, or never streamed
+      const msg = list[idx];
+      if (msg === undefined) return {};
+      // An empty turn (done with no output) leaves nothing to show → drop it.
+      if (!hasRenderableContent(msg)) {
+        const next = list.filter((_, i) => i !== idx);
+        if (next.length === 0) {
+          const { [threadId]: _emptied, ...streamingByThread } = state.streamingByThread;
+          return { streamingByThread };
+        }
+        return { streamingByThread: { ...state.streamingByThread, [threadId]: next } };
+      }
+      // Content present → keep it visible, flip off the live indicator.
+      if (msg.done === true) return {}; // idempotent (re-delivered done)
+      const settled: StreamingMessage = { ...msg, done: true };
+      return {
+        streamingByThread: {
+          ...state.streamingByThread,
+          [threadId]: list.map((m, i) => (i === idx ? settled : m)),
+        },
+      };
     }),
 
   addNotice: (threadId, notice) =>

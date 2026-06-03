@@ -218,17 +218,24 @@ describe('socket agent_event → rich blocks', () => {
     expect(within(body).getByText('最后加 zod 校验')).toBeInTheDocument();
   });
 
-  it('streaming before done shows the streaming indicator; done CLEARS it', async () => {
+  it('streaming before done shows the streaming indicator; done SETTLES it (indicator gone, text stays)', async () => {
     const { socket } = await mountApp();
     await selectDefaultThread();
     act(() => socket.fire('agent_event', textFrame(CLAUDE, '流式输出中…', 1)));
     await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
     act(() => socket.fire('agent_event', doneFrame(CLAUDE, 9)));
+    // Settle flips isStreaming off → the live indicator disappears…
     await waitFor(() =>
       expect(screen.queryByTestId('streaming-indicator')).not.toBeInTheDocument(),
     );
-    // The streaming buffer is dropped from the store on done.
-    expect(useChatStore.getState().streamingByThread['thread_todo_api']).toBeUndefined();
+    // …but the buffer is SETTLED, not dropped: it stays in the store marked
+    // done:true so the finished reply remains visible until reconcileReplies swaps
+    // in the persisted copy (the bug was dropping it here → output vanished).
+    const streams = useChatStore.getState().streamingByThread['thread_todo_api'];
+    expect(streams).toHaveLength(1);
+    expect(streams[0].done).toBe(true);
+    // The streamed prose is still rendered in the transcript.
+    expect(screen.getByTestId('agent-text')).toHaveTextContent('流式输出中…');
   });
 
   it('an ERROR frame also clears the streaming buffer without crashing (adversarial)', async () => {

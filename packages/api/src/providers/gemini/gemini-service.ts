@@ -17,7 +17,19 @@ import {
 
 // ── CLI 接入常量（来源：extraction §2.2「Gemini 集成」） ──
 const GEMINI_CLI_COMMAND = 'gemini';
-/** 非交互自动批准 + stream-json 输出，来源 extraction §2.2（--yolo + --output-format stream-json） */
+/**
+ * 非交互自动批准 + stream-json 输出，来源 extraction §2.2（--yolo + --output-format stream-json）。
+ *
+ * 注意「受信目录门」：gemini-cli ≥0.4x 在「未信任目录」下不会把 stream-json 写到
+ * stdout，而是把「not running in a trusted directory …」写到 stderr 并非零退出
+ * （0.44.1 实测 exit 55）→ 我们的 parser 收不到任何输出、永远等不到 done，表现为
+ * 「agent 一直工作中、永不回复」。**正确解法不是在这里 `--skip-trust` 无条件绕过**
+ * （那会违反 workspace-trust 的设计原则：未经用户信任的目录绝不自动批准），而是由
+ * VSCode 式 workspace-trust 门在「用户已信任本工作区」时设置
+ * GEMINI_CLI_TRUST_WORKSPACE=true（见 runtime/workspace-trust.ts +
+ * main.ts ensureWorkspaceTrust），该 env 经 process.env 继承到本 spawn，gemini 即放行。
+ * 实测来源：2026-06-03，gemini-cli 0.44.1，env 路径已验证可流式。
+ */
 const GEMINI_BASE_ARGS: readonly string[] = ['--yolo', '--output-format', 'stream-json'];
 /** model 选择 flag，来源 extraction §2.2 */
 const GEMINI_MODEL_FLAG = '--model';

@@ -452,3 +452,57 @@
 /* app shell mount: fill the viewport so the .d-choco workspace owns the page */
 html, body, #root { height: 100%; }
 body { margin: 0; }
+
+/* ── Workspace-trust gate (VSCode-style startup dialog) ───────────────────────
+   A blocking centered modal: scrim (no click-to-dismiss) + a single card. Above
+   every other overlay (z 200) so it owns the screen until the user decides. */
+.trust-scrim {
+  position: fixed; inset: 0; z-index: 200;
+  background: color-mix(in oklab, var(--ink) 38%, transparent);
+  backdrop-filter: blur(2px);
+}
+.trust-modal {
+  position: fixed; z-index: 201;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(460px, calc(100vw - 32px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--sh-pop); padding: 24px; text-align: center;
+  font-family: var(--font);
+}
+.trust-mark {
+  width: 46px; height: 46px; margin: 0 auto 12px;
+  display: grid; place-items: center; font-size: 24px; line-height: 1;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--brand) 14%, transparent);
+}
+.trust-title {
+  margin: 0 0 8px; font-family: var(--font-display);
+  font-size: var(--fs-title); font-weight: var(--fw-bold); color: var(--ink);
+}
+.trust-body {
+  margin: 0 0 14px; font-size: var(--fs-body); line-height: var(--lh-body);
+  color: var(--ink-2); text-align: left;
+}
+.trust-body b { color: var(--ink); font-weight: var(--fw-semi); }
+.trust-path {
+  display: block; margin: 0 0 18px; padding: 9px 11px;
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r-sm);
+  font-family: var(--mono); font-size: var(--fs-mono-tag); color: var(--ink);
+  text-align: left; word-break: break-all;
+}
+.trust-actions { display: flex; flex-direction: column; gap: 9px; }
+.trust-btn {
+  width: 100%; padding: 10px 14px; border-radius: var(--r-sm);
+  font-family: var(--font); font-size: var(--fs-body); font-weight: var(--fw-semi);
+  cursor: pointer; border: 1px solid transparent; transition: filter .12s ease;
+}
+.trust-btn:disabled { opacity: .6; cursor: progress; }
+.trust-btn--grant { background: var(--brand); color: var(--brand-ink); }
+.trust-btn--grant:not(:disabled):hover { filter: brightness(1.06); }
+.trust-btn--deny {
+  background: transparent; border-color: var(--line); color: var(--ink-2);
+}
+.trust-btn--deny:not(:disabled):hover { background: var(--panel-2); }
+.trust-foot {
+  margin: 14px 0 0; font-size: var(--fs-meta); color: var(--ink-3);
+}
