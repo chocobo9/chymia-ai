@@ -16,7 +16,7 @@
 
 import { useState, type ReactElement } from 'react';
 import { useAgentStore } from '../../stores/agent-store.js';
-import type { AgentRosterEntry, AgentUpdatePatch, ApiClient } from '../../lib/api.js';
+import type { AgentRosterEntry, AgentUpdatePatch, ApiClient, NewMemberInput } from '../../lib/api.js';
 import type { HealthInfo } from '../../hooks/useHealth.js';
 import { useOverlayDismiss } from '../../hooks/useOverlayDismiss.js';
 import { Avatar, StatusDot, statusPresentation, shortName, modelBadge } from '../choco/primitives.js';
@@ -77,10 +77,12 @@ interface MemberCardProps {
   readonly status: ReturnType<typeof statusPresentation>;
   readonly statusValue: AgentRosterEntry['status'];
   readonly onEdit: (entry: AgentRosterEntry) => void;
+  /** Delete a runtime-added member; absent → no delete affordance (base member). */
+  readonly onDelete?: (entry: AgentRosterEntry) => void;
 }
 
 function MemberCard(props: MemberCardProps): ReactElement {
-  const { entry, status, statusValue, onEdit } = props;
+  const { entry, status, statusValue, onEdit, onDelete } = props;
   const online = statusValue !== 'offline';
   return (
     <div
@@ -107,15 +109,28 @@ function MemberCard(props: MemberCardProps): ReactElement {
           </span>
         ))}
       </div>
-      <button
-        type="button"
-        className="member-edit-btn"
-        data-testid="member-edit-open"
-        data-agent={entry.id}
-        onClick={() => onEdit(entry)}
-      >
-        编辑成员
-      </button>
+      <div className="member-actions">
+        <button
+          type="button"
+          className="member-edit-btn"
+          data-testid="member-edit-open"
+          data-agent={entry.id}
+          onClick={() => onEdit(entry)}
+        >
+          编辑成员
+        </button>
+        {entry.removable === true && onDelete !== undefined && (
+          <button
+            type="button"
+            className="member-del-btn"
+            data-testid="member-delete"
+            data-agent={entry.id}
+            onClick={() => onDelete(entry)}
+          >
+            删除
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -263,6 +278,184 @@ function MemberEditModal(props: MemberEditModalProps): ReactElement {
   );
 }
 
+/** Friendly labels for the client/model providers we can build. */
+const CLIENT_OPTIONS: readonly { readonly id: NewMemberInput['clientId']; readonly label: string }[] = [
+  { id: 'anthropic', label: 'Claude (Anthropic)' },
+  { id: 'openai', label: 'Codex (OpenAI)' },
+  { id: 'google', label: 'Gemini (Google)' },
+];
+
+/** Split a space/comma/、-separated mention string into @-prefixed, deduped tokens. */
+function parseMentions(raw: string): string[] {
+  const tokens = raw
+    .split(/[\s,、]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+    .map((t) => (t.startsWith('@') ? t : `@${t}`));
+  return Array.from(new Set(tokens));
+}
+
+interface MemberCreateModalProps {
+  readonly client: ApiClient;
+  readonly onClose: () => void;
+  readonly onSaved: () => Promise<void>;
+}
+
+/**
+ * 添加成员 modal — collect a NEW member (id/名称/模型/@mention/身份/颜色) and POST it
+ * to /api/agents. On success it refetches the roster (the new card + status bar
+ * appear live) and closes; on failure it shows the server error and stays open.
+ */
+function MemberCreateModal(props: MemberCreateModalProps): ReactElement {
+  const { client, onClose, onSaved } = props;
+  const [id, setId] = useState('');
+  const [name, setName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [clientId, setClientId] = useState<NewMemberInput['clientId']>('anthropic');
+  const [defaultModel, setDefaultModel] = useState('');
+  const [mentionsText, setMentionsText] = useState('');
+  const [roleDescription, setRoleDescription] = useState('');
+  const [strengthsText, setStrengthsText] = useState('');
+  const [primary, setPrimary] = useState('#b9744a');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const mentions = parseMentions(mentionsText);
+  // Minimal client-side guard; the server re-validates (slug id, ≥1 @mention, unique).
+  const canSubmit =
+    id.trim().length > 0 && name.trim().length > 0 && defaultModel.trim().length > 0 && mentions.length > 0;
+
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    const input: NewMemberInput = {
+      id: id.trim(),
+      name: name.trim(),
+      displayName: displayName.trim().length > 0 ? displayName.trim() : name.trim(),
+      clientId,
+      defaultModel: defaultModel.trim(),
+      mentionPatterns: mentions,
+      roleDescription: roleDescription.trim(),
+      strengths: parseStrengths(strengthsText),
+      color: { primary, secondary: primary },
+    };
+    try {
+      await client.createAgent(input);
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '添加失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="member-edit-overlay"
+      data-testid="member-create-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="添加成员"
+    >
+      <div className="member-edit-card" style={{ '--ac': primary } as React.CSSProperties}>
+        <div className="member-edit-head">
+          <h3>添加成员</h3>
+          <button type="button" className="set-close" onClick={onClose} aria-label="关闭添加">
+            <IconClose />
+          </button>
+        </div>
+        <label className="member-edit-field">
+          <span>ID（小写 slug，如 claude-review）</span>
+          <input data-testid="member-create-id" value={id} onChange={(e) => setId(e.target.value)} />
+        </label>
+        <label className="member-edit-field">
+          <span>名称</span>
+          <input data-testid="member-create-name" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="member-edit-field">
+          <span>昵称 / 显示后缀</span>
+          <input
+            data-testid="member-create-displayName"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>模型 / Provider</span>
+          <select
+            data-testid="member-create-client"
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value as NewMemberInput['clientId'])}
+          >
+            {CLIENT_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="member-edit-field">
+          <span>默认模型（如 claude-opus-4-6）</span>
+          <input
+            data-testid="member-create-model"
+            value={defaultModel}
+            onChange={(e) => setDefaultModel(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>@mention（空格或逗号分隔，可多个）</span>
+          <input
+            data-testid="member-create-mentions"
+            value={mentionsText}
+            placeholder="@review @审查"
+            onChange={(e) => setMentionsText(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>角色描述 / 身份</span>
+          <textarea
+            data-testid="member-create-role"
+            value={roleDescription}
+            onChange={(e) => setRoleDescription(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>擅长领域（逗号或顿号分隔）</span>
+          <input
+            data-testid="member-create-strengths"
+            value={strengthsText}
+            onChange={(e) => setStrengthsText(e.target.value)}
+          />
+        </label>
+        <label className="member-edit-field">
+          <span>Background Color</span>
+          <input type="color" data-testid="member-create-color" value={primary} onChange={(e) => setPrimary(e.target.value)} />
+        </label>
+        {error !== null && (
+          <div className="member-edit-error" data-testid="member-create-error" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="member-edit-actions">
+          <button type="button" onClick={onClose} disabled={saving}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="member-edit-save"
+            data-testid="member-create-save"
+            disabled={saving || !canSubmit}
+            onClick={() => void save()}
+          >
+            {saving ? '添加中…' : '添加'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export interface SettingsOverlayProps {
   readonly onClose: () => void;
   /** API client for member edits (PATCH /api/agents/:id) + roster refetch. */
@@ -280,14 +473,28 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
   const [nav, setNav] = useState<SettingsNavId>('members');
   // The member currently being edited (its id; null = no modal open).
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Whether the 添加成员 modal is open.
+  const [creating, setCreating] = useState(false);
 
   useOverlayDismiss(true, onClose);
 
-  // After a successful PATCH, refetch the roster so the cards + status bar
-  // reflect the edit live (the store seeds new statuses, preserving live ones).
+  // After a successful PATCH/POST/DELETE, refetch the roster so the cards + status
+  // bar reflect the change live (the store seeds new statuses, preserving live ones).
   const refetchRoster = async (): Promise<void> => {
     const agents = await client.listAgents();
     setRoster(agents);
+  };
+
+  // Delete a runtime-added member (after a confirm), then refetch the roster.
+  const deleteMember = async (entry: AgentRosterEntry): Promise<void> => {
+    // eslint-disable-next-line no-alert -- a destructive action deserves a confirm
+    if (!window.confirm(`删除成员「${shortName(entry)}」？此操作不可撤销。`)) return;
+    try {
+      await client.deleteAgent(entry.id);
+      await refetchRoster();
+    } catch {
+      // A failed delete leaves the roster as-is; the card stays. (Best-effort.)
+    }
   };
 
   const editingEntry =
@@ -298,22 +505,33 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
   switch (nav) {
     case 'members':
       pane = (
-        <div className="set-grid2" data-testid="settings-members">
-          {roster.map((entry) => {
-            const statusValue = statusById[entry.id] ?? entry.status;
-            return (
-              <MemberCard
-                key={entry.id}
-                entry={entry}
-                status={statusPresentation(statusValue)}
-                statusValue={statusValue}
-                onEdit={(e) => setEditingId(e.id)}
-              />
-            );
-          })}
-          {roster.length === 0 && (
-            <div className="set-soon">未加载到 agent 名册。</div>
-          )}
+        <div className="settings-members-pane" data-testid="settings-members-pane">
+          <div className="member-pane-bar">
+            <button
+              type="button"
+              className="member-add-btn"
+              data-testid="member-create-open"
+              onClick={() => setCreating(true)}
+            >
+              ＋ 添加成员
+            </button>
+          </div>
+          <div className="set-grid2" data-testid="settings-members">
+            {roster.map((entry) => {
+              const statusValue = statusById[entry.id] ?? entry.status;
+              return (
+                <MemberCard
+                  key={entry.id}
+                  entry={entry}
+                  status={statusPresentation(statusValue)}
+                  statusValue={statusValue}
+                  onEdit={(e) => setEditingId(e.id)}
+                  onDelete={(e) => void deleteMember(e)}
+                />
+              );
+            })}
+            {roster.length === 0 && <div className="set-soon">未加载到 agent 名册。</div>}
+          </div>
         </div>
       );
       break;
@@ -457,6 +675,13 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
           entry={editingEntry}
           client={client}
           onClose={() => setEditingId(null)}
+          onSaved={refetchRoster}
+        />
+      )}
+      {creating && (
+        <MemberCreateModal
+          client={client}
+          onClose={() => setCreating(false)}
           onSaved={refetchRoster}
         />
       )}

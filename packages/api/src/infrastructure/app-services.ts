@@ -18,6 +18,9 @@ import type { SessionStore } from '@choco/api/invocation/session-store';
 import type { SocketManager } from '@choco/api/infrastructure/socket-manager';
 import type { SopService } from '@choco/api/sop/sop-service';
 import type { AgentOverrideStore } from '@choco/api/config/agent-overrides';
+import type { RuntimeRosterStore } from '@choco/api/config/runtime-roster';
+import type { AgentConfig } from '@choco/shared';
+import type { AgentService } from '@choco/api/providers/base';
 
 /**
  * The wired service bundle shared by all routes. Immutable references — routes
@@ -58,6 +61,19 @@ export interface AppServices {
    * system prompt without a server restart.
    */
   readonly agentOverrides: AgentOverrideStore;
+  /**
+   * 成员增删 — the persisted store of runtime-ADDED members (base agents.yaml
+   * members are NOT here). POST /api/agents appends + hot-registers; DELETE
+   * removes + unregisters. `has(id)` tells the routes which members are deletable.
+   */
+  readonly runtimeRoster: RuntimeRosterStore;
+  /**
+   * Factory that builds a provider AgentService for a NEW member, curried by the
+   * composition root with the live permissionMode/commandByClient. The POST route
+   * calls it then registry.register(config, service) so the member is invocable
+   * without a restart. In tests it defaults to a no-op (registration-only) service.
+   */
+  readonly buildMemberService: (config: AgentConfig) => AgentService;
   readonly socket: SocketManager;
   /**
    * Structured logger for non-fatal route notes (the same {@link RouteLogger}

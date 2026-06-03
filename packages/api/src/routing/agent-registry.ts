@@ -33,6 +33,18 @@ export interface AgentRegistry {
    * instead of a silent spawn-fail.
    */
   isAvailable(id: AgentId): boolean;
+  /**
+   * Hot-register a runtime-added member: bind its config + service (and optional
+   * availability) so it is immediately routable — no restart. Mutates this
+   * instance in place, so every holder of the registry (router, invoke seam) sees
+   * the new member at once. Replacing an existing id swaps its config/service.
+   */
+  register(config: AgentConfig, service: AgentService, available?: boolean): void;
+  /**
+   * Remove a runtime-added member by id. Returns true if it was present. Mutates
+   * in place. (The composition root protects base/default agents from removal.)
+   */
+  unregister(id: AgentId): boolean;
 }
 
 /** Options for {@link AgentRegistryImpl}. */
@@ -53,12 +65,15 @@ export interface AgentRegistryOptions {
  * (matching supplement D wiring, e.g. { 'claude-opus': claudeService }).
  */
 export class AgentRegistryImpl implements AgentRegistry {
-  private readonly configs: readonly AgentConfig[];
-  private readonly byId: ReadonlyMap<AgentId, AgentConfig>;
-  private readonly services: ReadonlyMap<AgentId, AgentService>;
-  private readonly mentionEntries: readonly MentionEntry[];
+  // Mutable so runtime members can be hot-registered/removed (register/unregister).
+  // Getters still expose readonly views, so callers cannot mutate the roster except
+  // through those two methods.
+  private configs: AgentConfig[];
+  private readonly byId: Map<AgentId, AgentConfig>;
+  private readonly services: Map<AgentId, AgentService>;
+  private mentionEntries: MentionEntry[];
   private readonly defaultConfig: AgentConfig;
-  private readonly availability: ReadonlyMap<AgentId, boolean>;
+  private readonly availability: Map<AgentId, boolean>;
 
   constructor(
     configs: readonly AgentConfig[],
@@ -68,7 +83,7 @@ export class AgentRegistryImpl implements AgentRegistry {
     if (configs.length === 0) {
       throw new Error('AgentRegistryImpl requires at least one AgentConfig');
     }
-    this.configs = configs;
+    this.configs = [...configs];
     this.byId = new Map(configs.map((c) => [c.id, c]));
     this.services = new Map(
       Object.entries(services).map(([id, svc]) => [id as AgentId, svc]),
@@ -77,13 +92,7 @@ export class AgentRegistryImpl implements AgentRegistry {
       Object.entries(options?.availability ?? {}).map(([id, ok]) => [id as AgentId, ok]),
     );
 
-    const entries: MentionEntry[] = [];
-    for (const config of configs) {
-      for (const pattern of config.mentionPatterns) {
-        entries.push({ agentId: config.id, pattern });
-      }
-    }
-    this.mentionEntries = entries;
+    this.mentionEntries = AgentRegistryImpl.flattenMentions(this.configs);
 
     const defaultConfig =
       options?.defaultAgentId !== undefined
@@ -137,5 +146,37 @@ export class AgentRegistryImpl implements AgentRegistry {
     // Absent from the map ⇒ AVAILABLE (default true) — fakes/unprobed agents stay
     // routable, matching Clowder's "not-in-roster = available" backward-compat.
     return this.availability.get(id) ?? true;
+  }
+
+  register(config: AgentConfig, service: AgentService, available?: boolean): void {
+    // Replace any existing entry for this id (idempotent re-register), then append.
+    this.configs = [...this.configs.filter((c) => c.id !== config.id), config];
+    this.byId.set(config.id, config);
+    this.services.set(config.id, service);
+    if (available !== undefined) {
+      this.availability.set(config.id, available);
+    }
+    this.mentionEntries = AgentRegistryImpl.flattenMentions(this.configs);
+  }
+
+  unregister(id: AgentId): boolean {
+    if (!this.byId.has(id)) return false;
+    this.configs = this.configs.filter((c) => c.id !== id);
+    this.byId.delete(id);
+    this.services.delete(id);
+    this.availability.delete(id);
+    this.mentionEntries = AgentRegistryImpl.flattenMentions(this.configs);
+    return true;
+  }
+
+  /** Flatten every config's mentionPatterns into (agentId, pattern) entries. */
+  private static flattenMentions(configs: readonly AgentConfig[]): MentionEntry[] {
+    const entries: MentionEntry[] = [];
+    for (const config of configs) {
+      for (const pattern of config.mentionPatterns) {
+        entries.push({ agentId: config.id, pattern });
+      }
+    }
+    return entries;
   }
 }

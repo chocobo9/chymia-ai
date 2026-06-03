@@ -20,7 +20,7 @@
 // `spawn_error` event (finalizeStream) rather than crashing the server. So we
 // wire all three regardless of local CLI availability.
 
-import { createAgentId, type AgentId, type ClientId } from '@choco/shared';
+import { createAgentId, type AgentConfig, type AgentId, type ClientId } from '@choco/shared';
 import type { AgentService } from '@choco/api/providers/base';
 import { ClaudeAgentService, assertValidPermissionMode } from '@choco/api/providers/claude/claude-service';
 import type { ClaudePermissionMode } from '@choco/api/providers/claude/claude-service';
@@ -103,6 +103,34 @@ function buildServiceForClient(
     case 'google':
       return new GeminiAgentService({ agentId, ...common });
   }
+}
+
+/** Dependencies for {@link buildMemberService} (subset of the roster build deps). */
+export interface BuildMemberServiceDeps {
+  readonly permissionMode?: ClaudePermissionMode;
+  readonly now?: () => number;
+  readonly commandByClient?: Partial<Record<ClientId, string>>;
+}
+
+/**
+ * Build ONE provider {@link AgentService} for a runtime-added member (the same
+ * per-client dispatch the roster build uses). The composition root curries this
+ * with the live permissionMode/commandByClient and hands the closure to the POST
+ * /api/agents route so a new member becomes invocable without a restart.
+ */
+export function buildMemberService(
+  config: AgentConfig,
+  deps: BuildMemberServiceDeps = {},
+): AgentService {
+  const permissionMode = deps.permissionMode ?? resolvePermissionMode(undefined);
+  const agentId = createAgentId(config.id as string);
+  return buildServiceForClient(
+    config.clientId,
+    agentId,
+    permissionMode,
+    deps.now,
+    deps.commandByClient?.[config.clientId],
+  );
 }
 
 /**

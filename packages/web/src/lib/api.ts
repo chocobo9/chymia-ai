@@ -49,6 +49,23 @@ export interface AgentRosterEntry {
   readonly mentionPatterns: readonly string[];
   readonly strengths: readonly string[];
   readonly status: AgentStatus;
+  /** True for a runtime-ADDED member (deletable); absent/false for a base member. */
+  readonly removable?: boolean;
+}
+
+/** Body for POST /api/agents — a NEW member to add at runtime (成员增删). */
+export interface NewMemberInput {
+  readonly id: string;
+  readonly name: string;
+  readonly displayName: string;
+  readonly clientId: ClientId;
+  readonly defaultModel: string;
+  readonly mcpSupport?: boolean;
+  readonly mentionPatterns: readonly string[];
+  readonly personality?: string;
+  readonly roleDescription?: string;
+  readonly strengths?: readonly string[];
+  readonly color: AgentColor;
 }
 
 /**
@@ -217,6 +234,19 @@ export class ApiClient {
     );
     const data = await parseJson<{ agent: AgentRosterEntry }>(res);
     return data.agent;
+  }
+
+  /** POST /api/agents — add a new member at runtime (成员增删). Returns the created entry. */
+  async createAgent(input: NewMemberInput): Promise<AgentRosterEntry> {
+    const res = await this.fetchFn(this.url('/api/agents'), this.jsonInit('POST', input));
+    const data = await parseJson<{ agent: AgentRosterEntry }>(res);
+    return data.agent;
+  }
+
+  /** DELETE /api/agents/:id — remove a runtime-added member. */
+  async deleteAgent(id: string): Promise<void> {
+    const res = await this.fetchFn(this.url(`/api/agents/${id}`), this.jsonInit('DELETE'));
+    await parseJson<{ deleted: boolean; id: string }>(res);
   }
 
   async searchEvidence(

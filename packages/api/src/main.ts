@@ -52,8 +52,10 @@ import {
   TRUST_FLAG_ENV,
 } from '@choco/api/runtime/workspace-trust';
 import { JsonAgentOverrideStore } from '@choco/api/config/agent-overrides';
+import { JsonRuntimeRosterStore } from '@choco/api/config/runtime-roster';
 import {
   buildAgentServicesFromRoster,
+  buildMemberService,
   resolvePermissionMode,
 } from '@choco/api/runtime/agent-services';
 import { probeAgentAvailability } from '@choco/api/runtime/cli-availability';
@@ -69,6 +71,16 @@ const DEFAULT_PORT = 3000;
 const DEFAULT_HOST = '0.0.0.0';
 /** Default file the runtime member-edit overlay persists to (M-MEMBER). */
 const DEFAULT_AGENT_OVERRIDES_PATH = 'data/agent-overrides.json';
+/** Default file the runtime-ADDED members persist to (成员增删). */
+const DEFAULT_RUNTIME_ROSTER_PATH = 'data/runtime-agents.json';
+
+/** Resolve the runtime-roster file path from CHOCO_RUNTIME_ROSTER (→ absolute). */
+function resolveRuntimeRosterPath(): string {
+  const configured = process.env['CHOCO_RUNTIME_ROSTER'];
+  const raw =
+    configured !== undefined && configured.length > 0 ? configured : DEFAULT_RUNTIME_ROSTER_PATH;
+  return resolvePath(process.cwd(), raw);
+}
 
 /**
  * Resolve the agent-overrides file path from CHOCO_AGENT_OVERRIDES, falling back
@@ -252,9 +264,25 @@ async function main(): Promise<void> {
   // Derived at boot (deployment-agnostic), NOT hardcoded in agents.yaml.
   const commandByClient = resolveCommandByClient();
   const agentServices = buildAgentServicesFromRoster({ permissionMode, commandByClient });
-  const agentAvailability = probeAgentAvailability(agentServices);
+
+  // 成员增删: the persisted runtime-ADDED members + the factory that builds a NEW
+  // member's provider (curried with the live permissionMode/commandByClient). Loaded
+  // fail-open. buildApp merges these into the registry; the POST route hot-registers.
+  const runtimeRosterPath = resolveRuntimeRosterPath();
+  const runtimeRoster = new JsonRuntimeRosterStore(runtimeRosterPath);
+  const buildMember = (config: Parameters<typeof buildMemberService>[0]): ReturnType<typeof buildMemberService> =>
+    buildMemberService(config, { permissionMode, commandByClient });
+
+  // Probe CLI availability for BASE + runtime members (so an added member whose CLI
+  // isn't installed shows offline, same honest signal as the base roster).
+  const runtimeServices: Record<string, ReturnType<typeof buildMemberService>> = {};
+  for (const cfg of runtimeRoster.all()) runtimeServices[cfg.id as string] = buildMember(cfg);
+  const agentAvailability = {
+    ...probeAgentAvailability(agentServices),
+    ...probeAgentAvailability(runtimeServices),
+  };
   logger.info(
-    { agentAvailability, commandOverrides: commandByClient },
+    { agentAvailability, commandOverrides: commandByClient, runtimeMembers: runtimeRoster.all().length },
     'agent CLI availability probed',
   );
 
@@ -268,6 +296,8 @@ async function main(): Promise<void> {
     agentServices,
     agentAvailability,
     agentOverrideStore,
+    runtimeRoster,
+    buildMemberService: buildMember,
     fileRoot: workspace,
     defaultWorkspace: workspace,
     // The base URL the spawned MCP server calls back to. buildApp defaults this

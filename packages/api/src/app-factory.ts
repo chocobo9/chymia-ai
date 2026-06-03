@@ -21,7 +21,7 @@ import type { Database as DatabaseType } from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { Server as SocketIoServer } from 'socket.io';
-import type { AgentMessage, AgentId, IncomingPlatformMessage, StoredMessage } from '@choco/shared';
+import type { AgentMessage, AgentConfig, AgentId, IncomingPlatformMessage, StoredMessage } from '@choco/shared';
 
 import type { AgentService } from '@choco/api/providers/base';
 import { MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
@@ -54,6 +54,10 @@ import {
   NullAgentOverrideStore,
   type AgentOverrideStore,
 } from '@choco/api/config/agent-overrides';
+import {
+  NullRuntimeRosterStore,
+  type RuntimeRosterStore,
+} from '@choco/api/config/runtime-roster';
 import { SocketManager } from '@choco/api/infrastructure/socket-manager';
 import type { AppServices } from '@choco/api/infrastructure/app-services';
 import { registerThreadRoutes } from '@choco/api/routes/thread-routes';
@@ -96,6 +100,19 @@ export interface BuildAppOverrides {
    * main.ts injects a {@link JsonAgentOverrideStore} so web edits persist.
    */
   readonly agentOverrideStore?: AgentOverrideStore;
+  /**
+   * 成员增删 — the persisted store of runtime-ADDED members, merged over the static
+   * agents.yaml roster at boot. OMITTED ⇒ {@link NullRuntimeRosterStore} (no added
+   * members), so the base roster flows through unchanged. main.ts injects a
+   * {@link JsonRuntimeRosterStore} (and replays it into the registry after build).
+   */
+  readonly runtimeRoster?: RuntimeRosterStore;
+  /**
+   * Factory the POST /api/agents route uses to build a NEW member's provider
+   * service. OMITTED ⇒ a no-op (registration-only) service, so route tests can add
+   * members without real CLIs. main.ts injects the real provider factory.
+   */
+  readonly buildMemberService?: (config: AgentConfig) => AgentService;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
   /**
@@ -236,8 +253,19 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   const invocations = new InvocationRegistry({ now });
 
   // --- Agent roster + registry (services injected; fakes win in tests) -------
-  const configs = loadAgentConfigs(overrides.agentsConfigPath);
-  const services = resolveAgentServices(overrides.agentServices);
+  // 成员增删: the roster is agents.yaml (base) PLUS any runtime-added members,
+  // merged at boot. POST/DELETE /api/agents then mutate this registry in place.
+  const runtimeRoster = overrides.runtimeRoster ?? new NullRuntimeRosterStore();
+  const buildMemberService = overrides.buildMemberService ?? defaultMemberService;
+  const runtimeConfigs = runtimeRoster.all();
+  const configs: AgentConfig[] = [...loadAgentConfigs(overrides.agentsConfigPath), ...runtimeConfigs];
+  const services: Record<string, AgentService> = { ...resolveAgentServices(overrides.agentServices) };
+  // Build a provider for each runtime member that was not injected as a fake.
+  for (const cfg of runtimeConfigs) {
+    if (services[cfg.id as string] === undefined) {
+      services[cfg.id as string] = buildMemberService(cfg);
+    }
+  }
   const registry = new AgentRegistryImpl(configs, services, {
     ...(overrides.defaultAgentId !== undefined
       ? { defaultAgentId: overrides.defaultAgentId }
@@ -314,6 +342,8 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     now,
     sopService,
     agentOverrides: agentOverrideStore,
+    runtimeRoster,
+    buildMemberService,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),
@@ -629,6 +659,23 @@ function resolveAgentServices(
     }
   }
   return out;
+}
+
+/**
+ * Default {@link BuildAppOverrides.buildMemberService} — a no-op provider for a
+ * runtime-added member: it yields a single `done`, so a route test can add a
+ * member and route to it without a real CLI. main.ts injects the real factory
+ * (buildMemberService from runtime/agent-services) for an actually-spawning member.
+ */
+function defaultMemberService(config: AgentConfig): AgentService {
+  const agentId = config.id;
+  return {
+    invoke(): AsyncIterable<AgentMessage> {
+      return (async function* (): AsyncIterable<AgentMessage> {
+        yield { type: 'done', agentId, isFinal: true, timestamp: 0 };
+      })();
+    },
+  };
 }
 
 /** The directory this factory lives in (for resolving package-relative paths). */

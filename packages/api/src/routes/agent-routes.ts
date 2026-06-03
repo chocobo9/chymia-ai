@@ -15,6 +15,7 @@ import { z } from 'zod';
 import type { AgentConfig, AgentStatus } from '@choco/shared';
 import type { AppServices } from '@choco/api/infrastructure/app-services';
 import { applyAgentOverride, AgentOverrideSchema } from '@choco/api/config/agent-overrides';
+import { NewMemberSchema, newMemberToConfig } from '@choco/api/config/runtime-roster';
 
 /** Baseline status reported by the REST roster (live updates flow over Socket.io). */
 const BASELINE_STATUS: AgentStatus = 'idle';
@@ -31,9 +32,11 @@ interface AgentListEntry {
   readonly mentionPatterns: readonly string[];
   readonly strengths: readonly string[];
   readonly status: AgentStatus;
+  /** True for a runtime-ADDED member (deletable); false for a base agents.yaml one. */
+  readonly removable: boolean;
 }
 
-function toListEntry(config: AgentConfig): AgentListEntry {
+function toListEntry(config: AgentConfig, removable: boolean): AgentListEntry {
   return {
     id: config.id as string,
     name: config.name,
@@ -43,6 +46,7 @@ function toListEntry(config: AgentConfig): AgentListEntry {
     mentionPatterns: config.mentionPatterns,
     strengths: config.strengths ?? [],
     status: BASELINE_STATUS,
+    removable,
   };
 }
 
@@ -50,15 +54,63 @@ function toListEntry(config: AgentConfig): AgentListEntry {
  * Register the agent roster/status routes on `app`.
  */
 export function registerAgentRoutes(app: FastifyInstance, services: AppServices): void {
-  const { registry, agentOverrides } = services;
+  const { registry, agentOverrides, runtimeRoster, buildMemberService } = services;
 
   app.get('/api/agents', async (_request, reply) => {
     // Layer the live overlay onto each config BEFORE shaping the entry, so the
     // roster (member cards + status bar) reflects edits without a restart.
     const agents = registry
       .getAll()
-      .map((c) => toListEntry(applyAgentOverride(c, agentOverrides.get(c.id as string))));
+      .map((c) =>
+        toListEntry(
+          applyAgentOverride(c, agentOverrides.get(c.id as string)),
+          runtimeRoster.has(c.id as string),
+        ),
+      );
     return reply.send({ agents });
+  });
+
+  // POST /api/agents — ADD a member at runtime (成员增删). Validates the new member,
+  // rejects an id or @mention that collides with an existing one, builds its
+  // provider, hot-registers it (immediately routable), and persists it to the
+  // runtime roster. base agents.yaml members are unaffected.
+  app.post('/api/agents', async (request, reply) => {
+    const body = NewMemberSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: 'invalid_body', detail: body.error.issues });
+    }
+    const config = newMemberToConfig(body.data);
+    if (registry.get(config.id) !== undefined) {
+      return reply.code(409).send({ error: 'id_taken', id: config.id as string });
+    }
+    // @mention uniqueness — a token already owned by another member would make
+    // routing ambiguous, so reject rather than silently shadow.
+    const clash = config.mentionPatterns.find((m) => registry.resolveByMention(m) !== undefined);
+    if (clash !== undefined) {
+      return reply.code(409).send({ error: 'mention_taken', mention: clash });
+    }
+    registry.register(config, buildMemberService(config), true);
+    runtimeRoster.add(config);
+    return reply.code(201).send({ agent: toListEntry(config, true) });
+  });
+
+  // DELETE /api/agents/:id — remove a RUNTIME-ADDED member (unregister + un-persist).
+  // base agents.yaml members are protected (409) so the core team can't be deleted.
+  app.delete('/api/agents/:id', async (request, reply) => {
+    const params = AgentParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.code(400).send({ error: 'invalid_params' });
+    }
+    const id = params.data.id;
+    if (registry.get(id as AgentConfig['id']) === undefined) {
+      return reply.code(404).send({ error: 'agent_not_found' });
+    }
+    if (!runtimeRoster.has(id)) {
+      return reply.code(409).send({ error: 'base_member_protected', id });
+    }
+    registry.unregister(id as AgentConfig['id']);
+    runtimeRoster.remove(id);
+    return reply.send({ deleted: true, id });
   });
 
   // PATCH /api/agents/:id — edit an EXISTING member's overlay fields
@@ -81,7 +133,7 @@ export function registerAgentRoutes(app: FastifyInstance, services: AppServices)
     }
     agentOverrides.set(id as string, body.data);
     const merged = applyAgentOverride(base, agentOverrides.get(id as string));
-    return reply.send({ agent: toListEntry(merged) });
+    return reply.send({ agent: toListEntry(merged, runtimeRoster.has(id as string)) });
   });
 
   app.get('/api/agents/:id/status', async (request, reply) => {
