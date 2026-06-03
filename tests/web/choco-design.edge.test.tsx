@@ -434,27 +434,25 @@ describe('empty / honest states + deferred controls', () => {
       expect(stats.some((t) => /总数0/.test(t.replace(/\s/g, '')))).toBe(true);
     });
     expect(screen.queryByText('12 messages')).not.toBeInTheDocument();
-    // Session Chain shows 0 session for an empty thread (real count, not a mock).
-    expect(screen.getByText(/0 session/)).toBeInTheDocument();
+    // 审计事件 shows an honest empty for a thread with no audit activity (no mock rows).
+    expect(await screen.findByText('该会话还没有可审计的活动。')).toBeInTheDocument();
   });
 
-  // RECONCILED: the bell + panel buttons are REAL overlay triggers (NotifInbox /
-  // WorkspacePanel), enabled with their final aria-labels. The StatusBar's old dead
-  // 绑定外部 Session / 查看日志 placeholders were REPLACED by real ENTRIES (审计 /
-  // 会话链) that open the on-demand panels — assert those open them now.
-  it('shell controls: bell/panel are real triggers; the StatusBar entries open the real panels', async () => {
+  // The bell + panel buttons are REAL overlay triggers (NotifInbox / WorkspacePanel).
+  // 审计 & Session is INLINE in the right column (Clowder-style) — there are NO main-bar
+  // 审计/会话链 buttons and NO audit/session overlays anymore.
+  it('shell controls: bell/panel are real triggers; audit/session is inline, no main-bar buttons/overlays', async () => {
     await mountApp();
     await selectDefaultThread();
     expect(screen.getByLabelText('待你处理')).toBeEnabled();
     expect(screen.getByLabelText('打开 Workspace')).toBeEnabled();
     expect(screen.getByText('project owner')).toBeInTheDocument();
-    // The right-column 审计 entry opens the real AuditPanel (no more dead placeholder).
-    await userEvent.click(screen.getByTestId('sb-open-audit'));
-    expect(await screen.findByTestId('audit-panel')).toBeInTheDocument();
-    await userEvent.keyboard('{Escape}');
-    // The 会话链 entry opens the real SessionPanel.
-    await userEvent.click(screen.getByTestId('sb-open-sessions'));
-    expect(await screen.findByTestId('session-panel')).toBeInTheDocument();
+    // No main-bar audit/session buttons, no overlays — the inline explorer is the surface.
+    expect(screen.queryByTestId('open-audit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('open-sessions')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('audit-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('session-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sb-explorer-body')).toBeInTheDocument();
   });
 
   it('with NO thread selected, the center + status columns show honest unselected labels', async () => {

@@ -352,31 +352,34 @@
 .sb-kv > span:first-child { color: var(--ink-3); flex: 0 0 auto; white-space: nowrap; }
 .sb-kv code { font-family: var(--mono); font-size: var(--fs-meta); color: var(--ink-2); background: var(--soft); padding: 2px 6px; border-radius: 4px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-kvr { color: var(--ink-2); white-space: nowrap; }
-/* 对话信息 inline links + the 运行日志 · 查看日志 foot action (button, reset). */
-.sb-kv a, .sb-a { color: var(--brand); font-weight: var(--fw-semi); cursor: pointer; background: none; border: none; padding: 0; font-family: var(--font); font-size: var(--fs-meta); }
-.sb-kv a:hover, .sb-a:hover:not(:disabled) { text-decoration: underline; }
+/* 运行日志 · 查看日志 foot link (button, reset). */
+.sb-a { color: var(--brand); font-weight: var(--fw-semi); cursor: pointer; background: none; border: none; padding: 0; font-family: var(--font); font-size: var(--fs-meta); }
+.sb-a:hover:not(:disabled) { text-decoration: underline; }
 .sb-a:disabled { color: var(--ink-3); cursor: default; }
-.sb-a.disabled:hover { text-decoration: none; }
 
-/* ---- 审计 & Session — restored tab block (审计事件 / Session / 搜索) ----
-   Tabs preview the thread's REAL recent activity + session chain; rows + 查看日志
-   open the full on-demand panels. Row styles scoped to .sb-audit so they don't
-   collide with the AuditPanel's own .audit-row. */
+/* ---- 审计 & Session — collapsible card: tabs (审计事件/Session/搜索), rows shown as
+   [type-tag] … [relative time], and a 运行日志 · 查看日志 foot. Row styles scoped to
+   .sb-audit so they don't collide with any other .audit-row. ---- */
+.sb-collapse { width: 100%; background: none; border: none; cursor: pointer; padding: 0; }
+.sb-collapse-i { font-size: 10px; color: var(--ink-3); }
 .sb-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 9px; }
 .sb-tabs button { border: none; background: none; padding: 6px 9px; font-family: var(--font); font-size: var(--fs-meta); font-weight: var(--fw-semi); color: var(--ink-3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .sb-tabs button:hover { color: var(--brand); }
 .sb-tabs button.on { color: var(--brand); border-bottom-color: var(--brand); }
-.sb-audit { display: flex; flex-direction: column; gap: 6px; }
+.sb-audit { display: flex; flex-direction: column; gap: 7px; }
 .sb-audit-empty { font-size: var(--fs-secondary); color: var(--ink-3); padding: 2px 0; }
-.sb-audit .audit-row { width: 100%; align-items: center; gap: 9px; padding: 3px 4px; border: none; background: none; cursor: pointer; text-align: left; border-radius: var(--r-xs); }
-.sb-audit .audit-row:hover:not(:disabled) { background: var(--soft); }
-.sb-audit .audit-row:disabled { cursor: default; }
-.sb-audit .audit-tag { font-family: var(--mono); font-size: var(--fs-mono-tag); font-weight: var(--fw-semi); color: var(--ink-2); background: var(--soft); padding: 2px 8px; border-radius: 5px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-audit .audit-row { display: flex; align-items: center; gap: 9px; }
+.sb-audit .audit-tag { font-family: var(--mono); font-size: var(--fs-mono-tag); font-weight: var(--fw-semi); color: var(--ink-2); background: var(--soft); padding: 2px 8px; border-radius: 5px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-audit .audit-tag.err { color: var(--st-error); background: color-mix(in oklab, var(--st-error) 12%, transparent); }
-.sb-audit .audit-t { font-size: var(--fs-mono-tag); color: var(--ink-3); margin-left: auto; white-space: nowrap; }
-.sb-search { display: flex; align-items: center; gap: 7px; background: var(--soft); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 7px 10px; color: var(--ink-3); margin-bottom: 2px; }
+.sb-audit .audit-t { font-size: var(--fs-mono-tag); color: var(--ink-3); margin-left: auto; white-space: nowrap; flex: 0 0 auto; }
+/* a Session-tab row: [#seq name] tag (grows) + status badge + inline 封存/恢复 */
+.sb-audit .audit-row.sb-sess .audit-tag { flex: 1 1 auto; max-width: none; }
+.sb-chain-act { flex: 0 0 auto; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); font-family: var(--font); font-size: var(--fs-mono-tag); font-weight: var(--fw-semi); padding: 2px 8px; border-radius: var(--r-pill); cursor: pointer; }
+.sb-chain-act:hover:not(:disabled) { color: var(--brand); border-color: var(--brand); }
+.sb-chain-act:disabled { opacity: .5; cursor: default; }
+.sb-search { display: flex; align-items: center; gap: 7px; background: var(--soft); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 7px 10px; color: var(--ink-3); margin-bottom: 4px; }
 .sb-search input { flex: 1; min-width: 0; border: none; outline: none; background: none; font-family: var(--font); font-size: var(--fs-meta); color: var(--ink); }
-.sb-foot { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px 2px; font-size: var(--fs-meta); color: var(--ink-3); }
+.sb-foot { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 2px; margin-top: 6px; border-top: 1px solid var(--line); font-size: var(--fs-meta); color: var(--ink-3); }
 
 /* ============================================================
    THEME · CHOCO — warm cocoa, refined. Tokens + a few structural

@@ -412,8 +412,8 @@ describe('AgentStatus / StatusBar (right column, real data)', () => {
     // 消息统计: 2 total (1 user + 1 agent) — computed, not fabricated.
     expect(screen.getByText('状态栏')).toBeInTheDocument();
     expect(screen.getByText('协作中')).toBeInTheDocument(); // mode reflects a working agent
-    // The 审计 entry into the real panel is present (replaced the dead placeholder).
-    expect(screen.getByTestId('sb-open-audit')).toBeInTheDocument();
+    // The inline 审计 & Session explorer body renders (no client here → inert, but present).
+    expect(screen.getByTestId('sb-explorer-body')).toBeInTheDocument();
   });
 
   it('shows a 待命 mode and the unselected-thread label when no thread is active', () => {
@@ -423,6 +423,7 @@ describe('AgentStatus / StatusBar (right column, real data)', () => {
     const mode = document.querySelector('.sb-mode b');
     expect(mode).not.toBeNull();
     expect(mode).toHaveTextContent('待命');
-    expect(screen.getByText('未选择会话')).toBeInTheDocument();
+    // 对话信息 block removed; the no-thread label now lives in the 会话链 / 审计 explorer.
+    expect(screen.getAllByText('未选择会话。').length).toBeGreaterThanOrEqual(1);
   });
 });

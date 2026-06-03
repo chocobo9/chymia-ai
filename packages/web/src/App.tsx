@@ -14,8 +14,9 @@
 // final persisted replies from the POST result.
 //
 // Overlays opened from the shell: the header bell (NotifInbox), panel button
-// (WorkspacePanel), the owner gear (SettingsOverlay), and the per-thread main-bar
-// buttons 审计 (AuditPanel) / 会话链 (SessionPanel).
+// (WorkspacePanel), the owner gear (SettingsOverlay). The 审计 & Session explorer is
+// inline in the right status column (AgentStatus), Clowder-style — no overlay, no
+// main-bar button (seal/恢复 acts inline there).
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { Thread } from '@choco/shared';
@@ -32,11 +33,9 @@ import { IconBell, IconPanel, IconHash } from './components/choco/icons.js';
 import { NotifInbox, deriveNotifItems } from './components/overlays/NotifInbox.js';
 import { WorkspacePanel } from './components/overlays/WorkspacePanel.js';
 import { SettingsOverlay } from './components/overlays/SettingsOverlay.js';
-import { SessionPanel } from './components/overlays/SessionPanel.js';
-import { AuditPanel } from './components/overlays/AuditPanel.js';
 
 /** Which exclusive overlay surface (if any) is currently open. */
-type OverlaySurface = 'notif' | 'workspace' | 'settings' | 'sessions' | 'audit' | null;
+type OverlaySurface = 'notif' | 'workspace' | 'settings' | null;
 
 export interface AppProps {
   /** Injectable API client (defaults to the shared one); eases testing. */
@@ -342,26 +341,6 @@ export function App(props: AppProps = {}): ReactElement {
               </span>
             )}
             <div style={{ flex: 1 }} />
-            {activeThreadId !== null && (
-              <>
-                <button
-                  type="button"
-                  className="main-action"
-                  data-testid="open-audit"
-                  onClick={() => setOverlay('audit')}
-                >
-                  审计
-                </button>
-                <button
-                  type="button"
-                  className="main-action"
-                  data-testid="open-sessions"
-                  onClick={() => setOverlay('sessions')}
-                >
-                  会话链
-                </button>
-              </>
-            )}
             <span className="main-meta">
               {online} agents · {messageCount} messages
             </span>
@@ -394,10 +373,7 @@ export function App(props: AppProps = {}): ReactElement {
         </main>
 
         <aside className="col-status app__status">
-          <AgentStatus
-            onOpenAudit={() => setOverlay('audit')}
-            onOpenSessions={() => setOverlay('sessions')}
-          />
+          <AgentStatus client={client} />
         </aside>
       </div>
 
@@ -410,12 +386,6 @@ export function App(props: AppProps = {}): ReactElement {
         />
       )}
       {overlay === 'workspace' && <WorkspacePanel onClose={closeOverlay} client={client} />}
-      {overlay === 'sessions' && activeThreadId !== null && (
-        <SessionPanel onClose={closeOverlay} client={client} threadId={activeThreadId} roster={roster} />
-      )}
-      {overlay === 'audit' && activeThreadId !== null && (
-        <AuditPanel onClose={closeOverlay} client={client} threadId={activeThreadId} roster={roster} />
-      )}
       {overlay === 'settings' && (
         <SettingsOverlay
           onClose={closeOverlay}

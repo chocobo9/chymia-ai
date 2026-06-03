@@ -1,153 +1,130 @@
 // @vitest-environment jsdom
 //
-// Right status-bar — restored 审计 & Session TAB block (改回原版 tab layout, 2026-06-02).
-// The original tabbed design is back (审计事件 / Session / 搜索 tabs, the ＋打开会话链
-// link, the 运行日志 · 查看日志 foot) — but unlike the original it is NOT inert: every
-// surface is wired to REAL store data and the real on-demand panels. These gate:
-//   • the three tabs render and preview the thread's REAL activity / session chain;
-//   • rows + 查看日志 / 打开会话链 open the real AuditPanel / SessionPanel;
-//   • 搜索 filters the preview live;
-//   • honest empties (该会话还没有活动 / …session) — never a permanent 暂无审计记录,
-//     never the design's mock prose (checkpoint_saved / 绑定外部 / feat/resume-bootstrap).
+// Right status-bar — the 审计 & Session panel, to the original Choco design (2026-06-03):
+// a collapsible card, three tabs (审计事件 / Session / 搜索), audit rows shown as a
+// [type-tag] pill + relative time, a 运行日志 · 查看日志 foot — wired to REAL data.
+// 封存/恢复 act inline on Session rows. No main-bar buttons, no overlays.
 //
 // Distribution: happy ≤50%, edge ≥30%, adversarial ≥20%.
 
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { AuditEntry } from '@choco/shared';
 import { AgentStatus } from '../../packages/web/src/components/AgentStatus.js';
+import { ApiClient, type SessionChainEntry } from '../../packages/web/src/lib/api.js';
 import { useChatStore } from '../../packages/web/src/stores/chat-store.js';
 import { useAgentStore } from '../../packages/web/src/stores/agent-store.js';
-import { ROSTER, makeThread, makeUserMessage, makeAgentReply } from './fixtures.js';
+import { ROSTER, CLAUDE } from './fixtures.js';
 
 const THREAD = 'thread_todo_api';
 
-function seed(
-  opts: { messages?: readonly ReturnType<typeof makeUserMessage>[]; activeThreadId?: string | null } = {},
-): void {
-  useChatStore.setState({
-    threads: [makeThread()],
-    activeThreadId: opts.activeThreadId === undefined ? THREAD : opts.activeThreadId,
-    messagesByThread: { [THREAD]: opts.messages ?? [] },
-    streamingByThread: {},
-    noticesByThread: {},
-  });
+const CHAIN: readonly SessionChainEntry[] = [
+  { sessionId: 'sess-3f2a9c11', threadId: THREAD, agentId: CLAUDE, sequenceNo: 1, status: 'sealed', createdAt: 1_700_000_100_000, sealedAt: 1_700_000_200_000, digest: null },
+  { sessionId: 'sess-9c1b0400', threadId: THREAD, agentId: CLAUDE, sequenceNo: 2, status: 'active', createdAt: 1_700_000_300_000, digest: null },
+];
+const AUDIT: readonly AuditEntry[] = [
+  { type: 'reply', agentId: CLAUDE, timestamp: 1_700_000_110_000, textChars: 128, toolCount: 2 },
+  { type: 'tool', agentId: CLAUDE, timestamp: 1_700_000_120_000, toolName: 'Write', durationMs: 42 },
+  { type: 'session_seal', agentId: CLAUDE, timestamp: 1_700_000_200_000, sequenceNo: 1 },
+];
+
+function fakeClient(over: { sessions?: readonly SessionChainEntry[]; audit?: readonly AuditEntry[] } = {}): ApiClient {
+  const client = new ApiClient({ baseUrl: 'http://test', fetchFn: () => Promise.reject(new Error('no net')) });
+  vi.spyOn(client, 'getSessions').mockResolvedValue(over.sessions ?? CHAIN);
+  vi.spyOn(client, 'getAudit').mockResolvedValue(over.audit ?? AUDIT);
+  vi.spyOn(client, 'sealSession').mockResolvedValue({ status: 'sealed' });
+  vi.spyOn(client, 'reopenSession').mockResolvedValue({ status: 'active' });
+  return client;
+}
+
+function seed(activeThreadId: string | null = THREAD): void {
+  useChatStore.setState({ threads: [], activeThreadId, messagesByThread: {}, streamingByThread: {}, noticesByThread: {} });
   useAgentStore.setState({ roster: ROSTER, statusById: {} });
 }
 
-/** A populated thread: a user @mention + two replies, one of them in a 2nd session. */
-function populated(): readonly ReturnType<typeof makeUserMessage>[] {
-  return [
-    makeUserMessage({ id: 'm1' }),
-    makeAgentReply({ id: 'm2', sessionId: 'sess-3f2a9c11' }),
-    makeAgentReply({ id: 'm3', sessionId: 'sess-3f2a9c11' }),
-    makeAgentReply({ id: 'm4', sessionId: 'sess-9c1b0400' }),
-  ];
-}
-
 beforeEach(() => seed());
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
-describe('right status-bar — restored 审计 & Session tab block (real data, real entries)', () => {
-  it('renders the three original tabs (审计事件 / Session / 搜索), 审计事件 active by default', () => {
-    render(<AgentStatus onOpenAudit={vi.fn()} onOpenSessions={vi.fn()} />);
+describe('审计 & Session panel — original Choco design, real data', () => {
+  it('[happy] three tabs + 审计事件 rows as [type-tag] + relative time', async () => {
+    render(<AgentStatus client={fakeClient()} />);
     expect(screen.getByTestId('sb-audit-tab-审计事件')).toHaveClass('on');
     expect(screen.getByTestId('sb-audit-tab-Session')).toBeInTheDocument();
     expect(screen.getByTestId('sb-audit-tab-搜索')).toBeInTheDocument();
+    const events = await screen.findAllByTestId('sb-audit-event');
+    expect(events).toHaveLength(3);
+    expect(within(events[0]).getByText('replied')).toBeInTheDocument(); // reply → type pill
+    expect(within(events[1]).getByText('tool · Write')).toBeInTheDocument();
+    expect(within(events[0]).getByText(/ago$/)).toBeInTheDocument(); // relative time
   });
 
-  it('审计事件 tab previews the thread REAL messages; a row opens the audit panel', async () => {
-    seed({ messages: populated() });
-    const onOpenAudit = vi.fn();
-    render(<AgentStatus onOpenAudit={onOpenAudit} onOpenSessions={vi.fn()} />);
-    const body = screen.getByTestId('sb-audit-body');
-    // Newest-first: the agent reply tag (its display name) and the 用户 tag both show.
-    expect(within(body).getAllByText('Claude (Opus)').length).toBeGreaterThanOrEqual(1);
-    expect(within(body).getByText('用户')).toBeInTheDocument();
-    await userEvent.click(screen.getAllByTestId('sb-activity-row')[0]);
-    expect(onOpenAudit).toHaveBeenCalledTimes(1);
-  });
-
-  it('the 查看日志 foot opens the audit panel; ＋打开会话链 opens the session panel', async () => {
-    const onOpenAudit = vi.fn();
-    const onOpenSessions = vi.fn();
-    render(<AgentStatus onOpenAudit={onOpenAudit} onOpenSessions={onOpenSessions} />);
-    await userEvent.click(screen.getByTestId('sb-open-audit'));
-    expect(onOpenAudit).toHaveBeenCalledTimes(1);
-    await userEvent.click(screen.getByTestId('sb-open-sessions'));
-    expect(onOpenSessions).toHaveBeenCalledTimes(1);
-  });
-
-  it('[edge] Session tab lists the DISTINCT real sessions with per-session counts; a row opens the panel', async () => {
-    seed({ messages: populated() });
-    const onOpenSessions = vi.fn();
-    render(<AgentStatus onOpenAudit={vi.fn()} onOpenSessions={onOpenSessions} />);
+  it('[happy] the Session tab lists the session chain (real, from getSessions)', async () => {
+    render(<AgentStatus client={fakeClient()} />);
+    await screen.findAllByTestId('sb-audit-event');
     await userEvent.click(screen.getByTestId('sb-audit-tab-Session'));
-    const rows = screen.getAllByTestId('sb-session-row');
-    expect(rows).toHaveLength(2); // two DISTINCT sessionIds
-    // sess-3f2a9c11 carries 2 messages, sess-9c1b0400 carries 1.
-    expect(within(rows[0]).getByText('sess-3f2a9c11')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('2 条')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('1 条')).toBeInTheDocument();
-    await userEvent.click(rows[0]);
-    expect(onOpenSessions).toHaveBeenCalledTimes(1);
+    const rows = await screen.findAllByTestId('sb-session-row');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[1]).getByText(/进行中/)).toBeInTheDocument();
   });
 
-  it('[edge] the Session Chain count reflects distinct sessionIds in the thread (real, not fabricated)', () => {
-    seed({ messages: populated() });
-    render(<AgentStatus onOpenAudit={vi.fn()} onOpenSessions={vi.fn()} />);
-    expect(screen.getByText('2 session')).toBeInTheDocument();
+  it('[edge] 封存 an active session calls sealSession inline + refetches', async () => {
+    const client = fakeClient();
+    render(<AgentStatus client={client} />);
+    await screen.findAllByTestId('sb-audit-event');
+    await userEvent.click(screen.getByTestId('sb-audit-tab-Session'));
+    const rows = await screen.findAllByTestId('sb-session-row');
+    const active = rows.find((r) => r.getAttribute('data-status') === 'active');
+    await userEvent.click(within(active as HTMLElement).getByTestId('sb-session-seal'));
+    expect(client.sealSession).toHaveBeenCalledWith('sess-9c1b0400');
+    await waitFor(() => expect(vi.mocked(client.getSessions).mock.calls.length).toBeGreaterThanOrEqual(2));
   });
 
-  it('[edge] 搜索 tab filters the preview live, and shows an honest empty when nothing matches', async () => {
-    seed({ messages: populated() });
-    render(<AgentStatus onOpenAudit={vi.fn()} onOpenSessions={vi.fn()} />);
+  it('[edge] 恢复 a sealed session calls reopenSession inline', async () => {
+    const client = fakeClient();
+    render(<AgentStatus client={client} />);
+    await screen.findAllByTestId('sb-audit-event');
+    await userEvent.click(screen.getByTestId('sb-audit-tab-Session'));
+    const rows = await screen.findAllByTestId('sb-session-row');
+    const sealed = rows.find((r) => r.getAttribute('data-status') === 'sealed');
+    await userEvent.click(within(sealed as HTMLElement).getByTestId('sb-session-reopen'));
+    expect(client.reopenSession).toHaveBeenCalledWith('sess-3f2a9c11');
+  });
+
+  it('[edge] the 搜索 tab filters the audit rows live (by type)', async () => {
+    render(<AgentStatus client={fakeClient()} />);
+    await screen.findAllByTestId('sb-audit-event');
     await userEvent.click(screen.getByTestId('sb-audit-tab-搜索'));
-    const search = screen.getByTestId('sb-audit-search');
-    // "Opus" matches the agent rows' who, not the 用户 row → it narrows the preview.
-    await userEvent.type(search, 'Opus');
-    const body = screen.getByTestId('sb-audit-body');
-    expect(within(body).queryByText('用户')).not.toBeInTheDocument();
-    expect(within(body).getAllByText('Claude (Opus)').length).toBeGreaterThanOrEqual(1);
-    // A non-matching query → the honest "没有匹配" state (not a fabricated row).
-    await userEvent.clear(search);
-    await userEvent.type(search, 'zzz-nope');
-    expect(screen.getByText('没有匹配的审计 / session。')).toBeInTheDocument();
+    await userEvent.type(screen.getByTestId('sb-audit-search'), 'tool');
+    const events = screen.getAllByTestId('sb-audit-event');
+    expect(events).toHaveLength(1);
+    expect(within(events[0]).getByText('tool · Write')).toBeInTheDocument();
   });
 
-  it('[edge] with NO active thread the entries are disabled and the tab body is the honest 未选择会话', () => {
-    seed({ activeThreadId: null });
-    render(<AgentStatus onOpenAudit={vi.fn()} onOpenSessions={vi.fn()} />);
-    expect(screen.getByTestId('sb-open-audit')).toBeDisabled();
-    expect(screen.getByTestId('sb-open-sessions')).toBeDisabled();
-    // The tabs still render (layout intact), but the body is the honest placeholder.
-    expect(screen.getByTestId('sb-audit-tab-审计事件')).toBeInTheDocument();
-    expect(screen.getByText('未选择会话。')).toBeInTheDocument();
-    expect(screen.queryByTestId('sb-activity-row')).not.toBeInTheDocument();
+  it('[edge] the panel is collapsible — toggling hides the tab body', async () => {
+    render(<AgentStatus client={fakeClient()} />);
+    await screen.findAllByTestId('sb-audit-event');
+    await userEvent.click(screen.getByTestId('sb-explorer-toggle'));
+    expect(screen.queryByTestId('sb-explorer-body')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sb-audit-tab-审计事件')).not.toBeInTheDocument();
   });
 
-  it('[adversarial] empty thread → honest empties, never the dead 暂无审计记录 nor the design mock prose', async () => {
-    seed({ messages: [] });
-    render(<AgentStatus onOpenAudit={vi.fn()} onOpenSessions={vi.fn()} />);
-    expect(screen.getByText('该会话还没有活动。')).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId('sb-audit-tab-Session'));
-    expect(screen.getByText('该会话还没有 session。')).toBeInTheDocument();
-    // The old inert placeholder + the mock design strings must never appear.
-    expect(screen.queryByText('暂无审计记录。')).not.toBeInTheDocument();
-    expect(screen.queryByText('＋ 绑定外部 Session')).not.toBeInTheDocument();
-    expect(screen.queryByText('checkpoint_saved')).not.toBeInTheDocument();
-    expect(screen.queryByText(/feat\/resume-bootstrap/)).not.toBeInTheDocument();
+  it('[adversarial] has the 运行日志·查看日志 foot, and NO main-bar/overlay doors', async () => {
+    render(<AgentStatus client={fakeClient()} />);
+    await screen.findAllByTestId('sb-audit-event');
+    expect(screen.getByText('运行日志')).toBeInTheDocument();
+    expect(screen.getByTestId('sb-view-logs')).toBeInTheDocument();
+    expect(screen.queryByTestId('sb-open-audit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sb-open-sessions')).not.toBeInTheDocument();
   });
 
-  it('[adversarial] without the open callbacks the entries + rows are inert (disabled), never crash', () => {
-    seed({ messages: populated() });
-    render(<AgentStatus />); // no props at all
-    expect(screen.getByTestId('sb-open-audit')).toBeDisabled();
-    expect(screen.getByTestId('sb-open-sessions')).toBeDisabled();
-    // Rows still render the real data, but are inert (no panel wired in).
-    for (const row of screen.getAllByTestId('sb-activity-row')) {
-      expect(row).toBeDisabled();
-    }
+  it('[adversarial] with NO client the panel is inert (no crash); the live readout still renders', async () => {
+    render(<AgentStatus />);
+    expect(screen.getByTestId('agent-status')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('该会话还没有可审计的活动。')).toBeInTheDocument());
   });
 });
