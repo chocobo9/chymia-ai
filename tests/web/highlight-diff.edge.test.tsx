@@ -92,7 +92,9 @@ describe('ChatInput @mention keyboard navigation', () => {
     expect(screen.queryByTestId('mention-suggestions')).not.toBeInTheDocument();
 
     await userEvent.type(ta, '{Enter}');
-    expect(onSend).toHaveBeenCalledWith('@cl');
+    // 全体 (no lock) now broadcasts: the literal text is sent with the @all token
+    // prepended (F078) — the keyboard behavior under test (Esc → Enter sends) is intact.
+    expect(onSend).toHaveBeenCalledWith('@all @cl');
   });
 
   it('[edge] typing more after Esc re-opens the dropdown (dismiss is per-token)', async () => {
@@ -105,13 +107,14 @@ describe('ChatInput @mention keyboard navigation', () => {
     expect(screen.getByTestId('mention-suggestions')).toBeInTheDocument();
   });
 
-  it('Enter with NO open dropdown sends as before (regression)', async () => {
+  it('Enter with NO open dropdown still submits (regression)', async () => {
     const onSend = vi.fn();
     render(<ChatInput onSend={onSend} />);
     const ta = screen.getByTestId('chat-input-textarea');
     await userEvent.type(ta, '审查这段实现');
     await userEvent.type(ta, '{Enter}');
-    expect(onSend).toHaveBeenCalledWith('审查这段实现');
+    // Enter submits as before; 全体 now broadcasts so @all is prepended (F078).
+    expect(onSend).toHaveBeenCalledWith('@all 审查这段实现');
   });
 
   it('[adversarial] Enter while the dropdown is open never reaches onSend even with trailing prose intent', async () => {

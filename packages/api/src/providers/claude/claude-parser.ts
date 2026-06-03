@@ -7,7 +7,9 @@
 //
 // Research: reference claude-ndjson-parser.ts —— 关键 edge case：
 //   - 增量文本走 stream_event/content_block_delta/text_delta（来自 --include-partial-messages）；
-//   - thinking_delta 累积到 thinkingBuffer，content_block_stop 时整块 flush；
+//   - thinking_delta 与 text_delta 一样逐 delta 立即发出 'thinking'（前端/后端各自拼接），
+//     这样「扩展思考」阶段不再静默——思考文字实时滚动，而不是等整块 content_block_stop
+//     才一次性蹦出（消除 dogfooding 反馈的「调用后空等几秒才出东西」体感）；
 //   - assistant 事件的 content[] 同时可能含 text 与 tool_use block；
 //   - result 事件 subtype !== 'success' 即为错误（不依赖 is_error 字段）。
 // 我们 re-author 为不可变 state（输入只读、返回新 state），并把原版"thinking 用 system_info
@@ -23,15 +25,13 @@ export const CLAUDE_PROVIDER = 'claude' as const;
 
 /**
  * 解析器跨帧累积状态。不可变更新——transform 返回新 state，调用方替换。
- * 累积 thinking_delta，待 content_block_stop flush 为一条 thinking。
+ * thinking 与 text 一样逐 delta 立即发出，故此处不再保留 thinking 缓冲。
  */
 export interface ParserState {
   /** CLI 报告的 session id（system/init 后填充），供 service 持久化 */
   readonly sessionId?: string;
   /** CLI 报告的 model（assistant/init 中可得），写入 metadata */
   readonly model?: string;
-  /** 当前正在累积的 thinking 文本（跨多个 thinking_delta） */
-  readonly thinkingBuffer: string;
   /**
    * 本轮是否已通过 stream_event/text_delta 增量发出过文本（--include-partial-messages 开启时）。
    * 为真时，随后 assistant 事件 content[] 里的整块 text 是同一文本的合并版，必须跳过以免重复
@@ -42,7 +42,7 @@ export interface ParserState {
 
 /** 创建初始状态 */
 export function createClaudeParserState(): ParserState {
-  return { thinkingBuffer: '', streamedText: false };
+  return { streamedText: false };
 }
 
 /** 单次 transform 的结果：要 emit 的消息 + 新状态 */
@@ -113,30 +113,24 @@ function transformStreamEvent(
       };
     }
     if (deltaType === 'thinking_delta') {
+      // 与 text_delta 对称：每个 thinking_delta 立即发出一条 'thinking'，由后端
+      // accumulate / 前端 chat-store 各自拼接成完整推理。不再缓冲到 content_block_stop，
+      // 否则整个思考阶段前端收不到任何帧（dogfooding 的「空等几秒」体感来源）。
       const thought = asString(delta.thinking) ?? '';
+      if (thought.length === 0) {
+        return { messages: [], state };
+      }
       return {
-        messages: [],
-        state: { ...state, thinkingBuffer: state.thinkingBuffer + thought },
+        messages: [makeMessage(deps, 'thinking', { content: thought }, state.model)],
+        state,
       };
     }
     // signature_delta 等忽略
     return { messages: [], state };
   }
 
-  // content_block_stop：若有累积 thinking，整块 flush 为一条 thinking 消息
-  if (innerType === 'content_block_stop') {
-    if (state.thinkingBuffer.length > 0) {
-      const flushed = makeMessage(
-        deps,
-        'thinking',
-        { content: state.thinkingBuffer },
-        state.model,
-      );
-      return { messages: [flushed], state: { ...state, thinkingBuffer: '' } };
-    }
-    return { messages: [], state };
-  }
-
+  // content_block_stop：thinking 现已逐 delta 流式发出，stop 不再需要 flush 任何东西
+  // （文本/工具块各自有终结语义）。无产物，落到下方默认返回。
   return { messages: [], state };
 }
 

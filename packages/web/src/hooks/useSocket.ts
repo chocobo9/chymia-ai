@@ -163,7 +163,7 @@ export interface UseSocketOptions {
  * incoming events to the stores, and clean up on unmount. Returns a `cancel`
  * function the UI can call to abort the current turn.
  */
-export function useSocket(options: UseSocketOptions): { cancel: () => void } {
+export function useSocket(options: UseSocketOptions): { cancel: (agentId?: string) => void } {
   const { activeThreadId, onError } = options;
   const connector = options.connector ?? defaultConnector;
   const url = options.url ?? webConfig.socketUrl;
@@ -204,10 +204,14 @@ export function useSocket(options: UseSocketOptions): { cancel: () => void } {
     joinedThreadRef.current = activeThreadId;
   }, [activeThreadId]);
 
-  const cancel = (): void => {
+  // Stop a turn. With an agentId → stop just that agent (targeted); without →
+  // stop every agent on the thread (stop-all). The composer's 停止 button passes
+  // the lone working agent's id when exactly one is active, else nothing.
+  const cancel = (agentId?: string): void => {
     const socket = socketRef.current;
-    if (socket !== null && activeThreadRef.current !== null) {
-      socket.emit(CLIENT_EVENTS.cancel, { threadId: activeThreadRef.current });
+    const threadId = activeThreadRef.current;
+    if (socket !== null && threadId !== null) {
+      socket.emit(CLIENT_EVENTS.cancel, agentId !== undefined ? { threadId, agentId } : { threadId });
     }
   };
 

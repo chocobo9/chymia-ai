@@ -1,24 +1,29 @@
-// M9 AgentStatus — the RIGHT column status bar (.col-status content) in the
-// .d-choco design. Sections, all wired to REAL state (no fabricated numbers):
+// M9 AgentStatus — the RIGHT column status bar (.col-status). Restores the original
+// 状态栏 design (the tabbed 审计 & Session block + 会话链 link + 运行日志 foot), but
+// every surface is wired to REAL state — no fabricated numbers, no dead placeholders,
+// no permanent "暂无审计记录". Sections:
 //
-//   • Agent 状态     — live roster + statuses from the agent store (G7): the dot
-//                      flips idle→working→idle as agent_status frames arrive.
-//   • 消息统计       — counts computed from the ACTIVE thread's persisted messages
-//                      (total / agent / system / user).
-//   • Session Chain  — distinct sessionIds among the thread's messages (bind is
-//                      deferred → no-op).
-//   • 对话信息       — active thread title + thinking mode.
-//   • 审计 & Session — no backend audit feed yet → honest empty state.
-//   • 运行日志       — deferred (disabled link).
+//   • Agent 状态     — live roster + statuses from the agent store (G7).
+//   • 消息统计       — counts computed from the ACTIVE thread's persisted messages.
+//   • Session Chain  — distinct sessionIds in the thread + the 打开会话链 entry
+//                      (opens SessionPanel: chain / transcript / seal / 恢复).
+//   • 对话信息       — active thread title + thinking mode (real fields only).
+//   • 审计 & Session — the restored TAB block. 审计事件 / Session / 搜索 tabs preview
+//                      the thread's REAL recent activity + session chain (derived from
+//                      the store, not fetched here); 搜索 filters that preview live.
+//                      Rows + the 运行日志 · 查看日志 foot open the full on-demand
+//                      panels (AuditPanel / SessionPanel) where the complete trail lives.
 //
-// Preserves the wiring/a11y hooks the M9 tests depend on: data-testid=
-// "agent-status"/"agent-status-item"/"agent-status-dot", data-agent, data-status,
-// and the per-status labels.
+// The audit/session DETAIL (tool events, seals, transcripts, seal/恢复 actions) lives
+// in those on-demand panels — this column is a compact LIVE summary + the entries into
+// them. Preserves the wiring/a11y hooks: data-testid="agent-status"/"agent-status-item"/
+// "agent-status-dot", data-agent, data-status, plus sb-open-audit / sb-open-sessions on
+// the functional entries.
 
 import { useMemo, useState, type ReactElement } from 'react';
 import type { AgentStatus as AgentStatusValue, StoredMessage } from '@choco/shared';
 import { useAgentStore } from '../stores/agent-store.js';
-import { useChatStore, type TranscriptNotice } from '../stores/chat-store.js';
+import { useChatStore } from '../stores/chat-store.js';
 import { statusPresentation } from './choco/primitives.js';
 import { IconSearch } from './choco/icons.js';
 
@@ -30,6 +35,13 @@ const STATUS_LABEL: Readonly<Record<AgentStatusValue, string>> = {
   error: '阻塞',
   offline: '离线',
 };
+
+/** The three 审计 & Session preview tabs (original design). */
+type AuditTab = '审计事件' | 'Session' | '搜索';
+const AUDIT_TABS: readonly AuditTab[] = ['审计事件', 'Session', '搜索'];
+
+/** Max preview rows shown in-column before deferring to the full panel. */
+const PREVIEW_LIMIT = 6;
 
 interface MessageStats {
   readonly total: number;
@@ -56,6 +68,65 @@ function computeStats(messages: readonly StoredMessage[]): MessageStats {
   return { total: messages.length, agent, system, user, sessions: sessionIds.size };
 }
 
+/** One row of the 审计事件 preview — a real persisted message, compactly tagged. */
+interface ActivityRow {
+  readonly key: string;
+  readonly who: string;
+  readonly color?: string;
+  readonly text: string;
+  readonly time: string;
+  readonly isError: boolean;
+}
+
+/** One row of the Session preview — a distinct session in the thread. */
+interface SessionRow {
+  readonly sessionId: string;
+  readonly count: number;
+}
+
+/** Local HH:MM:SS for an epoch-ms timestamp (best-effort, stable for tests). */
+function formatTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString();
+}
+
+/**
+ * Derive the 审计事件 preview from the thread's REAL messages (newest first). A
+ * persisted reply IS a `reply` audit entry; the full trail (tools / seals) lives
+ * in AuditPanel, reachable from the row / 查看日志.
+ */
+function deriveActivity(
+  messages: readonly StoredMessage[],
+  nameOf: (id: string) => string,
+  colorOf: (id: string) => string | undefined,
+): readonly ActivityRow[] {
+  const rows: ActivityRow[] = [];
+  for (const m of messages) {
+    const who =
+      m.origin === 'system' ? '系统' : m.agentId === null ? '用户' : nameOf(m.agentId);
+    rows.push({
+      key: m.id,
+      who,
+      color: m.agentId === null || m.origin === 'system' ? undefined : colorOf(m.agentId),
+      text: m.content,
+      time: formatTime(m.timestamp),
+      isError: m.origin === 'system',
+    });
+  }
+  // Newest first (the persisted order is chronological).
+  return rows.reverse();
+}
+
+/** Derive the distinct session chain from the thread's messages (first-seen order). */
+function deriveSessions(messages: readonly StoredMessage[]): readonly SessionRow[] {
+  const counts = new Map<string, number>();
+  for (const m of messages) {
+    if (m.sessionId !== undefined && m.sessionId.length > 0) {
+      counts.set(m.sessionId, (counts.get(m.sessionId) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts, ([sessionId, count]) => ({ sessionId, count }));
+}
+
 interface AgentStatusItemProps {
   readonly agentId: string;
   readonly displayName: string;
@@ -80,71 +151,60 @@ function AgentStatusItem(props: AgentStatusItemProps): ReactElement {
         aria-hidden="true"
       />
       <span className="sb-aname agent-status__name">{displayName}</span>
-      <span
-        className="sb-ast agent-status__label"
-        style={{ color: presentation.color }}
-      >
+      <span className="sb-ast agent-status__label" style={{ color: presentation.color }}>
         {STATUS_LABEL[status]}
       </span>
     </div>
   );
 }
 
-const AUDIT_TABS = ['审计事件', 'Session', '搜索'] as const;
-type AuditTab = (typeof AUDIT_TABS)[number];
-
-/** One distinct session with its message count, derived from the thread. */
-interface SessionRow {
-  readonly id: string;
-  readonly count: number;
-}
-
-/** Short relative-time label (…前) from a timestamp; never fabricates. */
-function relativeTime(now: number, ts: number): string {
-  const sec = Math.max(0, Math.floor((now - ts) / 1000));
-  if (sec < 60) return '刚刚';
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} 分钟前`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 小时前`;
-  return `${Math.floor(hr / 24)} 天前`;
-}
-
-/** Aggregate distinct sessionIds (with message counts) from the thread. */
-function sessionRows(messages: readonly StoredMessage[]): readonly SessionRow[] {
-  const counts = new Map<string, number>();
-  for (const m of messages) {
-    if (m.sessionId !== undefined && m.sessionId.length > 0) {
-      counts.set(m.sessionId, (counts.get(m.sessionId) ?? 0) + 1);
-    }
-  }
-  return [...counts.entries()].map(([id, count]) => ({ id, count }));
-}
-
-/** Audit-event tag for a transcript notice (mirrors the design's tag style). */
-function noticeTag(kind: TranscriptNotice['kind']): string {
-  return kind === 'error' ? 'agent_error' : 'system_info';
-}
-
-/** One audit row for a notice (tag + detail + optional time). */
-function NoticeRow({ notice, now }: { readonly notice: TranscriptNotice; readonly now?: number }): ReactElement {
+/** A single clickable preview row (audit/session). Opens its full panel when enabled. */
+function PreviewRow(props: {
+  readonly tag: string;
+  readonly color?: string;
+  readonly meta: string;
+  readonly title: string;
+  readonly testid: string;
+  readonly isError?: boolean;
+  readonly onOpen?: () => void;
+}): ReactElement {
+  const { tag, color, meta, title, testid, isError, onOpen } = props;
   return (
-    <div className="audit-row" data-testid="sb-audit-row">
-      <span className={`audit-tag ${notice.kind === 'error' ? 'err' : ''}`}>{noticeTag(notice.kind)}</span>
-      <span className="audit-d" title={notice.text}>{notice.text}</span>
-      {now !== undefined && <span className="audit-t">{relativeTime(now, notice.timestamp)}</span>}
-    </div>
+    <button
+      type="button"
+      className="audit-row"
+      data-testid={testid}
+      title={title}
+      disabled={onOpen === undefined}
+      onClick={onOpen}
+    >
+      <span
+        className={`audit-tag${isError === true ? ' err' : ''}`}
+        style={color === undefined ? undefined : { color }}
+      >
+        {tag}
+      </span>
+      <span className="audit-t">{meta}</span>
+    </button>
   );
 }
 
+export interface AgentStatusProps {
+  /** Open the real 审计 (audit timeline) panel. Omitted → the entry is inert. */
+  readonly onOpenAudit?: () => void;
+  /** Open the real 会话链 (session chain) panel. Omitted → the entry is inert. */
+  readonly onOpenSessions?: () => void;
+}
+
 /** Render the right-column status bar. */
-export function AgentStatus(): ReactElement {
+export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
+  const { onOpenAudit, onOpenSessions } = props;
   const roster = useAgentStore((s) => s.roster);
   const statusById = useAgentStore((s) => s.statusById);
   const activeThreadId = useChatStore((s) => s.activeThreadId);
   const threads = useChatStore((s) => s.threads);
   const messagesByThread = useChatStore((s) => s.messagesByThread);
-  const noticesByThread = useChatStore((s) => s.noticesByThread);
+
   const [tab, setTab] = useState<AuditTab>('审计事件');
   const [query, setQuery] = useState('');
 
@@ -157,26 +217,43 @@ export function AgentStatus(): ReactElement {
     () => threads.find((t) => t.id === activeThreadId),
     [threads, activeThreadId],
   );
-  // Audit feed: there is no backend audit API yet, so the 审计事件 tab surfaces the
-  // REAL agent errors / system notices we already capture for the thread (newest
-  // first) — honest data, never fabricated rows. Sessions come from the thread's
-  // own sessionIds. The 搜索 tab filters the same notices locally.
-  const notices = useMemo(
-    () => (activeThreadId === null ? [] : noticesByThread[activeThreadId] ?? []),
-    [activeThreadId, noticesByThread],
+
+  const nameOf = useMemo(() => {
+    const byId = new Map(roster.map((a) => [a.id, a.displayName]));
+    return (id: string): string => byId.get(id) ?? id;
+  }, [roster]);
+  const colorOf = useMemo(() => {
+    const byId = new Map(roster.map((a) => [a.id, a.color.primary]));
+    return (id: string): string | undefined => byId.get(id);
+  }, [roster]);
+
+  const activity = useMemo(
+    () => deriveActivity(messages, nameOf, colorOf),
+    [messages, nameOf, colorOf],
   );
-  const noticesNewestFirst = useMemo(() => notices.slice().reverse(), [notices]);
-  const sessions = useMemo(() => sessionRows(messages), [messages]);
-  const searchHits = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q.length === 0) return noticesNewestFirst;
-    return noticesNewestFirst.filter(
-      (n) => n.text.toLowerCase().includes(q) || noticeTag(n.kind).includes(q),
-    );
-  }, [query, noticesNewestFirst]);
-  const now = Date.now();
+  const sessions = useMemo(() => deriveSessions(messages), [messages]);
+
+  // 搜索 tab: filter the real preview rows live (over who/content and session id).
+  const q = query.trim().toLowerCase();
+  const matchedActivity = useMemo(
+    () =>
+      q.length === 0
+        ? activity
+        : activity.filter(
+            (r) => r.who.toLowerCase().includes(q) || r.text.toLowerCase().includes(q),
+          ),
+    [activity, q],
+  );
+  const matchedSessions = useMemo(
+    () => (q.length === 0 ? sessions : sessions.filter((s) => s.sessionId.toLowerCase().includes(q))),
+    [sessions, q],
+  );
 
   const anyWorking = roster.some((a) => (statusById[a.id] ?? a.status) === 'working');
+  // The panels are per-thread, so the entries are only active with a thread open.
+  const noThread = activeThreadId === null;
+  const auditEntry = noThread ? undefined : onOpenAudit;
+  const sessionEntry = noThread ? undefined : onOpenSessions;
 
   return (
     <>
@@ -232,8 +309,15 @@ export function AgentStatus(): ReactElement {
             <span>Session Chain</span>
             <span className="sb-sec-r">{stats.sessions} session</span>
           </div>
-          <button type="button" className="sb-link" disabled title="即将上线">
-            ＋ 绑定外部 Session
+          <button
+            type="button"
+            className="sb-link"
+            data-testid="sb-open-sessions"
+            disabled={sessionEntry === undefined}
+            onClick={sessionEntry}
+            title="打开会话链：查看 session 链 / transcript，封存 / 恢复"
+          >
+            ＋ 打开会话链
           </button>
         </section>
 
@@ -270,47 +354,85 @@ export function AgentStatus(): ReactElement {
               </button>
             ))}
           </div>
+
           <div className="sb-audit" data-testid="sb-audit-body">
-            {tab === '审计事件' &&
-              (noticesNewestFirst.length === 0 ? (
-                <div className="sb-empty">暂无审计记录。</div>
-              ) : (
-                noticesNewestFirst.map((n) => <NoticeRow key={n.id} notice={n} now={now} />)
-              ))}
+            {noThread && <div className="sb-audit-empty">未选择会话。</div>}
 
-            {tab === 'Session' &&
-              (sessions.length === 0 ? (
-                <div className="sb-empty">暂无 session 记录。</div>
-              ) : (
-                sessions.map((s) => (
-                  <div key={s.id} className="audit-row" data-testid="sb-session-row">
-                    <span className="audit-tag" title={s.id}>
-                      {s.id.length > 16 ? `${s.id.slice(0, 16)}…` : s.id}
-                    </span>
-                    <span className="audit-t">{s.count} 条</span>
-                  </div>
-                ))
-              ))}
+            {!noThread && tab === '审计事件' && (
+              <>
+                {activity.length === 0 && (
+                  <div className="sb-audit-empty">该会话还没有活动。</div>
+                )}
+                {activity.slice(0, PREVIEW_LIMIT).map((r) => (
+                  <PreviewRow
+                    key={r.key}
+                    tag={r.who}
+                    color={r.color}
+                    meta={r.time}
+                    title={r.text}
+                    isError={r.isError}
+                    testid="sb-activity-row"
+                    onOpen={auditEntry}
+                  />
+                ))}
+              </>
+            )}
 
-            {tab === '搜索' && (
+            {!noThread && tab === 'Session' && (
+              <>
+                {sessions.length === 0 && (
+                  <div className="sb-audit-empty">该会话还没有 session。</div>
+                )}
+                {sessions.slice(0, PREVIEW_LIMIT).map((s) => (
+                  <PreviewRow
+                    key={s.sessionId}
+                    tag={s.sessionId}
+                    meta={`${s.count} 条`}
+                    title={`Session ${s.sessionId} · ${s.count} 条消息`}
+                    testid="sb-session-row"
+                    onOpen={sessionEntry}
+                  />
+                ))}
+              </>
+            )}
+
+            {!noThread && tab === '搜索' && (
               <>
                 <div className="sb-search">
                   <IconSearch />
                   <input
+                    data-testid="sb-audit-search"
+                    placeholder="搜索审计 / session…"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="搜索审计 / session…"
-                    aria-label="搜索审计记录"
-                    data-testid="sb-audit-search"
+                    aria-label="搜索审计 / session"
                   />
                 </div>
-                {notices.length === 0 ? (
-                  <div className="sb-empty">暂无可搜索的记录。</div>
-                ) : searchHits.length === 0 ? (
-                  <div className="sb-empty">没有匹配「{query}」的记录。</div>
-                ) : (
-                  searchHits.map((n) => <NoticeRow key={n.id} notice={n} />)
+                {q.length > 0 && matchedActivity.length === 0 && matchedSessions.length === 0 && (
+                  <div className="sb-audit-empty">没有匹配的审计 / session。</div>
                 )}
+                {matchedActivity.slice(0, PREVIEW_LIMIT).map((r) => (
+                  <PreviewRow
+                    key={r.key}
+                    tag={r.who}
+                    color={r.color}
+                    meta={r.time}
+                    title={r.text}
+                    isError={r.isError}
+                    testid="sb-activity-row"
+                    onOpen={auditEntry}
+                  />
+                ))}
+                {matchedSessions.slice(0, PREVIEW_LIMIT).map((s) => (
+                  <PreviewRow
+                    key={s.sessionId}
+                    tag={s.sessionId}
+                    meta={`${s.count} 条`}
+                    title={`Session ${s.sessionId} · ${s.count} 条消息`}
+                    testid="sb-session-row"
+                    onOpen={sessionEntry}
+                  />
+                ))}
               </>
             )}
           </div>
@@ -318,9 +440,16 @@ export function AgentStatus(): ReactElement {
 
         <div className="sb-foot">
           <span>运行日志</span>
-          <span className="sb-a disabled" title="即将上线">
+          <button
+            type="button"
+            className="sb-a"
+            data-testid="sb-open-audit"
+            disabled={auditEntry === undefined}
+            onClick={auditEntry}
+            title="打开审计时间线：本会话的调用 / 工具 / 封会话流水"
+          >
             查看日志
-          </span>
+          </button>
         </div>
       </div>
     </>

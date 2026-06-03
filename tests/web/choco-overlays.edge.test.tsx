@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
-// QA GATING tests (Part A) for the four Choco overlay surfaces — NotifInbox,
-// WorkspacePanel (5 tabs + 记忆 live evidence search), MonitorGrid (+ ConnStrip),
-// SettingsOverlay. dev≠QA (§0.5.3): authored by a DIFFERENT instance than the one
+// QA GATING tests (Part A) for the Choco overlay surfaces — NotifInbox,
+// WorkspacePanel (5 tabs + 记忆 live evidence search), SettingsOverlay (+ ConnStrip
+// via 运维监控). dev≠QA (§0.5.3): authored by a DIFFERENT instance than the one
 // that wrote packages/web/src/components/overlays/*. NO product code modified.
 //
 // Idiom (build-App-with-fakes, from g8-incremental / choco-design.edge): drive the
@@ -154,8 +154,6 @@ describe('overlay open/close paths', () => {
 
     await userEvent.click(screen.getByTestId('workspace-button'));
     expect(screen.getByTestId('workspace-panel')).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    expect(screen.getByTestId('monitor-grid')).toBeInTheDocument();
     await userEvent.click(screen.getByTestId('owner-gear'));
     expect(screen.getByTestId('settings-overlay')).toBeInTheDocument();
   });
@@ -185,24 +183,6 @@ describe('overlay open/close paths', () => {
     expect(screen.getByTestId('workspace-panel')).toBeInTheDocument();
   });
 
-  it('[edge] MonitorGrid closes via its close button', async () => {
-    await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    expect(screen.getByTestId('monitor-grid')).toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText('关闭并行监看'));
-    expect(screen.queryByTestId('monitor-grid')).not.toBeInTheDocument();
-    expectCoreIntact();
-  });
-
-  it('[edge] MonitorGrid closes via scrim but stays open on inner click', async () => {
-    await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    await userEvent.click(screen.getByTestId('monitor-grid')); // inner dialog: no close
-    expect(screen.getByTestId('monitor-grid')).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId('monitor-grid-scrim'));
-    expect(screen.queryByTestId('monitor-grid')).not.toBeInTheDocument();
-  });
-
   it('[edge] SettingsOverlay closes via the 返回工作台 nav-footer button', async () => {
     await mountApp();
     await userEvent.click(screen.getByTestId('owner-gear'));
@@ -220,15 +200,11 @@ describe('overlay open/close paths', () => {
     expect(screen.queryByTestId('notif-inbox')).not.toBeInTheDocument();
   });
 
-  it('[edge] Escape closes the WorkspacePanel, MonitorGrid and SettingsOverlay', async () => {
+  it('[edge] Escape closes the WorkspacePanel and SettingsOverlay', async () => {
     await mountApp();
     await userEvent.click(screen.getByTestId('workspace-button'));
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByTestId('workspace-panel')).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    await userEvent.keyboard('{Escape}');
-    expect(screen.queryByTestId('monitor-grid')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId('owner-gear'));
     await userEvent.keyboard('{Escape}');
@@ -249,19 +225,15 @@ describe('overlay exclusivity + core intact', () => {
     await userEvent.click(screen.getByTestId('workspace-button'));
     expect(screen.getByTestId('workspace-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('notif-inbox')).not.toBeInTheDocument();
-    // workspace → monitor
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    expect(screen.getByTestId('monitor-grid')).toBeInTheDocument();
-    expect(screen.queryByTestId('workspace-panel')).not.toBeInTheDocument();
-    // monitor → settings
+    // workspace → settings
     await userEvent.click(screen.getByTestId('owner-gear'));
     expect(screen.getByTestId('settings-overlay')).toBeInTheDocument();
-    expect(screen.queryByTestId('monitor-grid')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-panel')).not.toBeInTheDocument();
   });
 
   it('[edge] the core workspace (threads/status/composer) stays mounted under every overlay', async () => {
     await mountApp();
-    for (const open of ['bell-button', 'workspace-button', 'monitor-button', 'owner-gear']) {
+    for (const open of ['bell-button', 'workspace-button', 'owner-gear']) {
       await userEvent.click(screen.getByTestId(open));
       expectCoreIntact();
       // The left-column controls (new-thread / owner-gear) are reachable underneath.
@@ -273,13 +245,11 @@ describe('overlay exclusivity + core intact', () => {
   it('[adv] only ONE overlay dialog is ever present in the DOM at once', async () => {
     await mountApp();
     await userEvent.click(screen.getByTestId('workspace-button'));
-    await userEvent.click(screen.getByTestId('monitor-button'));
     await userEvent.click(screen.getByTestId('owner-gear'));
     await userEvent.click(screen.getByTestId('bell-button'));
     const overlayTestids = [
       'notif-inbox',
       'workspace-panel',
-      'monitor-grid',
       'settings-overlay',
     ].filter((id) => screen.queryByTestId(id) !== null);
     expect(overlayTestids).toEqual(['notif-inbox']);
@@ -398,60 +368,7 @@ describe('记忆 evidence search (live)', () => {
 });
 
 /* ============================================================================
- * 5. MonitorGrid — live agent_status reflected in panes; empty roster.
- * ========================================================================== */
-describe('MonitorGrid (并行监看)', () => {
-  it('[happy] renders one live pane per roster agent + the ConnStrip', async () => {
-    await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    expect(screen.getAllByTestId('mon-cell')).toHaveLength(ROSTER.length);
-    expect(screen.getByTestId('conn-strip')).toBeInTheDocument();
-  });
-
-  it('[edge] a pane flips idle→working→thinking→error as live agent_status frames arrive', async () => {
-    const { socket } = await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    const cell = (): HTMLElement | undefined =>
-      screen.getAllByTestId('mon-cell').find((c) => c.getAttribute('data-agent') === 'claude-opus');
-
-    await waitFor(() => expect(cell()).toHaveAttribute('data-status', 'idle'));
-    act(() => socket.fire('agent_status', statusFrame(CLAUDE, 'working')));
-    await waitFor(() => expect(cell()).toHaveAttribute('data-status', 'working'));
-    act(() => socket.fire('agent_status', statusFrame(CLAUDE, 'thinking')));
-    await waitFor(() => expect(cell()).toHaveAttribute('data-status', 'thinking'));
-    act(() => socket.fire('agent_status', statusFrame(CLAUDE, 'error')));
-    await waitFor(() => expect(cell()).toHaveAttribute('data-status', 'error'));
-    // The header active-count reflects working/thinking agents only.
-    act(() => socket.fire('agent_status', statusFrame(CODEX, 'working')));
-    await waitFor(() => expect(screen.getByText(/3 agents · 1 active/)).toBeInTheDocument());
-  });
-
-  it('[edge] an empty roster renders the honest monitor-grid-empty state', async () => {
-    // mountApp waits for roster>0, so mount populated then clear the live roster
-    // (simulating an agents endpoint that later returns nothing) before opening.
-    await mountApp();
-    act(() => useAgentStore.setState({ roster: [], statusById: {} }));
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    expect(screen.getByTestId('monitor-grid-empty')).toBeInTheDocument();
-    // No per-agent panes (the lone .mon-cell present is the summary cell, which
-    // carries no data-agent attribute).
-    const agentCells = screen.queryAllByTestId('mon-cell').filter((c) => c.hasAttribute('data-agent'));
-    expect(agentCells).toHaveLength(0);
-  });
-
-  it('[adv] the token-quota summary is the honest 未接入 placeholder, never the design 128k / 500k', async () => {
-    await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    expect(screen.getByTestId('monitor-quota-placeholder')).toHaveTextContent('未接入');
-    const grid = screen.getByTestId('monitor-grid');
-    expect(within(grid).queryByText(/128k/)).not.toBeInTheDocument();
-    expect(within(grid).queryByText(/500k/)).not.toBeInTheDocument();
-    expect(within(grid).queryByText(/128k \/ 500k/)).not.toBeInTheDocument();
-  });
-});
-
-/* ============================================================================
- * 6. ConnStrip / health — ok / down / loading + NotifInbox system derivation.
+ * 5. ConnStrip / health — ok / down / loading (via SettingsOverlay 运维监控).
  * ========================================================================== */
 describe('ConnStrip / health', () => {
   function apiCard(): HTMLElement | undefined {
@@ -460,14 +377,16 @@ describe('ConnStrip / health', () => {
 
   it('[happy] an ok /health probe paints the 本地 API card ok (畅通)', async () => {
     await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
+    await userEvent.click(screen.getByTestId('owner-gear'));
+    await userEvent.click(screen.getByTestId('settings-nav-ops'));
     await waitFor(() => expect(apiCard()).toHaveAttribute('data-status', 'ok'));
     expect(within(apiCard() as HTMLElement).getByText('畅通')).toBeInTheDocument();
   });
 
   it('[edge] a down /health probe (throws) paints the card warn (不可达)', async () => {
     await mountApp({ health: () => Promise.reject(new Error('ECONNREFUSED')) });
-    await userEvent.click(screen.getByTestId('monitor-button'));
+    await userEvent.click(screen.getByTestId('owner-gear'));
+    await userEvent.click(screen.getByTestId('settings-nav-ops'));
     await waitFor(() => expect(apiCard()).toHaveAttribute('data-status', 'warn'));
     expect(within(apiCard() as HTMLElement).getByText('不可达')).toBeInTheDocument();
   });
@@ -475,14 +394,16 @@ describe('ConnStrip / health', () => {
   it('[edge] while the probe is in flight the card shows the loading (探测中) state', async () => {
     // health never resolves → stays in loading.
     await mountApp({ health: () => new Promise<HealthPayload>(() => {}) });
-    await userEvent.click(screen.getByTestId('monitor-button'));
+    await userEvent.click(screen.getByTestId('owner-gear'));
+    await userEvent.click(screen.getByTestId('settings-nav-ops'));
     await waitFor(() => expect(apiCard()).toHaveAttribute('data-status', 'unknown'));
     expect(within(apiCard() as HTMLElement).getByText('探测中')).toBeInTheDocument();
   });
 
   it('[adv] 上游模型 card is always the honest 未接入 unknown, never the design 降级', async () => {
     await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
+    await userEvent.click(screen.getByTestId('owner-gear'));
+    await userEvent.click(screen.getByTestId('settings-nav-ops'));
     const upstream = screen
       .getAllByTestId('conn-card')
       .find((c) => c.getAttribute('data-conn') === 'upstream');
@@ -679,12 +600,11 @@ describe('no fabricated data leaks (adversarial)', () => {
  *     inert. (Mirrors choco-design.edge "shell controls" but as an overlay gate.)
  * ========================================================================== */
 describe('reconciled deferred-affordance assertion (re-validated)', () => {
-  it('[adv] bell/panel/grid/owner-gear are enabled real triggers; deferred StatusBar bits stay inert', async () => {
+  it('[adv] bell/panel/owner-gear are enabled real triggers; deferred StatusBar bits stay inert', async () => {
     await mountApp();
     // All four overlay triggers are enabled (no longer disabled placeholders).
     expect(screen.getByTestId('bell-button')).toBeEnabled();
     expect(screen.getByTestId('workspace-button')).toBeEnabled();
-    expect(screen.getByTestId('monitor-button')).toBeEnabled();
     expect(screen.getByTestId('owner-gear')).toBeEnabled();
     // And each actually opens its overlay (reachability, not just enabled-ness).
     await userEvent.click(screen.getByTestId('bell-button'));

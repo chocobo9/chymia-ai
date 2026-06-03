@@ -12,7 +12,7 @@
 //
 // Both share boundary handling so "@opus" never falsely matches inside "@opus-45".
 
-import type { AgentId } from '@choco/shared';
+import { type AgentId, BROADCAST_MENTIONS } from '@choco/shared';
 
 /**
  * One mention trigger for an agent, e.g. { agentId, pattern: '@claude' }.
@@ -63,6 +63,43 @@ function isRightBoundary(after: string | undefined): boolean {
 /** Sort longest pattern first so a longer handle wins over its prefix at the same spot. */
 function byLongestPattern(a: MentionEntry, b: MentionEntry): number {
   return b.pattern.length - a.pattern.length;
+}
+
+/**
+ * Detect a GLOBAL broadcast mention (@all / @全体) anywhere in a USER message —
+ * the F078 (MVP) group token that addresses every available agent at once. Uses
+ * the same boundary rules as {@link parseUserMentions}: the char before '@' must
+ * not be a handle char (rejects "email@all") and the char after the token must be
+ * a boundary (rejects "@allison" / "@allowance"). Breed-/thread-scoped group
+ * mentions are out of scope.
+ *
+ * The router (not this parser) expands a broadcast to the available roster, so
+ * this only answers "is this a broadcast?".
+ */
+export function hasBroadcastMention(text: string): boolean {
+  if (text === '') {
+    return false;
+  }
+  const lower = text.toLowerCase();
+  for (const token of BROADCAST_MENTIONS) {
+    const pattern = token.toLowerCase();
+    let from = 0;
+    for (;;) {
+      const idx = lower.indexOf(pattern, from);
+      if (idx < 0) {
+        break;
+      }
+      from = idx + 1;
+      const before = idx > 0 ? lower[idx - 1] : undefined;
+      if (before !== undefined && HANDLE_CONTINUATION_RE.test(before)) {
+        continue;
+      }
+      if (isRightBoundary(lower[idx + pattern.length])) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**

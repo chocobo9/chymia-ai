@@ -1,0 +1,116 @@
+// workspace-routes — the browser-initiated "surface a file the agent wrote"
+// route. The web diff-block shows two affordances on a file edit ("打开" =
+// open the file with its default app; "所在文件夹" = reveal it in the OS file
+// manager); both POST here. Mirrors Clowder's POST /api/workspace/reveal, plus
+// an 'open' action.
+//
+// Security: the requested path is resolved against the SAME sandbox root that
+// read_file/search_files use (the workspace fileRoot) via resolvePathInRoot — a
+// path climbing out (`..`) or an absolute path outside the workspace is rejected
+// 403, so a malicious/buggy agent diff cannot make the user open an arbitrary
+// host file. The OS launch itself is an injected seam (OsOpener) using execFile
+// with array args (no shell), and is only reachable on the local single-user API.
+
+import { resolve } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import type { AppServices } from '@choco/api/infrastructure/app-services';
+import { resolvePathInRoot } from '@choco/api/infrastructure/path-sandbox';
+import { defaultOsOpener, type OsOpener } from '@choco/api/infrastructure/os-open';
+
+/** Default cap on a previewed file's size — HTML viz files are small; guards huge reads. */
+const DEFAULT_MAX_PREVIEW_BYTES = 2 * 1024 * 1024; // 2 MiB
+
+/** Options for {@link registerWorkspaceRoutes}. */
+export interface WorkspaceRoutesOptions {
+  /** Sandbox root every reveal/open/read path is resolved within (the agent workspace). */
+  readonly fileRoot: string;
+  /** Injectable OS-open seam (defaults to the real execFile-based opener). */
+  readonly opener?: OsOpener;
+  /** Max bytes GET /api/workspace/file will return (defaults to {@link DEFAULT_MAX_PREVIEW_BYTES}). */
+  readonly maxPreviewBytes?: number;
+}
+
+/** Body of POST /api/workspace/reveal. `action` defaults to 'reveal'. */
+const RevealBodySchema = z.object({
+  path: z.string().min(1),
+  action: z.enum(['open', 'reveal']).optional(),
+});
+
+/** Query of GET /api/workspace/file. */
+const FileQuerySchema = z.object({ path: z.string().min(1) });
+
+/**
+ * Register the workspace file routes on `app`. Currently one route:
+ *   POST /api/workspace/reveal  { path, action? } → open/reveal a workspace file.
+ */
+export function registerWorkspaceRoutes(
+  app: FastifyInstance,
+  services: AppServices,
+  options: WorkspaceRoutesOptions,
+): void {
+  const { logger } = services;
+  const fileRoot = resolve(options.fileRoot);
+  const opener = options.opener ?? defaultOsOpener;
+  const maxPreviewBytes = options.maxPreviewBytes ?? DEFAULT_MAX_PREVIEW_BYTES;
+
+  app.post('/api/workspace/reveal', async (request, reply) => {
+    const body = RevealBodySchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
+    }
+
+    const resolved = resolvePathInRoot(fileRoot, body.data.path);
+    if (resolved === null) {
+      // Path traversal / absolute path escaping the workspace sandbox.
+      return reply.code(403).send({ error: 'path_outside_root' });
+    }
+
+    try {
+      await stat(resolved);
+    } catch {
+      // ENOENT / EACCES — do not leak the absolute path or errno detail.
+      return reply.code(404).send({ error: 'file_not_found' });
+    }
+
+    const action = body.data.action ?? 'reveal';
+    try {
+      await opener(resolved, action);
+      return reply.send({ ok: true, action });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      logger({
+        level: 'warn',
+        message: `workspace ${action} failed for "${body.data.path}": ${reason}`,
+        threadId: '',
+      });
+      return reply.code(500).send({ error: 'open_failed' });
+    }
+  });
+
+  // GET /api/workspace/file?path=… — return a workspace file's TEXT content for
+  // the in-app preview (e.g. rendering an agent-written HTML viz in a sandboxed
+  // iframe). Same fileRoot sandbox as reveal/read_file; size-capped.
+  app.get('/api/workspace/file', async (request, reply) => {
+    const query = FileQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.code(400).send({ error: 'invalid_query', issues: query.error.issues });
+    }
+
+    const resolved = resolvePathInRoot(fileRoot, query.data.path);
+    if (resolved === null) {
+      return reply.code(403).send({ error: 'path_outside_root' });
+    }
+
+    try {
+      const buffer = await readFile(resolved);
+      if (buffer.byteLength > maxPreviewBytes) {
+        return reply.code(413).send({ error: 'file_too_large', maxBytes: maxPreviewBytes });
+      }
+      return reply.send({ path: query.data.path, content: buffer.toString('utf8') });
+    } catch {
+      return reply.code(404).send({ error: 'file_not_found' });
+    }
+  });
+}

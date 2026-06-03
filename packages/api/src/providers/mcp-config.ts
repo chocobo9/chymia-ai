@@ -6,9 +6,11 @@
 // the MCP server as a stdio subprocess; the server name is `choco`). Claude's
 // CLI consumes this via `--mcp-config <value>` (claude-service buildArgs).
 //
-// The descriptor launches the server with `node <tsx-cli> <server-entry>` — NOT
-// `npx` (npx is unreliable to spawn on Windows; node + the tsx CLI launches the
-// .ts entry directly, proven by the H4 MCP hunt). The three callback env vars
+// The descriptor launches the server one of two ways (see resolveLaunch): a
+// PREBUILT bundle (`packages/mcp-server/dist/index.js`, via `node <bundle>`) when
+// one exists — the cold-start fast path, no per-invocation TS compile — else the
+// .ts source via `node <tsx-cli> <server-entry>` (dev fallback). NOT `npx` (npx is
+// unreliable to spawn on Windows; node launches both forms directly). The three callback env vars
 // are embedded explicitly in the descriptor's `env` block (robust — claude
 // forwards them to the spawned server; we never rely solely on env inheritance).
 // Key names are imported from CALLBACK_ENV_KEYS, never re-typed as literals.
@@ -53,6 +55,25 @@ const TSX_CLI_RELATIVE: readonly string[] = [
   'dist',
   'cli.mjs',
 ];
+
+/**
+ * Repo-relative path of the PREBUILT MCP server bundle (`packages/mcp-server/
+ * dist/index.js`, produced by `pnpm run build:mcp`). When this exists the server
+ * launches as `node <bundle>` — eliminating the per-invocation tsx TS compile
+ * that dominated cold-start latency. Resolved from {@link APP_FACTORY_DIR}.
+ */
+const MCP_SERVER_BUNDLE_RELATIVE: readonly string[] = [
+  '..',
+  '..',
+  '..',
+  'packages',
+  'mcp-server',
+  'dist',
+  'index.js',
+];
+
+/** File extensions of a prebuilt JS bundle that runs directly under `node` (no tsx). */
+const JS_BUNDLE_EXTS: readonly string[] = ['.js', '.mjs', '.cjs'];
 
 /** Env-var names that override the resolved entry / tsx paths (config-as-data). */
 const MCP_SERVER_PATH_ENV = 'CHOCO_MCP_SERVER_PATH';
@@ -119,18 +140,53 @@ function resolveTsxCliPath(explicit: string | undefined): string {
 }
 
 /**
+ * Absolute path of the default prebuilt MCP bundle (`packages/mcp-server/dist/
+ * index.js`). The composition root (main.ts) probes this and, when present,
+ * points `CHOCO_MCP_SERVER_PATH` at it so invocations take the `node <bundle>`
+ * fast path; otherwise the .ts source + tsx dev fallback is used.
+ */
+export function defaultMcpBundlePath(): string {
+  return resolve(APP_FACTORY_DIR, ...MCP_SERVER_BUNDLE_RELATIVE);
+}
+
+/** True when the resolved server entry is a prebuilt JS bundle (launch via `node <bundle>`). */
+function isJsBundle(entryPath: string): boolean {
+  const lower = entryPath.toLowerCase();
+  return JS_BUNDLE_EXTS.some((ext) => lower.endsWith(ext));
+}
+
+/**
+ * Resolve the launch command + args for the MCP server subprocess from the
+ * resolved entry path:
+ *   - a prebuilt JS bundle (e.g. dist/index.js) → `node <bundle>` — NO per-spawn
+ *     tsx compile (the cold-start fix);
+ *   - a .ts source entry → `node <tsx-cli> <src>` — the dev fallback (no build step).
+ */
+function resolveLaunch(
+  serverEntryPath: string,
+  tsxCliPath: string,
+): { readonly command: string; readonly args: readonly string[] } {
+  if (isJsBundle(serverEntryPath)) {
+    return { command: MCP_LAUNCH_COMMAND, args: [serverEntryPath] };
+  }
+  return { command: MCP_LAUNCH_COMMAND, args: [tsxCliPath, serverEntryPath] };
+}
+
+/**
  * Build the `--mcp-config` object (pure — no I/O, no platform branch). The
- * spawned server descriptor launches `node <tsx-cli> <entry>` with the three
- * callback env vars embedded under their canonical CALLBACK_ENV_KEYS names.
+ * spawned server descriptor launches `node <bundle>` when the resolved entry is a
+ * prebuilt JS bundle, else `node <tsx-cli> <src.ts>` (see resolveLaunch), with the
+ * three callback env vars embedded under their canonical CALLBACK_ENV_KEYS names.
  */
 export function buildClaudeMcpConfigObject(
   opts: ClaudeMcpConfigOptions,
 ): ClaudeMcpConfigObject {
   const serverEntryPath = resolveServerEntryPath(opts.serverEntryPath);
   const tsxCliPath = resolveTsxCliPath(opts.tsxCliPath);
+  const { command, args } = resolveLaunch(serverEntryPath, tsxCliPath);
   const descriptor: McpServerDescriptor = {
-    command: MCP_LAUNCH_COMMAND,
-    args: [tsxCliPath, serverEntryPath],
+    command,
+    args,
     env: {
       [CALLBACK_ENV_KEYS.apiUrl]: opts.apiBaseUrl,
       [CALLBACK_ENV_KEYS.invocationId]: opts.invocationId,

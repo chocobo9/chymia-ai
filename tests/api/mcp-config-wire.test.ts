@@ -12,12 +12,14 @@
 // Real inputs only (real agent ids, real @mention, real callback ids).
 
 import { readFileSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { buildApp, type BuildAppOverrides, type BuiltApp } from '@choco/api/app-factory';
 import {
   buildClaudeMcpConfig,
   buildClaudeMcpConfigObject,
+  defaultMcpBundlePath,
   type ClaudeMcpConfigObject,
 } from '@choco/api/providers/mcp-config';
 import { buildArgs, MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
@@ -84,6 +86,38 @@ describe('buildClaudeMcpConfigObject (pure builder)', () => {
       'D:/explicit/tsx.mjs',
       'D:/explicit/entry.ts',
     ]);
+  });
+
+  it('launches a PREBUILT .js bundle entry via `node <bundle>` — no tsx (cold-start fast path)', () => {
+    // A prebuilt bundle path (ends in .js) must NOT be wrapped in tsx: the whole
+    // point of the fast path is to skip the per-invocation TS compile.
+    const cfg = buildClaudeMcpConfigObject({
+      ...CONFIG_OPTS,
+      serverEntryPath: 'D:/repo/packages/mcp-server/dist/index.js',
+      tsxCliPath: 'D:/explicit/tsx.mjs',
+    });
+    expect(cfg.mcpServers['choco']?.command).toBe('node');
+    expect(cfg.mcpServers['choco']?.args).toEqual(['D:/repo/packages/mcp-server/dist/index.js']);
+  });
+
+  it('launches a .js bundle via the CHOCO_MCP_SERVER_PATH env override too (single node arg)', () => {
+    const override = 'D:/built/mcp/index.js';
+    const prev = process.env['CHOCO_MCP_SERVER_PATH'];
+    process.env['CHOCO_MCP_SERVER_PATH'] = override;
+    try {
+      const cfg = buildClaudeMcpConfigObject(CONFIG_OPTS);
+      expect(cfg.mcpServers['choco']?.args).toEqual([override]);
+    } finally {
+      if (prev === undefined) delete process.env['CHOCO_MCP_SERVER_PATH'];
+      else process.env['CHOCO_MCP_SERVER_PATH'] = prev;
+    }
+  });
+
+  it('defaultMcpBundlePath resolves to the absolute packages/mcp-server/dist/index.js', () => {
+    const bundle = defaultMcpBundlePath();
+    expect(isAbsolute(bundle)).toBe(true);
+    expect(bundle).not.toContain('undefined');
+    expect(bundle.replace(/\\/g, '/')).toMatch(/packages\/mcp-server\/dist\/index\.js$/);
   });
 });
 

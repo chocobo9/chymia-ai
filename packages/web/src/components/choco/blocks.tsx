@@ -5,7 +5,7 @@
 // from AgentMessage (no fabricated content). Named exports only.
 
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { IconChevron, IconCheck, IconWrench } from './icons.js';
+import { IconChevron, IconCheck, IconWrench, IconFolder } from './icons.js';
 import { StreamDots } from './primitives.js';
 import { highlightCode, type CodeLang } from './highlight.js';
 
@@ -77,6 +77,89 @@ export interface DiffProps {
   readonly lines: readonly DiffLine[];
   /** Language family for syntax highlighting (derived from the file path). */
   readonly lang?: CodeLang;
+  /**
+   * When provided, the file path becomes a clickable "open file" affordance and a
+   * "reveal in folder" button appears — both call this with the chosen action.
+   * Omit (e.g. in pure presentational tests) to render the path as plain text.
+   */
+  readonly onReveal?: (action: 'open' | 'reveal') => void;
+  /**
+   * Fetch a workspace file's text content. When provided AND the file is a
+   * previewable type (HTML), a "预览" toggle renders the content inline in a
+   * sandboxed iframe (e.g. an agent-written viz). Omit → no preview affordance.
+   */
+  readonly onLoadFile?: (path: string) => Promise<string>;
+}
+
+/** File extensions we render an inline HTML preview for. */
+const PREVIEWABLE_HTML_EXTS: readonly string[] = ['.html', '.htm'];
+
+/** True when `file` is an HTML document we can preview in an iframe. */
+function isPreviewableHtml(file: string): boolean {
+  const lower = file.toLowerCase();
+  return PREVIEWABLE_HTML_EXTS.some((ext) => lower.endsWith(ext));
+}
+
+type PreviewState =
+  | { readonly status: 'loading' }
+  | { readonly status: 'loaded'; readonly html: string }
+  | { readonly status: 'error'; readonly message: string };
+
+interface FilePreviewProps {
+  readonly path: string;
+  readonly loadFile: (path: string) => Promise<string>;
+}
+
+/**
+ * Inline HTML preview: loads the file's content on mount and renders it in a
+ * SANDBOXED iframe (`sandbox="allow-scripts"`, no allow-same-origin) so an agent-
+ * written page (with its own inline JS/CSS) runs isolated — it cannot reach the
+ * app's origin, cookies, or storage. Shows a loading / error line until ready.
+ */
+function FilePreview({ path, loadFile }: FilePreviewProps): ReactElement {
+  const [state, setState] = useState<PreviewState>({ status: 'loading' });
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: 'loading' });
+    loadFile(path)
+      .then((html) => {
+        if (!cancelled) setState({ status: 'loaded', html });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setState({ status: 'error', message: err instanceof Error ? err.message : '加载失败' });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, loadFile]);
+
+  if (state.status === 'loading') {
+    return (
+      <div className="diff-preview diff-preview--msg" data-testid="diff-preview">
+        加载预览…
+      </div>
+    );
+  }
+  if (state.status === 'error') {
+    return (
+      <div className="diff-preview diff-preview--msg" data-testid="diff-preview">
+        预览失败：{state.message}
+      </div>
+    );
+  }
+  return (
+    <div className="diff-preview" data-testid="diff-preview">
+      <iframe
+        className="diff-preview-frame"
+        data-testid="diff-preview-frame"
+        title="文件预览"
+        sandbox="allow-scripts"
+        srcDoc={state.html}
+      />
+    </div>
+  );
 }
 
 /** Tokenize a diff line into colored spans; empty lines render their raw text. */
@@ -94,23 +177,104 @@ function highlightLine(text: string, lang: CodeLang): ReactNode {
   );
 }
 
+/**
+ * Diffs longer than this many lines collapse by default, so a large file
+ * create/write (e.g. a 574-line all-add) shows just its header instead of
+ * dumping the whole file inline. Short edits stay open — they're the
+ * substantive content the design keeps prominent.
+ */
+export const DIFF_COLLAPSE_THRESHOLD = 16;
+
 /** File-edit diff visualization (header + +/- stats + syntax-highlighted lines). */
-export function Diff({ file, added, removed, lines, lang = 'generic' }: DiffProps): ReactElement {
+export function Diff({
+  file,
+  added,
+  removed,
+  lines,
+  lang = 'generic',
+  onReveal,
+  onLoadFile,
+}: DiffProps): ReactElement {
+  const collapsible = lines.length > DIFF_COLLAPSE_THRESHOLD;
+  const [open, setOpen] = useState(!collapsible);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const canPreview = onLoadFile !== undefined && isPreviewableHtml(file);
+
+  // The filename is a clickable "open file" affordance when reveal is wired (the
+  // path the agent wrote), else plain text. (It can't live inside the collapse
+  // toggle — nested buttons are invalid — so the toggle is its own chevron button.)
+  const fileLabel =
+    onReveal !== undefined ? (
+      <button
+        type="button"
+        className="diff-file diff-file-btn"
+        data-testid="diff-open-file"
+        title="打开文件"
+        onClick={() => onReveal('open')}
+      >
+        {file}
+      </button>
+    ) : (
+      <span className="diff-file">{file}</span>
+    );
+
   return (
-    <div className="diff" data-testid="diff-block">
+    <div className={`diff${open ? ' open' : ''}`} data-testid="diff-block">
       <div className="diff-h">
-        <span className="diff-file">{file}</span>
+        {fileLabel}
         <span className="diff-stat">
           <span className="a">+{added}</span> <span className="d">−{removed}</span>
         </span>
+        {canPreview && (
+          <button
+            type="button"
+            className={`diff-preview-btn${previewOpen ? ' active' : ''}`}
+            data-testid="diff-preview-toggle"
+            title="内联预览"
+            aria-pressed={previewOpen}
+            onClick={() => setPreviewOpen((v) => !v)}
+          >
+            预览
+          </button>
+        )}
+        {onReveal !== undefined && (
+          <button
+            type="button"
+            className="diff-act"
+            data-testid="diff-reveal-file"
+            title="打开所在文件夹"
+            aria-label="打开所在文件夹"
+            onClick={() => onReveal('reveal')}
+          >
+            <IconFolder />
+          </button>
+        )}
+        {collapsible && (
+          <button
+            type="button"
+            className="diff-chev-btn"
+            aria-expanded={open}
+            aria-label={open ? '折叠' : '展开'}
+            data-testid="diff-toggle"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {!open && <span className="diff-hint">{lines.length} 行 · 点击展开</span>}
+            <span className="diff-chev" aria-hidden="true">
+              <IconChevron />
+            </span>
+          </button>
+        )}
       </div>
-      <div className="diff-b">
-        {lines.map((line, i) => (
-          <span key={i} className={`ln${line.kind !== undefined ? ` ${line.kind}` : ''}`}>
-            {highlightLine(line.text, lang)}
-          </span>
-        ))}
-      </div>
+      {open && (
+        <div className="diff-b">
+          {lines.map((line, i) => (
+            <span key={i} className={`ln${line.kind !== undefined ? ` ${line.kind}` : ''}`}>
+              {highlightLine(line.text, lang)}
+            </span>
+          ))}
+        </div>
+      )}
+      {previewOpen && onLoadFile !== undefined && <FilePreview path={file} loadFile={onLoadFile} />}
     </div>
   );
 }

@@ -42,6 +42,25 @@ describe('gemini-parser (unit, happy path)', () => {
     expect(state.model).toBe('gemini-2.5-pro');
   });
 
+  it('maps the REAL assistant message shape {type:message, role:assistant, content} to text (the live-schema fix)', () => {
+    // The installed gemini CLI emits assistant text as type:'message' role:'assistant'
+    // (delta chunks), NOT the doc's type:'content' — which had silently produced 0 output.
+    const line = JSON.stringify({
+      type: 'message',
+      role: 'assistant',
+      content: '收到，我来分析两数之和。',
+      delta: true,
+    });
+    const { messages } = run([line]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ type: 'text', content: '收到，我来分析两数之和。' });
+  });
+
+  it('IGNORES the role:user message (the prompt echo gemini emits before replying)', () => {
+    const line = JSON.stringify({ type: 'message', role: 'user', content: '帮我写两数之和' });
+    expect(run([line]).messages).toEqual([]);
+  });
+
   it('maps content to text with Chinese content', () => {
     // Arrange
     const line = JSON.stringify({ type: 'content', text: '这是一个关于数据库选型的建议。' });

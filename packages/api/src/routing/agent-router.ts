@@ -20,7 +20,7 @@ import type {
 } from '@choco/shared';
 import type { MessageContent } from '@choco/api/providers/base';
 import type { AgentRegistry } from '@choco/api/routing/agent-registry';
-import { parseUserMentions } from '@choco/api/routing/mention-parser';
+import { parseUserMentions, hasBroadcastMention } from '@choco/api/routing/mention-parser';
 import { parseIntent, stripIntentTags } from '@choco/api/routing/intent-parser';
 import { routeSerial, DEFAULT_MAX_A2A_DEPTH } from '@choco/api/routing/route-serial';
 import { routeParallel } from '@choco/api/routing/route-parallel';
@@ -62,10 +62,20 @@ export interface RecentMessageReader {
   getByThread(threadId: string, limit?: number): Promise<StoredMessage[]>;
 }
 
+/** Resolve the per-agent abort signal for a target — the targeted-cancel seam. */
+export type SignalForAgent = (agentId: AgentId) => AbortSignal | undefined;
+
 /** Per-message routing options. Source: §5.2 RouteOptions. */
 export interface RouteOptions {
   readonly contentBlocks?: readonly MessageContent[];
+  /** Thread-wide (stop-all) signal: aborts the serial chain + a not-yet-started agent. */
   readonly signal?: AbortSignal;
+  /**
+   * Per-agent abort signal resolver (targeted stop). When provided, each agent's
+   * invocation listens to ITS OWN signal, so cancelling one agent does not abort
+   * its siblings. Falls back to {@link RouteOptions.signal} when absent.
+   */
+  readonly signalForAgent?: SignalForAgent;
 }
 
 /** Tunables for {@link AgentRouter}. */
@@ -170,6 +180,24 @@ export class AgentRouter {
    * only fires for an EXPLICIT mention the user typed this turn.
    */
   async resolveRouting(message: string, threadId: string): Promise<ResolvedRouting> {
+    // F078 (MVP): a GLOBAL broadcast (@all / @全体) routes to ALL available agents
+    // and fans out in parallel (≥2 targets → ideate → parallel, via dispatch). It
+    // addresses no one by name, so an offline agent is silently skipped — NO
+    // unavailable notice (a broadcast must not spam one line per offline agent).
+    // Group mention takes priority over any individual @mention in the same text.
+    if (hasBroadcastMention(message)) {
+      const everyone = this.registry
+        .getAll()
+        .map((config) => config.id)
+        .filter((id) => this.registry.isAvailable(id));
+      if (everyone.length > 0) {
+        return { targets: everyone, unavailable: [] };
+      }
+      // Nobody available → the deterministic single fallback (never an empty spawn).
+      const pick = this.pickFallback();
+      return { targets: pick === undefined ? [] : [pick], unavailable: [] };
+    }
+
     const entries = this.registry.getMentionEntries();
     const mentioned = parseUserMentions(message, entries);
 
@@ -324,6 +352,7 @@ export class AgentRouter {
       mcpAvailable: this.mcpAvailable,
       promptTags: intentResult.promptTags,
       ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+      ...(options?.signalForAgent !== undefined ? { signalForAgent: options.signalForAgent } : {}),
       ...(this.logger !== undefined ? { logger: this.logger } : {}),
     };
 

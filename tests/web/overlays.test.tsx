@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// HAPPY / component tests (dev-authored) for the 4 Choco overlay surfaces:
-// NotifInbox, WorkspacePanel (5 tabs), MonitorGrid, SettingsOverlay. These show
+// HAPPY / component tests (dev-authored) for the Choco overlay surfaces:
+// NotifInbox, WorkspacePanel (5 tabs), SettingsOverlay. These show
 // each overlay OPENS from its shell control + renders its structure + the LIVE
 // sections wire to real state/api. The QA (≠ this dev) authors the gating
 // edge/adversarial coverage separately (§0.5.3).
@@ -11,7 +11,7 @@
 
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
+import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../../packages/web/src/App.js';
 import { ApiClient } from '../../packages/web/src/lib/api.js';
@@ -181,43 +181,6 @@ describe('WorkspacePanel (Workspace) — 5 tabs', () => {
   });
 });
 
-describe('MonitorGrid (并行监看)', () => {
-  it('opens from the grid button and renders one live pane per roster agent', async () => {
-    await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    expect(screen.getByTestId('monitor-grid')).toBeInTheDocument();
-    const cells = screen.getAllByTestId('mon-cell');
-    expect(cells).toHaveLength(ROSTER.length);
-    // ConnStrip is present (live /health-backed) and the quota is honest-placeholder.
-    expect(screen.getByTestId('conn-strip')).toBeInTheDocument();
-    expect(screen.getByTestId('monitor-quota-placeholder')).toHaveTextContent('未接入');
-  });
-
-  it('reflects live agent_status: a working agent renders data-status=working', async () => {
-    await mountApp();
-    useAgentStore.setState({ statusById: { 'claude-opus': 'working' } });
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    const cell = screen
-      .getAllByTestId('mon-cell')
-      .find((c) => c.getAttribute('data-agent') === 'claude-opus');
-    expect(cell).toBeDefined();
-    expect(cell).toHaveAttribute('data-status', 'working');
-  });
-
-  it('ConnStrip 本地 API card reflects an ok /health probe', async () => {
-    await mountApp();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    const apiCard = await waitFor(() => {
-      const card = screen
-        .getAllByTestId('conn-card')
-        .find((c) => c.getAttribute('data-conn') === 'api');
-      expect(card).toHaveAttribute('data-status', 'ok');
-      return card;
-    });
-    expect(within(apiCard as HTMLElement).getByText('畅通')).toBeInTheDocument();
-  });
-});
-
 describe('SettingsOverlay (设置) — owner gear', () => {
   it('opens from the owner gear and shows the LIVE roster in 成员管理', async () => {
     await mountApp();
@@ -262,8 +225,8 @@ describe('overlay exclusivity', () => {
     await mountApp();
     await userEvent.click(screen.getByTestId('workspace-button'));
     expect(screen.getByTestId('workspace-panel')).toBeInTheDocument();
-    await userEvent.click(screen.getByTestId('monitor-button'));
-    expect(screen.getByTestId('monitor-grid')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('owner-gear'));
+    expect(screen.getByTestId('settings-overlay')).toBeInTheDocument();
     expect(screen.queryByTestId('workspace-panel')).not.toBeInTheDocument();
   });
 });

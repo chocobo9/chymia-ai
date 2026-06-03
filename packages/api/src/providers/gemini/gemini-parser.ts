@@ -3,15 +3,19 @@
 //
 // 设计来源：补充 §A8（parseGeminiLine）+ extraction §2.2（gemini-event-parser）。
 //
-// Research: reference gemini-event-parser.ts —— 真实事件（gemini-cli stream-json schema）：
-//   { "type": "init", "session_id": "..." }                   → session_init
-//   { "type": "content", "text": "..." }                      → text
-//   { "type": "thought", "text": "..." }                      → thinking
-//   { "type": "tool_call", "name": "...", "args": {...} }      → tool_use
-//   { "type": "result", "status": "success" | ... }           → 成功跳过 / 失败 error
-//   { "type": "error", "message": "..." }                     → error
-// 关键：result 是否错误由 status !== 'success' 判定（非 is_error 字段）。
-// 偏差：原版 thought 用 system_info 包 JSON；我们直接发 'thinking'（M1 已有该类型）。
+// REAL gemini-cli `--yolo --output-format stream-json` schema (captured 2026-06-03
+// from the installed CLI, NOT the design doc — the doc's `type:"content"` was
+// WRONG and silently produced 0 output):
+//   { "type": "init", "session_id": "...", "model": "auto" }                  → session_init
+//   { "type": "message", "role": "user", "content": "..." }                   → IGNORE (prompt echo)
+//   { "type": "message", "role": "assistant", "content": "...", "delta": true} → text (streamed in chunks)
+//   { "type": "thought", "text": "..." }                                      → thinking (doc shape; kept as fallback)
+//   { "type": "tool_call", "name": "...", "args": {...} }                     → tool_use (doc shape; kept as fallback)
+//   { "type": "result", "status": "success" | ..., "stats": {...} }           → 成功跳过 / 失败 error
+//   { "type": "error", "message": "..." }                                     → error
+// Assistant text lives in `message.content` (role='assistant'), emitted as delta
+// chunks — each becomes a 'text' event (backend/web concatenate). result status
+// !== 'success' is the error signal.
 //
 // 纯、确定性、零 any。
 
@@ -91,7 +95,21 @@ export function transformGeminiEvent(
       };
     }
 
+    case 'message': {
+      // The REAL assistant-text channel. role='assistant' carries the reply
+      // (streamed as `delta:true` chunks); role='user' is the prompt echo → skip.
+      if (asString(e.role) !== 'assistant') {
+        return { messages: [], state };
+      }
+      const text = asString(e.content);
+      if (!text || text.length === 0) {
+        return { messages: [], state };
+      }
+      return { messages: [makeMessage(deps, 'text', { content: text })], state };
+    }
+
     case 'content': {
+      // Doc-shape fallback (older/other gemini builds): { type:'content', text }.
       const text = asString(e.text);
       if (!text || text.length === 0) {
         return { messages: [], state };

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "app": "node scripts/launch.mjs",
+    "build:mcp": "esbuild packages/mcp-server/src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=packages/mcp-server/dist/index.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"packages/**/*.ts\" \"tests/**/*.ts\" --max-warnings 0",
     "test": "vitest run",
@@ -29,6 +30,7 @@
     "@types/node": "^20.17.0",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
+    "esbuild": "^0.28.0",
     "eslint": "^8.57.1",
     "jsdom": "24.1.3",
     "socket.io-client": "^4.8.1",

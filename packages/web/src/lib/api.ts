@@ -24,7 +24,16 @@ import type {
   Thread,
   EvidenceSearchOptions,
   EvidenceSearchResult,
+  SessionRecord,
+  SessionDigest,
+  SessionEvent,
+  AuditEntry,
 } from '@choco/shared';
+
+/** A session-chain row enriched with its digest (sealed → stored; active → live). */
+export interface SessionChainEntry extends Omit<SessionRecord, 'digest'> {
+  readonly digest: SessionDigest | null;
+}
 import { webConfig } from './config.js';
 
 /**
@@ -130,10 +139,18 @@ export class ApiClient {
   }
 
   private jsonInit(method: string, body?: unknown): RequestInit {
+    // A bodyless mutation (seal / reopen / deleteThread) must NOT declare a JSON
+    // content-type: Fastify's body parser then rejects it 400 with
+    // FST_ERR_CTP_EMPTY_JSON_BODY ("Body cannot be empty when content-type is set
+    // to 'application/json'"). Only attach the header + serialized body when a body
+    // is actually present.
+    if (body === undefined) {
+      return { method };
+    }
     return {
       method,
       headers: { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: JSON.stringify(body),
     };
   }
 
@@ -217,6 +234,67 @@ export class ApiClient {
   async health(): Promise<HealthPayload> {
     const res = await this.fetchFn(this.url('/health'));
     return parseJson<HealthPayload>(res);
+  }
+
+  /**
+   * POST /api/workspace/reveal — open a workspace file the agent wrote, either
+   * with its default app ('open') or revealed in the OS file manager ('reveal').
+   * Sandboxed server-side to the workspace root. Resolves on success; throws
+   * ApiError on a non-2xx (e.g. 403 outside-root, 404 missing).
+   */
+  async revealFile(path: string, action: 'open' | 'reveal'): Promise<void> {
+    const res = await this.fetchFn(
+      this.url('/api/workspace/reveal'),
+      this.jsonInit('POST', { path, action }),
+    );
+    await parseJson<{ ok: boolean }>(res);
+  }
+
+  /**
+   * GET /api/workspace/file — fetch a workspace file's text content for the in-app
+   * preview (e.g. an agent-written HTML viz). Sandboxed + size-capped server-side.
+   * Returns the content string; throws ApiError on non-2xx (403/404/413).
+   */
+  async getWorkspaceFile(path: string): Promise<string> {
+    const res = await this.fetchFn(this.url(`/api/workspace/file?path=${encodeURIComponent(path)}`));
+    const data = await parseJson<{ path: string; content: string }>(res);
+    return data.content;
+  }
+
+  /** GET /api/threads/:id/sessions — the thread's session chain (each with a digest). */
+  async getSessions(threadId: string): Promise<readonly SessionChainEntry[]> {
+    const res = await this.fetchFn(this.url(`/api/threads/${threadId}/sessions`));
+    const data = await parseJson<{ sessions: SessionChainEntry[] }>(res);
+    return data.sessions;
+  }
+
+  /** GET /api/sessions/:id/transcript — a session's merged messages + tool events. */
+  async getSessionTranscript(sessionId: string): Promise<readonly SessionEvent[]> {
+    const res = await this.fetchFn(this.url(`/api/sessions/${sessionId}/transcript`));
+    const data = await parseJson<{ events: SessionEvent[] }>(res);
+    return data.events;
+  }
+
+  /** POST /api/sessions/:id/seal — force-close a LIVE session; returns its new status. */
+  async sealSession(sessionId: string): Promise<{ status: string }> {
+    const res = await this.fetchFn(this.url(`/api/sessions/${sessionId}/seal`), this.jsonInit('POST'));
+    return parseJson<{ status: string }>(res);
+  }
+
+  /**
+   * POST /api/sessions/:id/reopen — reopen a SEALED session as the live one (the
+   * next turn for that agent resumes it). Seals the current active first server-side.
+   */
+  async reopenSession(sessionId: string): Promise<{ status: string }> {
+    const res = await this.fetchFn(this.url(`/api/sessions/${sessionId}/reopen`), this.jsonInit('POST'));
+    return parseJson<{ status: string }>(res);
+  }
+
+  /** GET /api/audit/thread/:id — the per-thread audit timeline (replies/tools/seals). */
+  async getAudit(threadId: string): Promise<readonly AuditEntry[]> {
+    const res = await this.fetchFn(this.url(`/api/audit/thread/${threadId}`));
+    const data = await parseJson<{ entries: AuditEntry[] }>(res);
+    return data.entries;
   }
 }
 

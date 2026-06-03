@@ -183,8 +183,15 @@ function EmptyThread(): ReactElement {
   );
 }
 
+export interface ChatContainerProps {
+  /** Open/reveal a file an edit wrote (forwarded to each agent message's diffs). */
+  readonly onRevealFile?: (path: string, action: 'open' | 'reveal') => void;
+  /** Load a workspace file's content for the inline HTML preview (forwarded to diffs). */
+  readonly onLoadFile?: (path: string) => Promise<string>;
+}
+
 /** Render the active thread's transcript (persisted + streaming). */
-export function ChatContainer(): ReactElement {
+export function ChatContainer({ onRevealFile, onLoadFile }: ChatContainerProps = {}): ReactElement {
   const activeThreadId = useChatStore((s) => s.activeThreadId);
   const messagesByThread = useChatStore((s) => s.messagesByThread);
   const streamingByThread = useChatStore((s) => s.streamingByThread);
@@ -298,11 +305,21 @@ export function ChatContainer(): ReactElement {
               }}
             />
           ) : (
-            <AgentMessage key={message.id} view={storedToView(message, roster)} />
+            <AgentMessage
+              key={message.id}
+              view={storedToView(message, roster)}
+              onRevealFile={onRevealFile}
+              onLoadFile={onLoadFile}
+            />
           ),
         )}
         {streaming.map((stream) => (
-          <AgentMessage key={`stream:${stream.key}`} view={streamingToView(stream, roster)} />
+          <AgentMessage
+            key={`stream:${stream.key}`}
+            view={streamingToView(stream, roster)}
+            onRevealFile={onRevealFile}
+            onLoadFile={onLoadFile}
+          />
         ))}
         {visibleNotices.map((notice) => (
           <NoticeBubble key={`notice:${notice.id}`} roster={roster} notice={notice} />

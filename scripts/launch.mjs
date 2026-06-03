@@ -21,7 +21,7 @@
 // This launcher is a dev-ops script, NOT product code, so it may use console.*
 // (it is outside the eslint product glob: packages/**/*.ts + tests/**/*.ts).
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -163,8 +163,46 @@ function startWeb() {
   });
 }
 
+/**
+ * VSCode-style workspace-trust prompt, run BEFORE anything else so the user
+ * consents (once per workspace) to AI agents reading/writing + auto-running tools
+ * in this directory. The decision is persisted by the script; the API reads it at
+ * boot and only then enables gemini's headless auto-approve. Interactive in a real
+ * terminal; a background/headless launch falls through (honors CHOCO_TRUST_WORKSPACE).
+ */
+function ensureWorkspaceTrust() {
+  const r = spawnSync('npx', ['tsx', 'scripts/ensure-trust.ts', workspace], {
+    cwd: ROOT,
+    env: childEnv,
+    shell: true,
+    stdio: 'inherit',
+  });
+  if (r.status !== 0 && r.status !== null) {
+    console.warn(`[launch] trust check exited ${r.status} — continuing (restricted if untrusted)`);
+  }
+}
+
+/**
+ * Build the MCP server into a single self-contained bundle (packages/mcp-server/
+ * dist/index.js) BEFORE starting the API, so each agent invocation launches the
+ * server as `node dist/index.js` instead of re-compiling the TS graph through tsx
+ * on every spawn (the cold-start fix). Best-effort: a build failure logs a warning
+ * and the API falls back to tsx automatically (main.ts detects the missing bundle).
+ */
+function buildMcpBundle() {
+  console.log('[launch] building MCP server bundle (node fast path)…');
+  const r = spawnSync('pnpm', ['run', 'build:mcp'], { cwd: ROOT, env: childEnv, shell: true, stdio: 'inherit' });
+  if (r.status === 0) {
+    console.log('[launch] MCP bundle built — invocations use `node dist/index.js`');
+  } else {
+    console.warn('[launch] MCP bundle build failed — API will fall back to tsx (slower cold start)');
+  }
+}
+
 /** Fail fast on a port conflict (don't crash-loop), then start both halves. */
 async function main() {
+  ensureWorkspaceTrust();
+  buildMcpBundle();
   if (await portInUse(API_PORT)) {
     console.error(
       `[launch] port ${API_PORT} is already in use — another 'pnpm app' (or some process on ${API_PORT}) is still running.`,

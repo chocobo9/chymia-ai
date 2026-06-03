@@ -1,4 +1,4 @@
-// ConnStrip — the 连接状态 strip from the Claude-Design MonitorGrid. Three cards:
+// ConnStrip — the 连接状态 strip (shown in SettingsOverlay 运维监控). Three cards:
 //   • 本地 API  — LIVE: reflects the GET /health probe (ok / down).
 //   • Socket    — LIVE-ish: derived from whether the socket is connected; we get
 //                 that as a prop from the shell (the App owns the socket).

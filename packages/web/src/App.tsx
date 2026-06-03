@@ -14,8 +14,8 @@
 // final persisted replies from the POST result.
 //
 // Overlays opened from the shell: the header bell (NotifInbox), panel button
-// (WorkspacePanel), a grid button (MonitorGrid), and the owner gear
-// (SettingsOverlay) — see frontend SCOPE.
+// (WorkspacePanel), the owner gear (SettingsOverlay), and the per-thread main-bar
+// buttons 审计 (AuditPanel) / 会话链 (SessionPanel).
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { Thread } from '@choco/shared';
@@ -28,14 +28,15 @@ import { ThreadList } from './components/ThreadList.js';
 import { ChatContainer } from './components/ChatContainer.js';
 import { ChatInput } from './components/ChatInput.js';
 import { AgentStatus } from './components/AgentStatus.js';
-import { IconBell, IconPanel, IconHash, IconGrid } from './components/choco/icons.js';
+import { IconBell, IconPanel, IconHash } from './components/choco/icons.js';
 import { NotifInbox, deriveNotifItems } from './components/overlays/NotifInbox.js';
 import { WorkspacePanel } from './components/overlays/WorkspacePanel.js';
-import { MonitorGrid } from './components/overlays/MonitorGrid.js';
 import { SettingsOverlay } from './components/overlays/SettingsOverlay.js';
+import { SessionPanel } from './components/overlays/SessionPanel.js';
+import { AuditPanel } from './components/overlays/AuditPanel.js';
 
 /** Which exclusive overlay surface (if any) is currently open. */
-type OverlaySurface = 'notif' | 'workspace' | 'monitor' | 'settings' | null;
+type OverlaySurface = 'notif' | 'workspace' | 'settings' | 'sessions' | 'audit' | null;
 
 export interface AppProps {
   /** Injectable API client (defaults to the shared one); eases testing. */
@@ -70,6 +71,10 @@ export function App(props: AppProps = {}): ReactElement {
   const [sending, setSending] = useState(false);
   const [overlay, setOverlay] = useState<OverlaySurface>(null);
   const [resolvedNotifs, setResolvedNotifs] = useState<ReadonlySet<string>>(new Set());
+  // Per-thread locked target agent (roster id). Absent = 全体 (broadcast/default
+  // route). Persists across messages so a 1:1 conversation needs no re-@ — owned
+  // here (not in ChatInput) so switching threads restores that thread's target.
+  const [lockByThread, setLockByThread] = useState<Record<string, string>>({});
 
   const onError = useCallback((message: string) => setError(message), []);
   const { cancel } = useSocket({
@@ -81,7 +86,7 @@ export function App(props: AppProps = {}): ReactElement {
   // Probe /health whenever an overlay that surfaces connection state is open.
   // Same-origin server hosts both the API and Socket.io, so an ok probe is an
   // honest proxy for "the live socket backend is reachable".
-  const healthActive = overlay === 'notif' || overlay === 'monitor' || overlay === 'settings';
+  const healthActive = overlay === 'notif' || overlay === 'settings';
   const health = useHealth(client, healthActive);
   const socketConnected = health.state === 'ok';
 
@@ -190,6 +195,32 @@ export function App(props: AppProps = {}): ReactElement {
     [client, activeThreadId, addOptimisticUserMessage, replaceOptimisticMessage, removeMessage, reconcileReplies],
   );
 
+  // Open/reveal a workspace file an agent wrote (diff-block affordances). Uses the
+  // injected client; a failure (e.g. file outside the workspace, 404) surfaces in
+  // the error banner instead of failing silently.
+  const handleRevealFile = useCallback(
+    async (path: string, action: 'open' | 'reveal') => {
+      try {
+        await client.revealFile(path, action);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'open failed');
+      }
+    },
+    [client],
+  );
+
+  // Stable loader for the inline HTML preview (sandboxed iframe in the diff block).
+  const handleLoadFile = useCallback((path: string) => client.getWorkspaceFile(path), [client]);
+
+  // 停止 button: when exactly ONE agent is working, stop just that one (targeted —
+  // no collateral cancel of siblings); when 2+ are working, stop them all.
+  const handleStop = useCallback((): void => {
+    const working = roster
+      .filter((a) => (statusById[a.id] ?? a.status) === 'working')
+      .map((a) => a.id);
+    cancel(working.length === 1 ? working[0] : undefined);
+  }, [cancel, roster, statusById]);
+
   // Live header chip: online = not-offline agents; idle = idle agents.
   const { online, idle } = useMemo(() => {
     let onlineCount = 0;
@@ -205,6 +236,22 @@ export function App(props: AppProps = {}): ReactElement {
   const activeThread = useMemo(
     () => threads.find((t) => t.id === activeThreadId),
     [threads, activeThreadId],
+  );
+
+  // The active thread's locked target agent (null = 全体), and its setter.
+  const lockedAgentId = activeThreadId === null ? null : lockByThread[activeThreadId] ?? null;
+  const handleLockChange = useCallback(
+    (agentId: string | null) => {
+      if (activeThreadId === null) return;
+      setLockByThread((prev) => {
+        if (agentId === null) {
+          const { [activeThreadId]: _dropped, ...rest } = prev;
+          return rest;
+        }
+        return { ...prev, [activeThreadId]: agentId };
+      });
+    },
+    [activeThreadId],
   );
 
   // The main-bar branch .tag follows the active thread's branch. Our Thread model
@@ -259,17 +306,6 @@ export function App(props: AppProps = {}): ReactElement {
         </button>
         <button
           type="button"
-          className={`icon-btn${overlay === 'monitor' ? ' on' : ''}`}
-          aria-label="并行监看"
-          aria-haspopup="dialog"
-          aria-expanded={overlay === 'monitor'}
-          data-testid="monitor-button"
-          onClick={() => setOverlay((o) => (o === 'monitor' ? null : 'monitor'))}
-        >
-          <IconGrid />
-        </button>
-        <button
-          type="button"
           className={`icon-btn${overlay === 'workspace' ? ' on' : ''}`}
           aria-label="打开 Workspace"
           aria-haspopup="dialog"
@@ -306,6 +342,26 @@ export function App(props: AppProps = {}): ReactElement {
               </span>
             )}
             <div style={{ flex: 1 }} />
+            {activeThreadId !== null && (
+              <>
+                <button
+                  type="button"
+                  className="main-action"
+                  data-testid="open-audit"
+                  onClick={() => setOverlay('audit')}
+                >
+                  审计
+                </button>
+                <button
+                  type="button"
+                  className="main-action"
+                  data-testid="open-sessions"
+                  onClick={() => setOverlay('sessions')}
+                >
+                  会话链
+                </button>
+              </>
+            )}
             <span className="main-meta">
               {online} agents · {messageCount} messages
             </span>
@@ -320,20 +376,28 @@ export function App(props: AppProps = {}): ReactElement {
             </div>
           )}
 
-          <ChatContainer />
+          <ChatContainer
+            onRevealFile={(path, action) => void handleRevealFile(path, action)}
+            onLoadFile={handleLoadFile}
+          />
 
           <div className="app__composer">
             <ChatInput
               onSend={(content) => void sendMessage(content)}
               disabled={activeThreadId === null}
               busy={sending}
-              onCancel={cancel}
+              onCancel={handleStop}
+              lockedAgentId={lockedAgentId}
+              onLockChange={handleLockChange}
             />
           </div>
         </main>
 
         <aside className="col-status app__status">
-          <AgentStatus />
+          <AgentStatus
+            onOpenAudit={() => setOverlay('audit')}
+            onOpenSessions={() => setOverlay('sessions')}
+          />
         </aside>
       </div>
 
@@ -346,8 +410,11 @@ export function App(props: AppProps = {}): ReactElement {
         />
       )}
       {overlay === 'workspace' && <WorkspacePanel onClose={closeOverlay} client={client} />}
-      {overlay === 'monitor' && (
-        <MonitorGrid onClose={closeOverlay} health={health} socketConnected={socketConnected} />
+      {overlay === 'sessions' && activeThreadId !== null && (
+        <SessionPanel onClose={closeOverlay} client={client} threadId={activeThreadId} roster={roster} />
+      )}
+      {overlay === 'audit' && activeThreadId !== null && (
+        <AuditPanel onClose={closeOverlay} client={client} threadId={activeThreadId} roster={roster} />
       )}
       {overlay === 'settings' && (
         <SettingsOverlay

@@ -2,8 +2,9 @@
 // M2 QA (edge + adversarial): Claude stream-json parser. QA != dev.
 // Gates parseClaudeLine against design §A8 / §4.2: NDJSON robustness
 // (blank/whitespace/garbage/non-object/unknown), streaming semantics
-// (text_delta-per-delta, thinking_delta accumulation + content_block_stop
-// flush, assistant multi-block ordering), and adversarial malformed shapes.
+// (text_delta-per-delta AND thinking_delta-per-delta — both stream live, no
+// accumulation; content_block_stop flushes nothing), assistant multi-block
+// ordering, and adversarial malformed shapes.
 // Real Claude stream-json frames + real Chinese/English agent content.
 
 import { describe, it, expect } from 'vitest';
@@ -68,12 +69,13 @@ describe('parseClaudeLine — NDJSON robustness (edge)', () => {
     expect(messages).toEqual([]);
   });
 
-  it('ignores an unknown top-level event type without emitting or mutating buffers', () => {
+  it('ignores an unknown top-level event type without emitting or mutating state', () => {
+    const start = createClaudeParserState();
     const { state, messages } = run([
       JSON.stringify({ type: 'mcp_server_status', server: 'evidence-store', status: 'ready' }),
     ]);
     expect(messages).toEqual([]);
-    expect(state.thinkingBuffer).toBe('');
+    expect(state).toEqual(start);
   });
 
   it('keeps streaming correctly when blank/whitespace lines interleave', () => {
@@ -99,26 +101,32 @@ describe('parseClaudeLine — streaming semantics (edge)', () => {
     expect(messages.map((m) => m.content)).toEqual(['修复方案：', '在 invoke() ', '前加空值检查。']);
   });
 
-  it('accumulates thinking_delta silently and flushes ONE thinking block on content_block_stop', () => {
-    const { messages, state } = run([
+  it('emits one thinking message per thinking_delta immediately (live, no accumulation)', () => {
+    const { messages } = run([
       streamDelta('thinking_delta', '先看调用栈，'),
       streamDelta('thinking_delta', '再看 evidence。'),
       stop,
     ]);
-    // thinking deltas must not surface as text; only one flushed thinking emerges.
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({ type: 'thinking', content: '先看调用栈，再看 evidence。' });
-    expect(state.thinkingBuffer).toBe('');
+    // Each delta surfaces as its own 'thinking' frame the instant it arrives — the
+    // backend/web layers concatenate them; content_block_stop adds nothing.
+    expect(messages.map((m) => m.type)).toEqual(['thinking', 'thinking']);
+    expect(messages.map((m) => m.content)).toEqual(['先看调用栈，', '再看 evidence。']);
   });
 
-  it('content_block_stop with empty thinking buffer flushes nothing', () => {
+  it('does not surface thinking_delta as text (type stays thinking, not text)', () => {
+    const { messages } = run([streamDelta('thinking_delta', '推理：根因是竞态。')]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ type: 'thinking', content: '推理：根因是竞态。' });
+  });
+
+  it('content_block_stop emits nothing (thinking already streamed per-delta)', () => {
     const { messages } = run([stop]);
     expect(messages).toEqual([]);
   });
 
-  it('does not flush thinking twice across two consecutive stops', () => {
-    const { messages } = run([streamDelta('thinking_delta', '推理：根因是竞态。'), stop, stop]);
-    expect(messages.filter((m) => m.type === 'thinking')).toHaveLength(1);
+  it('an empty thinking_delta emits no frame (no blank thinking bubble)', () => {
+    const { messages } = run([streamDelta('thinking_delta', ''), stop]);
+    expect(messages).toEqual([]);
   });
 
   it('emits tool_use with a realistic Chinese evidence_search query as input', () => {

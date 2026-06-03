@@ -218,9 +218,9 @@ describe('claude-parser dedup hardening (QA)', () => {
       expect(joinedText(messages)).toBe(text);
     });
 
-    it('flushes thinking then suppresses the streamed text block (thinking + streamed text in one turn)', () => {
-      // Arrange — thinking_delta accumulates, content_block_stop flushes one thinking msg,
-      // then text deltas stream the reply, then the consolidated assistant text block.
+    it('streams thinking per-delta then suppresses the streamed text block (thinking + streamed text in one turn)', () => {
+      // Arrange — thinking_delta now streams live (one msg per delta), content_block_stop
+      // adds nothing, then text deltas stream the reply, then the consolidated assistant text block.
       const reply = '基于以上推理，采用 Postgres。';
       const lines = [
         JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '比较 SQLite 与 ' } } }),
@@ -233,10 +233,11 @@ describe('claude-parser dedup hardening (QA)', () => {
       // Act
       const { messages } = run(lines);
 
-      // Assert — exactly one thinking + the reply text once (no doubling, thinking intact).
+      // Assert — each thinking delta surfaces live (concatenation intact) AND the reply text
+      // appears exactly once (the consolidated assistant block stays suppressed — no doubling).
       const thinking = messages.filter((m) => m.type === 'thinking');
-      expect(thinking).toHaveLength(1);
-      expect(thinking[0].content).toBe('比较 SQLite 与 Postgres 的并发模型');
+      expect(thinking.map((m) => m.content)).toEqual(['比较 SQLite 与 ', 'Postgres 的并发模型']);
+      expect(thinking.map((m) => m.content).join('')).toBe('比较 SQLite 与 Postgres 的并发模型');
       expect(joinedText(messages)).toBe(reply);
     });
 

@@ -25,8 +25,9 @@
 // that belong to its own thread (cross-thread reads → 404).
 
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { resolve, relative, isAbsolute, join } from 'node:path';
+import { resolve, relative, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import { resolvePathInRoot } from '@choco/api/infrastructure/path-sandbox';
 import { z } from 'zod';
 import type {
   AgentId,
@@ -432,19 +433,6 @@ export function registerCallbackRoutes(
     await advanceStageWithEval(services, record.threadId, body.data.stageId, record.agentId);
     return reply.send({ stageId: body.data.stageId });
   });
-}
-
-/**
- * Resolve `requested` against `root`, returning the absolute path only if it
- * stays inside `root`. Returns null on any traversal escape (path-traversal guard).
- */
-function resolvePathInRoot(root: string, requested: string): string | null {
-  const candidate = isAbsolute(requested) ? requested : resolve(root, requested);
-  const rel = relative(root, candidate);
-  if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
-    return candidate;
-  }
-  return null;
 }
 
 /** Options bounding a {@link searchContent} run. */

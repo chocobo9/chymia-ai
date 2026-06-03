@@ -168,6 +168,7 @@ export class SessionStore implements ISessionStore {
   private readonly getBySessionIdStmt;
   private readonly insertStmt;
   private readonly sealStmt;
+  private readonly reopenStmt;
   private readonly maxSeqStmt;
   private readonly listByThreadStmt;
   private readonly messageRowsStmt;
@@ -200,6 +201,14 @@ export class SessionStore implements ISessionStore {
     this.sealStmt = db.prepare<[number, string, string]>(`
       UPDATE ${SESSIONS_TABLE}
       SET status = '${STATUS_SEALED}', sealed_at = ?, digest = ?
+      WHERE session_id = ?
+    `);
+
+    // Reopen a sealed session: status → active, clear sealed_at + digest (they are
+    // recomputed when it is sealed again).
+    this.reopenStmt = db.prepare<[string]>(`
+      UPDATE ${SESSIONS_TABLE}
+      SET status = '${STATUS_ACTIVE}', sealed_at = NULL, digest = NULL
       WHERE session_id = ?
     `);
 
@@ -297,6 +306,36 @@ export class SessionStore implements ISessionStore {
    */
   sealActiveSession(agentId: AgentId, threadId: string): void {
     this.sealActiveInternal(agentId, threadId, this.now());
+  }
+
+  /**
+   * Reopen a SEALED session as the live one for its (agent, thread): seal whatever
+   * is currently active for that pair (so the ≤1-active invariant always holds),
+   * then flip the target back to 'active' — clearing its sealed_at + digest (they
+   * recompute on the next seal). The next turn for that agent then resumes this
+   * session's CLI id. Returns the updated record.
+   *
+   * Atomic (one transaction). A no-op (returns the record unchanged) if the target
+   * is already active. Throws if `sessionId` is unknown — callers (the route) check
+   * existence first and surface 404.
+   */
+  reopenSession(sessionId: string): SessionRecord {
+    const run = this.db.transaction((): SessionRecord => {
+      const target = this.getBySessionIdStmt.get(sessionId);
+      if (target === undefined) {
+        throw new Error(`session not found: ${sessionId}`);
+      }
+      if (toStatus(target.status) === STATUS_ACTIVE) {
+        return rowToRecord(target); // already live — nothing to do
+      }
+      // The target is sealed; seal the CURRENT active for this (agent, thread)
+      // first (it is a different session) so we never have two active rows.
+      this.sealActiveInternal(createAgentId(target.agent_id), target.thread_id, this.now());
+      this.reopenStmt.run(sessionId);
+      const updated = this.getBySessionIdStmt.get(sessionId);
+      return rowToRecord(updated ?? target);
+    });
+    return run();
   }
 
   /**

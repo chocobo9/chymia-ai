@@ -223,7 +223,7 @@ describe('claude-parser (unit, happy path)', () => {
     expect(messages[0].content).toBe('直接给出的完整回复');
   });
 
-  it('accumulates thinking_delta and flushes one thinking message on content_block_stop', () => {
+  it('streams thinking_delta live — one thinking message per delta, stop adds nothing', () => {
     // Arrange
     const d1 = JSON.stringify({
       type: 'stream_event',
@@ -239,13 +239,11 @@ describe('claude-parser (unit, happy path)', () => {
     });
 
     // Act
-    const { messages, state } = run([d1, d2, stop]);
+    const { messages } = run([d1, d2, stop]);
 
-    // Assert — 两个 delta 累积成一条 thinking，stop 时 flush
-    expect(messages).toHaveLength(1);
-    expect(messages[0].type).toBe('thinking');
-    expect(messages[0].content).toBe('先设计 数据库 schema');
-    expect(state.thinkingBuffer).toBe('');
+    // Assert — 每个 delta 立即发一条 thinking（后端/前端各自拼接成完整推理），stop 无产物
+    expect(messages.map((m) => m.type)).toEqual(['thinking', 'thinking']);
+    expect(messages.map((m) => m.content)).toEqual(['先设计 ', '数据库 schema']);
   });
 
   it('maps error result (subtype !== success) to error message with errorCode', () => {

@@ -89,10 +89,21 @@ function partitionBlocks(blocks: readonly StreamingToolBlock[]): PartitionedBloc
 
 export interface AgentMessageProps {
   readonly view: AgentMessageView;
+  /**
+   * Open/reveal a file an edit wrote, by its path. When provided, each Diff block
+   * renders a clickable filename ('open') + a reveal-in-folder button ('reveal').
+   * Omitted in presentational tests → diffs show the path as plain text.
+   */
+  readonly onRevealFile?: (path: string, action: 'open' | 'reveal') => void;
+  /**
+   * Fetch a workspace file's text content. When provided, an HTML file edit gets a
+   * "预览" toggle that renders the content inline in a sandboxed iframe.
+   */
+  readonly onLoadFile?: (path: string) => Promise<string>;
 }
 
 /** Render a single agent message (avatar + head + bubble with rich blocks). */
-export function AgentMessage({ view }: AgentMessageProps): ReactElement {
+export function AgentMessage({ view, onRevealFile, onLoadFile }: AgentMessageProps): ReactElement {
   const accent = view.color;
   const avatarSeed = view.avatarName ?? view.displayName;
   const { diffs, toolRows } = partitionBlocks(view.toolBlocks);
@@ -131,6 +142,10 @@ export function AgentMessage({ view }: AgentMessageProps): ReactElement {
               added={d.added}
               removed={d.removed}
               lines={d.lines}
+              onReveal={
+                onRevealFile === undefined ? undefined : (action) => onRevealFile(d.file, action)
+              }
+              onLoadFile={onLoadFile}
             />
           ))}
 

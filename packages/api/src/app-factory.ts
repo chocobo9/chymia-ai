@@ -61,7 +61,11 @@ import { registerMessageRoutes } from '@choco/api/routes/message-routes';
 import { handleThreadMessage } from '@choco/api/routes/message-handler';
 import { registerAgentRoutes } from '@choco/api/routes/agent-routes';
 import { registerEvidenceRoutes } from '@choco/api/routes/evidence-routes';
+import { registerSessionRoutes } from '@choco/api/routes/session-routes';
+import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
+import { registerWorkspaceRoutes } from '@choco/api/routes/workspace-routes';
+import type { OsOpener } from '@choco/api/infrastructure/os-open';
 import { registerHealthRoutes } from '@choco/api/routes/health-routes';
 import {
   checkWorkspaceMatch,
@@ -94,6 +98,14 @@ export interface BuildAppOverrides {
   readonly agentOverrideStore?: AgentOverrideStore;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
+  /**
+   * OS-open seam for the workspace reveal/open route. OMITTED ⇒ the real
+   * execFile-based opener (open / explorer / xdg-open). Tests inject a fake so a
+   * reveal asserts the dispatched (path, action) WITHOUT launching a file manager.
+   */
+  readonly osOpener?: OsOpener;
+  /** Max bytes the workspace file-preview route returns. OMITTED ⇒ the route default. */
+  readonly maxPreviewBytes?: number;
   /**
    * Default local workspace directory agents operate in (their CLI `cwd`) when a
    * thread has no `projectPath`. Externalized via `CHOCO_WORKSPACE` by the
@@ -312,10 +324,19 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   // CORS must be registered before routes; Socket.io has its own cors above.
   void api.register(cors, { origin: true });
   registerThreadRoutes(api, appServices);
+  registerSessionRoutes(api, appServices);
+  registerAuditRoutes(api, appServices);
   registerMessageRoutes(api, appServices);
   registerAgentRoutes(api, appServices);
   registerEvidenceRoutes(api, appServices);
   registerCallbackRoutes(api, appServices, { fileRoot });
+  // Browser-initiated open/reveal of a workspace file (diff-block affordances),
+  // sandboxed to the same fileRoot as read_file.
+  registerWorkspaceRoutes(api, appServices, {
+    fileRoot,
+    ...(overrides.osOpener !== undefined ? { opener: overrides.osOpener } : {}),
+    ...(overrides.maxPreviewBytes !== undefined ? { maxPreviewBytes: overrides.maxPreviewBytes } : {}),
+  });
   // Operability: liveness probe. Harmless to tests (pure in-memory read).
   registerHealthRoutes(api, { now });
 

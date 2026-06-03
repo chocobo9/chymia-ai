@@ -172,8 +172,10 @@ describe('socket room isolation under interleaving (adversarial)', () => {
 });
 
 describe('rate-limiter throttles floods but lifecycle events bypass (adversarial)', () => {
-  it('a flood of >capacity text frames is throttled yet the terminal done still arrives', async () => {
-    // Build a long flood of text frames (>> default burst capacity of 40), then done.
+  it('a flood of text frames is NEVER throttled — every streamed token arrives (streaming intact)', async () => {
+    // text is the user-visible stream; the rate limiter MUST NOT drop it (dropping
+    // made a long reply appear only at turn end = "streaming didn't work"). Every
+    // one of the FRAMES text frames must reach the client.
     const ts = Date.now();
     const flood: AgentMessage[] = [
       { type: 'session_init', agentId: CLAUDE, content: 'sess-flood', timestamp: ts },
@@ -204,13 +206,54 @@ describe('rate-limiter throttles floods but lifecycle events bypass (adversarial
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ content: '@claude 输出一大段' }),
     });
+    await Promise.race([sawDone, new Promise((r) => setTimeout(r, 3000))]);
 
-    await Promise.race([sawDone, new Promise((r) => setTimeout(r, 2500))]);
+    expect(seen.filter((m) => m.type === 'text')).toHaveLength(FRAMES);
+    expect(seen.some((m) => m.type === 'done')).toBe(true);
+  });
 
-    const textFrames = seen.filter((m) => m.type === 'text').length;
-    // Throttled: far fewer text frames delivered than emitted.
-    expect(textFrames).toBeLessThan(FRAMES);
-    // But the terminal lifecycle event bypassed the limiter and arrived.
+  it('a flood of >capacity tool_use frames IS throttled (the high-freq case), yet done still arrives', async () => {
+    const ts = Date.now();
+    const flood: AgentMessage[] = [
+      { type: 'session_init', agentId: CLAUDE, content: 'sess-tools', timestamp: ts },
+    ];
+    const FRAMES = 200;
+    for (let i = 0; i < FRAMES; i += 1) {
+      flood.push({
+        type: 'tool_use',
+        agentId: CLAUDE,
+        toolName: 'Read',
+        toolUseId: `t${i}`,
+        toolInput: { file_path: `f${i}.ts` },
+        timestamp: ts + 1 + i,
+      });
+    }
+    flood.push({ type: 'done', agentId: CLAUDE, isFinal: true, timestamp: ts + 1 + FRAMES });
+
+    const { baseUrl } = await listen({ 'claude-opus': new FakeAgentService([flood]) });
+    const threadId = 'thread-toolflood';
+    const client = await connectClient(baseUrl, threadId);
+    cleanups.push(() => {
+      client.disconnect();
+    });
+
+    const seen: AgentMessage[] = [];
+    const sawDone = new Promise<void>((resolve) => {
+      client.on('agent_event', (m: AgentMessage) => {
+        seen.push(m);
+        if (m.type === 'done') resolve();
+      });
+    });
+
+    await fetch(`${baseUrl}/api/threads/${threadId}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: '@claude 大量读文件' }),
+    });
+    await Promise.race([sawDone, new Promise((r) => setTimeout(r, 3000))]);
+
+    // Throttled: fewer tool_use frames delivered than emitted; done still bypasses.
+    expect(seen.filter((m) => m.type === 'tool_use').length).toBeLessThan(FRAMES);
     expect(seen.some((m) => m.type === 'done')).toBe(true);
   });
 });

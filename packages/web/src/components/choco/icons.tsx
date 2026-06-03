@@ -85,6 +85,14 @@ export function IconPanel(): ReactElement {
   );
 }
 
+export function IconFolder(): ReactElement {
+  return (
+    <Ic size={14}>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </Ic>
+  );
+}
+
 export function IconGear(): ReactElement {
   return (
     <Ic size={15}>

@@ -13,11 +13,9 @@
 /* shared scroll bars inside overlays */
 .set-overlay ::-webkit-scrollbar,
 .wsp-body::-webkit-scrollbar,
-.monitor::-webkit-scrollbar,
 .notif-list::-webkit-scrollbar { width: 8px; height: 8px; }
 .set-overlay ::-webkit-scrollbar-thumb,
 .wsp-body::-webkit-scrollbar-thumb,
-.monitor::-webkit-scrollbar-thumb,
 .notif-list::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; }
 
 /* header trigger active states */
@@ -25,15 +23,8 @@
 .icon-btn.bell.on { background: var(--soft); color: var(--ink); }
 
 /* ============================================================
-   PANELS — 并行监看 (⊞) + 待你处理 inbox (🔔).
+   ConnStrip (连接状态) — shared by SettingsOverlay 运维监控.
    ============================================================ */
-.overlay { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; padding: 26px; background: color-mix(in oklab, var(--bg) 30%, rgba(28,18,6,.5)); backdrop-filter: blur(3px); }
-.monitor { width: min(960px, 96%); max-height: 94%; overflow: auto; display: flex; flex-direction: column; gap: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: calc(20px * var(--rk,1)); box-shadow: var(--sh-pop); padding: 18px; }
-.monitor-h { display: flex; align-items: center; }
-.monitor-t { flex: 1; min-width: 0; font-family: var(--font-display); font-weight: var(--fw-heavy); font-size: var(--fs-display-lg); color: var(--ink); line-height: var(--lh-tight); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.monitor-t span { font-family: var(--font); font-weight: var(--fw-semi); font-size: var(--fs-secondary); color: var(--ink-3); margin-left: 11px; }
-.monitor-h .icon-btn { margin-left: auto; }
-
 .conn-strip { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px 14px; }
 .conn-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; margin-bottom: 9px; }
 .conn-head span:first-child { font-weight: 700; color: var(--ink-2); }
@@ -48,32 +39,6 @@
 .conn-card.warn .conn-dot { background: var(--st-error); }
 .conn-v { font-family: var(--font-display); font-weight: 700; font-size: 15px; margin-top: 4px; color: var(--ink); }
 .conn-card.warn .conn-v { color: var(--st-error); }
-
-.mon-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.mon-cell { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel-2); padding: 13px; min-height: 156px; display: flex; flex-direction: column; }
-.mon-cell[data-status="working"] { border-color: color-mix(in oklab, var(--st-working) 34%, var(--line)); box-shadow: var(--work-glow); }
-.mon-top { display: flex; align-items: center; gap: 9px; }
-.mon-id { flex: 1; min-width: 0; }
-.mon-id b { font-size: 13px; color: var(--ink); }
-.mon-id span { font-family: var(--mono); font-size: 10px; color: var(--ink-3); margin-left: 5px; }
-.mon-st { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; }
-.mon-now { margin-top: 11px; font-family: var(--mono); font-size: 11.5px; color: var(--ink); background: var(--soft); border-radius: var(--r-xs); padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mon-log { margin-top: 9px; display: flex; flex-direction: column; gap: 4px; }
-.mon-ln { font-size: 11.5px; color: var(--ink-2); padding-left: 14px; position: relative; line-height: 1.5; }
-.mon-ln::before { content: '›'; position: absolute; left: 3px; color: var(--ink-3); }
-.mon-cell.summary { background: var(--panel); }
-.mon-sum-h { font-family: var(--mono); font-size: var(--fs-mono-micro); font-weight: var(--fw-semi); letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--ink-3); }
-.mon-sum-task { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--ink); margin-top: 7px; }
-.mon-flow { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 13px; }
-.flow-step { font-size: 11px; font-weight: 700; color: color-mix(in oklab, var(--ac) 64%, var(--ink)); background: color-mix(in oklab, var(--ac) 13%, transparent); border-radius: var(--r-pill); padding: 4px 9px; }
-.flow-arrow { color: var(--ink-3); display: inline-flex; }
-.mon-sum-quota { margin-top: auto; padding-top: 14px; }
-.mon-sum-quota .q-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-bottom: 7px; }
-.mon-sum-quota .q-row b { font-family: var(--mono); color: var(--ink-2); font-weight: 700; }
-.quota-bar { height: 6px; border-radius: 4px; background: var(--soft-2); overflow: hidden; }
-.quota-bar > i { display: block; height: 100%; border-radius: 4px; background: var(--brand-grad); }
-.mon-placeholder { font-size: 11px; color: var(--ink-3); margin-top: 8px; font-style: italic; }
-.mon-empty { grid-column: 1 / -1; padding: 40px; text-align: center; font-size: 12.5px; color: var(--ink-3); }
 
 /* notif inbox */
 .notif-scrim { position: absolute; inset: 0; z-index: 55; }

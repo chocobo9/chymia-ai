@@ -39,10 +39,18 @@
 //                          (relative to cwd). Edits made in Settings → 成员管理
 //                          are written here and survive a restart.
 
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import type { ClientId } from '@choco/shared';
 import { buildApp } from '@choco/api/app-factory';
+import { defaultMcpBundlePath } from '@choco/api/providers/mcp-config';
+import {
+  WorkspaceTrustStore,
+  applyWorkspaceTrustEnv,
+  resolveTrustStorePath,
+  isTrustFlagSet,
+  TRUST_FLAG_ENV,
+} from '@choco/api/runtime/workspace-trust';
 import { JsonAgentOverrideStore } from '@choco/api/config/agent-overrides';
 import {
   buildAgentServicesFromRoster,
@@ -113,6 +121,65 @@ function resolvePort(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PORT;
 }
 
+/** Env key the MCP config producer reads for the server entry (mcp-config.ts). */
+const MCP_SERVER_PATH_ENV = 'CHOCO_MCP_SERVER_PATH';
+
+/**
+ * VSCode-style workspace-trust gate (enforcement half). The interactive consent
+ * prompt runs earlier in the launcher (`scripts/ensure-trust.ts`) and PERSISTS to
+ * the store; here we read that decision and, when trusted, set the providers'
+ * trust env flags (so gemini's headless auto-approve works in this dir). An
+ * already-trusted workspace proceeds silently; the `CHOCO_TRUST_WORKSPACE=1` flag
+ * grants + remembers trust non-interactively; otherwise we run RESTRICTED (claude/
+ * codex still work; gemini will refuse) and log how to trust.
+ */
+function ensureWorkspaceTrust(workspace: string, logger: StructuredLogger): void {
+  const store = new WorkspaceTrustStore(resolveTrustStorePath());
+  if (store.isTrusted(workspace)) {
+    applyWorkspaceTrustEnv(process.env);
+    logger.info({ workspace }, 'workspace trusted — agents may auto-approve tools here');
+    return;
+  }
+  if (isTrustFlagSet(process.env[TRUST_FLAG_ENV])) {
+    store.trust(workspace);
+    applyWorkspaceTrustEnv(process.env);
+    logger.info({ workspace }, `workspace trusted via ${TRUST_FLAG_ENV} — remembered`);
+    return;
+  }
+  logger.warn(
+    { workspace },
+    `workspace NOT trusted — running restricted (gemini headless auto-approve disabled). ` +
+      `Trust it once via an interactive \`pnpm app\` prompt, or set ${TRUST_FLAG_ENV}=1.`,
+  );
+}
+
+/**
+ * Cold-start fast path: when CHOCO_MCP_SERVER_PATH is not already set and the
+ * prebuilt MCP bundle (packages/mcp-server/dist/index.js) exists, point the env at
+ * it so every agent invocation launches the MCP server as `node <bundle>` instead
+ * of re-compiling the TS graph through tsx on each spawn. No bundle (un-built dev
+ * run) → leave it unset and the producer falls back to tsx. An explicit env value
+ * always wins (never overridden here).
+ */
+function preferPrebuiltMcpBundle(logger: StructuredLogger): void {
+  const existing = process.env[MCP_SERVER_PATH_ENV];
+  if (existing !== undefined && existing.length > 0) {
+    logger.info({ mcpServerPath: existing }, 'MCP server: using explicit CHOCO_MCP_SERVER_PATH');
+    return;
+  }
+  const bundle = defaultMcpBundlePath();
+  if (existsSync(bundle)) {
+    process.env[MCP_SERVER_PATH_ENV] = bundle;
+    logger.info({ bundle }, 'MCP server: launching prebuilt bundle via node (cold-start fast path)');
+  } else {
+    logger.warn(
+      { bundle },
+      'MCP server: no prebuilt bundle — falling back to tsx (slower cold start). ' +
+        'Run `pnpm run build:mcp` to enable the node fast path.',
+    );
+  }
+}
+
 /**
  * Install process-level crash handlers that LOG the fault through the structured
  * logger (so it lands in the rolling log file, not just a vanished stderr line)
@@ -146,6 +213,9 @@ async function main(): Promise<void> {
   const logger = createFileLogger();
   installCrashHandlers(logger);
 
+  // Cold-start: prefer the prebuilt MCP bundle (node) over per-invocation tsx.
+  preferPrebuiltMcpBundle(logger);
+
   const { dir: workspace, isDefault: workspaceIsDefault } = resolveWorkspace();
   const port = resolvePort();
   const host = process.env['HOST'] ?? DEFAULT_HOST;
@@ -167,6 +237,10 @@ async function main(): Promise<void> {
   // exists before wiring services so EVERY launch path has a valid cwd/fileRoot.
   mkdirSync(workspace, { recursive: true });
   logger.info({ workspace }, 'workspace directory ensured');
+
+  // VSCode-style trust gate: only auto-approve agent tools in a workspace the
+  // user explicitly trusted (sets gemini's trust env when granted).
+  ensureWorkspaceTrust(workspace, logger);
 
   logger.info({ workspace, permissionMode, host, port }, 'api booting');
 

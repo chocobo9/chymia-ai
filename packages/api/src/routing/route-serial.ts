@@ -23,6 +23,7 @@ import { parseA2AMentions } from '@choco/api/routing/mention-parser';
 import type {
   InvokeAgentFn,
   RouteLogger,
+  SignalForAgent,
 } from '@choco/api/routing/agent-router';
 
 /**
@@ -254,7 +255,10 @@ export interface RouteSerialParams {
   readonly mcpAvailable: boolean;
   readonly promptTags: readonly string[];
   readonly maxA2ADepth?: number;
+  /** Thread-wide (stop-all) signal: stops the chain from starting more agents. */
   readonly signal?: AbortSignal;
+  /** Per-agent signal resolver — the active agent listens to ITS OWN abort signal. */
+  readonly signalForAgent?: SignalForAgent;
   readonly now?: () => number;
   readonly logger?: RouteLogger;
 }
@@ -298,12 +302,18 @@ export async function* routeSerial(
     let collectedText = '';
     let capturedDone: AgentMessage | undefined;
 
+    // The active agent listens to its OWN signal (targeted stop) when available,
+    // else the thread-wide signal. A targeted stop of THIS agent ends the chain too
+    // (checked after its stream) — a serial pipeline can't meaningfully continue
+    // past a step the user explicitly stopped.
+    const agentSignal = params.signalForAgent?.(agentId) ?? params.signal;
+
     for await (const event of params.invoke({
       agentId,
       threadId: params.threadId,
       prompt: agentPrompt,
       context,
-      ...(params.signal !== undefined ? { signal: params.signal } : {}),
+      ...(agentSignal !== undefined ? { signal: agentSignal } : {}),
     })) {
       if (event.type === 'text' && event.content !== undefined) {
         collectedText += event.content;
@@ -314,6 +324,14 @@ export async function* routeSerial(
         continue;
       }
       yield event;
+    }
+
+    // If THIS agent was stopped (targeted, or a stop-all), end the chain — a serial
+    // pipeline can't continue past a step the user explicitly stopped. Emit a final
+    // done so the UI clears this agent, then stop (no A2A expansion, no next agent).
+    if (agentSignal?.aborted === true) {
+      yield { type: 'done', agentId, isFinal: true, timestamp: now() };
+      return;
     }
 
     // Scan the reply for A2A handoffs and (subject to limits) extend the chain.

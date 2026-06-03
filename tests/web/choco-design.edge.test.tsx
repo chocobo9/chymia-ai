@@ -434,31 +434,27 @@ describe('empty / honest states + deferred controls', () => {
       expect(stats.some((t) => /总数0/.test(t.replace(/\s/g, '')))).toBe(true);
     });
     expect(screen.queryByText('12 messages')).not.toBeInTheDocument();
-    // Audit feed has no backend → honest empty, not fabricated rows.
-    expect(screen.getByText('暂无审计记录。')).toBeInTheDocument();
-    // Session Chain shows 0 session for an empty thread.
+    // Session Chain shows 0 session for an empty thread (real count, not a mock).
     expect(screen.getByText(/0 session/)).toBeInTheDocument();
   });
 
-  // RECONCILED (overlays dev wave): the bell + panel buttons were previously
-  // `disabled` placeholders ("…（即将上线）"). They are now REAL overlay triggers
-  // (NotifInbox / WorkspacePanel), so they are enabled and carry the final
-  // aria-labels. The shell-level *deferred* no-ops that remain are the StatusBar's
-  // ＋ 绑定外部 Session button and the 查看日志 link — assert those stay inert.
-  it('shell controls: bell/panel are real (enabled) triggers; remaining StatusBar affordances stay inert', async () => {
+  // RECONCILED: the bell + panel buttons are REAL overlay triggers (NotifInbox /
+  // WorkspacePanel), enabled with their final aria-labels. The StatusBar's old dead
+  // 绑定外部 Session / 查看日志 placeholders were REPLACED by real ENTRIES (审计 /
+  // 会话链) that open the on-demand panels — assert those open them now.
+  it('shell controls: bell/panel are real triggers; the StatusBar entries open the real panels', async () => {
     await mountApp();
     await selectDefaultThread();
-    const bell = screen.getByLabelText('待你处理');
-    const panel = screen.getByLabelText('打开 Workspace');
-    expect(bell).toBeEnabled();
-    expect(panel).toBeEnabled();
-    // The owner footer is now a real trigger but its label/text is preserved.
+    expect(screen.getByLabelText('待你处理')).toBeEnabled();
+    expect(screen.getByLabelText('打开 Workspace')).toBeEnabled();
     expect(screen.getByText('project owner')).toBeInTheDocument();
-    // Still-deferred StatusBar affordances remain inert (no backend yet).
-    const bind = screen.getByText('＋ 绑定外部 Session');
-    expect(bind).toBeDisabled();
-    await userEvent.click(screen.getByText('查看日志')); // disabled span, inert
-    expect(screen.getByTestId('app-root')).toBeInTheDocument();
+    // The right-column 审计 entry opens the real AuditPanel (no more dead placeholder).
+    await userEvent.click(screen.getByTestId('sb-open-audit'));
+    expect(await screen.findByTestId('audit-panel')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    // The 会话链 entry opens the real SessionPanel.
+    await userEvent.click(screen.getByTestId('sb-open-sessions'));
+    expect(await screen.findByTestId('session-panel')).toBeInTheDocument();
   });
 
   it('with NO thread selected, the center + status columns show honest unselected labels', async () => {

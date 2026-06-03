@@ -121,16 +121,38 @@ export async function handleThreadMessage(
   const noticeReply = await surfaceUnavailableNotice(services, threadId, userId, content, now);
 
   // 3. Drive the router; broadcast + accumulate replies; emit agent_status (G7).
+  // Cancellation is per-agent (the collateral-cancel fix): `controller` is the
+  // thread-wide BATCH gate (stop-all + the serial-chain loop guard), and
+  // `signalForAgent` hands each agent a signal that aborts on EITHER its own
+  // targeted stop OR the batch — so a stop-all still catches an agent that hadn't
+  // started yet when it fired. Stopping ONE agent leaves its siblings running.
   const controller = socket.registerCancel(threadId);
+  const registeredAgents = new Set<AgentId>();
+  const signalForAgent = (agentId: AgentId): AbortSignal => {
+    registeredAgents.add(agentId);
+    const perAgent = socket.registerAgentCancel(threadId, agentId);
+    return AbortSignal.any([perAgent.signal, controller.signal]);
+  };
   const accumulators = new Map<AgentId, ReplyAccumulator>();
   const participants = new Set<AgentId>();
   // Agents currently emitting 'working' so we don't re-emit on every frame and so
   // we can flip every still-working agent to 'idle' once the route ends.
   const working = new Set<AgentId>();
 
+  // Status real-time fix: emit 'working' for the agents about to run UP FRONT,
+  // the moment the turn starts — not on each agent's FIRST OUTPUT frame. A
+  // non-streaming agent (codex emits its whole reply at the end) otherwise showed
+  // 'working' only when it finished. A2A-expanded agents still flip via the
+  // per-frame fallback below. Available targets only (unavailable never run).
+  const { targets: initialTargets } = await router.resolveRouting(content, threadId);
+  for (const agentId of initialTargets) {
+    await emitWorkingFor(socket, working, threadId, agentId, now);
+  }
+
   try {
     for await (const event of router.route(userId, content, threadId, {
       signal: controller.signal,
+      signalForAgent,
     })) {
       await socket.broadcastAgentEvent(threadId, event);
       // G7: first event from an agent → it has started its turn (working); a
@@ -147,6 +169,9 @@ export async function handleThreadMessage(
     await socket.broadcastError(threadId, message);
   } finally {
     socket.releaseCancelController(threadId, controller);
+    for (const agentId of registeredAgents) {
+      socket.releaseAgentCancel(threadId, agentId);
+    }
     // G7: any agent that started but never emitted a terminal 'done' (e.g. the
     // route was cancelled or errored mid-stream) is flipped back to idle so the
     // UI never sticks on 'working'.
@@ -234,9 +259,23 @@ async function surfaceUnavailableNotice(
 }
 
 /**
- * Emit agent_status 'working' the first time we see an event from an agent in
- * this route. Idempotent per agent (the `working` set guards re-emits).
+ * Emit agent_status 'working' for an agent if not already marked. Idempotent per
+ * agent (the `working` set guards re-emits) — used both up front (for the resolved
+ * targets) and as the per-frame fallback for A2A-expanded agents.
  */
+async function emitWorkingFor(
+  socket: AppServices['socket'],
+  working: Set<AgentId>,
+  threadId: string,
+  agentId: AgentId,
+  now: () => number,
+): Promise<void> {
+  if (working.has(agentId)) return;
+  working.add(agentId);
+  await socket.broadcastAgentStatus(threadId, buildState(agentId, 'working', threadId, now));
+}
+
+/** Emit 'working' the first time we see an event from an agent (per-frame fallback). */
 async function emitWorkingIfNew(
   socket: AppServices['socket'],
   working: Set<AgentId>,
@@ -244,9 +283,7 @@ async function emitWorkingIfNew(
   event: AgentMessage,
   now: () => number,
 ): Promise<void> {
-  if (working.has(event.agentId)) return;
-  working.add(event.agentId);
-  await socket.broadcastAgentStatus(threadId, buildState(event.agentId, 'working', threadId, now));
+  await emitWorkingFor(socket, working, threadId, event.agentId, now);
 }
 
 /** Emit agent_status 'idle' for an agent and clear it from the working set. */

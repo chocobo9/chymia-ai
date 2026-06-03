@@ -12,6 +12,7 @@ import { mergeStreams } from '@choco/api/routing/stream-merge';
 import type {
   InvokeAgentFn,
   RouteLogger,
+  SignalForAgent,
 } from '@choco/api/routing/agent-router';
 
 /** Parameters for {@link routeParallel}. */
@@ -24,8 +25,16 @@ export interface RouteParallelParams {
   readonly teammates: readonly AgentId[];
   readonly mcpAvailable: boolean;
   readonly promptTags: readonly string[];
+  /** Thread-wide (stop-all) fallback signal. */
   readonly signal?: AbortSignal;
+  /** Per-agent signal resolver — each fan-out agent gets its OWN abort signal. */
+  readonly signalForAgent?: SignalForAgent;
   readonly logger?: RouteLogger;
+}
+
+/** Resolve a target's effective abort signal: its own (targeted) else the thread-wide one. */
+function signalFor(params: RouteParallelParams, agentId: AgentId): AbortSignal | undefined {
+  return params.signalForAgent?.(agentId) ?? params.signal;
 }
 
 /**
@@ -48,12 +57,13 @@ export async function* routeParallel(
         a2aEnabled: true,
         ...(params.promptTags.length > 0 ? { promptTags: params.promptTags } : {}),
       };
+      const agentSignal = signalFor(params, agentId);
       return params.invoke({
         agentId,
         threadId: params.threadId,
         prompt: params.prompt,
         context,
-        ...(params.signal !== undefined ? { signal: params.signal } : {}),
+        ...(agentSignal !== undefined ? { signal: agentSignal } : {}),
       });
     },
   );

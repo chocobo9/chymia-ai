@@ -7,7 +7,7 @@
 
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { render, screen, cleanup, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AgentMessage } from '../../packages/web/src/components/AgentMessage.js';
 import { AgentStatus } from '../../packages/web/src/components/AgentStatus.js';
@@ -96,6 +96,144 @@ describe('rich blocks', () => {
     expect(within(block).getByText('−1')).toBeInTheDocument();
   });
 
+  it('a large file create collapses by default to its header, then expands on click', async () => {
+    // A real all-add file create (the two-sum-viz.html screenshot scenario): the
+    // body must NOT dump every line up front — only the header + a 点击展开 hint.
+    const html = [
+      '<!DOCTYPE html>',
+      '<html lang="zh-CN">',
+      '<head>',
+      '  <meta charset="UTF-8">',
+      '  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+      '  <title>Two Sum — 算法可视化</title>',
+      '  <style>',
+      '    :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; }',
+      '    body { margin: 0; background: var(--bg); color: #e1e4ed; }',
+      '    .grid { display: grid; gap: 8px; }',
+      '  </style>',
+      '</head>',
+      '<body>',
+      '  <main class="grid">',
+      '    <section id="board"></section>',
+      '    <section id="controls"></section>',
+      '  </main>',
+      '  <script>',
+      '    const nums = [2, 7, 11, 15];',
+      '    const target = 9;',
+      '    function twoSum(arr, t) {',
+      '      const seen = new Map();',
+      '      for (let i = 0; i < arr.length; i++) {',
+      '        if (seen.has(t - arr[i])) return [seen.get(t - arr[i]), i];',
+      '        seen.set(arr[i], i);',
+      '      }',
+      '    }',
+      '  </script>',
+      '</body>',
+      '</html>',
+    ];
+    const lines = html.map((text) => ({ text: `+ ${text}`, kind: 'add' as const }));
+    // .html resolves to lang 'generic' via langFromPath; let Diff default it.
+    const { container } = render(
+      <Diff file=".workspace/two-sum-viz.html" added={lines.length} removed={0} lines={lines} />,
+    );
+
+    const block = screen.getByTestId('diff-block');
+    // Header is present (file + stats), but the code body (.diff-b) is NOT rendered yet.
+    expect(within(block).getByText('.workspace/two-sum-viz.html')).toBeInTheDocument();
+    expect(within(block).getByText(`+${lines.length}`)).toBeInTheDocument();
+    expect(container.querySelector('.diff-b')).toBeNull();
+    expect(within(block).getByText(`${lines.length} 行 · 点击展开`)).toBeInTheDocument();
+
+    // Clicking the header reveals the full code body, and the hint disappears.
+    await userEvent.click(screen.getByTestId('diff-toggle'));
+    const body = container.querySelector('.diff-b');
+    expect(body).not.toBeNull();
+    expect((body as HTMLElement).querySelectorAll('.ln')).toHaveLength(lines.length);
+    expect(within(block).queryByText(`${lines.length} 行 · 点击展开`)).not.toBeInTheDocument();
+  });
+
+  it('renders open-file + reveal-folder affordances when onReveal is wired, and dispatches the action', async () => {
+    const onReveal = vi.fn();
+    render(
+      <Diff
+        file=".workspace/two-sum-viz.html"
+        added={1}
+        removed={0}
+        lines={[{ text: '+ <!DOCTYPE html>', kind: 'add' }]}
+        onReveal={onReveal}
+      />,
+    );
+    // Clicking the filename opens the file; the folder button reveals it.
+    const openBtn = screen.getByTestId('diff-open-file');
+    expect(openBtn).toHaveTextContent('.workspace/two-sum-viz.html');
+    await userEvent.click(openBtn);
+    expect(onReveal).toHaveBeenCalledWith('open');
+    await userEvent.click(screen.getByTestId('diff-reveal-file'));
+    expect(onReveal).toHaveBeenLastCalledWith('reveal');
+  });
+
+  it('without onReveal the path is plain text (no open/reveal buttons) — presentational default', () => {
+    render(<Diff file="src/x.ts" added={1} removed={0} lines={[{ text: '+ const x = 1;', kind: 'add' }]} />);
+    expect(screen.queryByTestId('diff-open-file')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('diff-reveal-file')).not.toBeInTheDocument();
+    expect(screen.getByText('src/x.ts')).toHaveClass('diff-file');
+  });
+
+  it('an HTML edit shows a 预览 toggle that renders the file in a SANDBOXED iframe', async () => {
+    const html =
+      '<!DOCTYPE html><html><head><title>Two Sum</title></head><body><div id="board"></div><script>const nums=[2,7,11,15];</script></body></html>';
+    const onLoadFile = vi.fn().mockResolvedValue(html);
+    render(
+      <Diff
+        file=".workspace/two-sum-viz.html"
+        added={1}
+        removed={0}
+        lines={[{ text: '+ <!DOCTYPE html>', kind: 'add' }]}
+        onLoadFile={onLoadFile}
+      />,
+    );
+    // No iframe until the user asks to preview.
+    expect(screen.queryByTestId('diff-preview-frame')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('diff-preview-toggle'));
+
+    const frame = await screen.findByTestId('diff-preview-frame');
+    expect(onLoadFile).toHaveBeenCalledWith('.workspace/two-sum-viz.html');
+    // Rendered inline via srcdoc, sandboxed (scripts allowed, NOT same-origin).
+    expect(frame).toHaveAttribute('srcdoc', html);
+    const sandbox = frame.getAttribute('sandbox') ?? '';
+    expect(sandbox).toContain('allow-scripts');
+    expect(sandbox).not.toContain('allow-same-origin');
+  });
+
+  it('a non-HTML edit gets NO 预览 toggle even when onLoadFile is wired', () => {
+    render(
+      <Diff
+        file="packages/api/src/router.ts"
+        added={2}
+        removed={1}
+        lines={[{ text: '+ export const x = 1;', kind: 'add' }]}
+        onLoadFile={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('diff-preview-toggle')).not.toBeInTheDocument();
+  });
+
+  it('a short edit stays inline (no collapse toggle, body visible immediately)', () => {
+    const { container } = render(
+      <Diff
+        file="src/hello.ts"
+        added={1}
+        removed={1}
+        lines={[
+          { text: '- console.log("hi");', kind: 'del' },
+          { text: '+ console.log("hello");', kind: 'add' },
+        ]}
+      />,
+    );
+    expect(screen.queryByTestId('diff-toggle')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.diff-b .ln')).toHaveLength(2);
+  });
+
   it('Decision renders the unresolved options as pickable buttons', async () => {
     const onPick = vi.fn();
     render(
@@ -176,9 +314,33 @@ describe('ThreadList (.col-threads structure)', () => {
 });
 
 describe('ChatInput (.composer structure)', () => {
+  it('auto-grows the textarea to fit multi-line input, and shrinks back when cleared', () => {
+    render(<ChatInput onSend={vi.fn()} onLockChange={vi.fn()} />);
+    const ta = screen.getByTestId('chat-input-textarea') as HTMLTextAreaElement;
+    // jsdom does no layout (scrollHeight is 0), so simulate what the browser would
+    // report: a tall content box when there's text, a short one when empty.
+    Object.defineProperty(ta, 'scrollHeight', {
+      configurable: true,
+      get() {
+        return (this as HTMLTextAreaElement).value.length > 0 ? 84 : 22;
+      },
+    });
+
+    // A Shift+Enter multi-line value lengthens the box to fit its content.
+    fireEvent.change(ta, { target: { value: '第一行\n第二行\n第三行' } });
+    expect(ta.style.height).toBe('84px');
+
+    // Clearing (e.g. after send) shrinks it back to a single row.
+    fireEvent.change(ta, { target: { value: '' } });
+    expect(ta.style.height).toBe('22px');
+  });
+
   it('shows the scope chip + composer hints and an enriched @mention dropdown', async () => {
-    render(<ChatInput onSend={vi.fn()} />);
-    expect(screen.getByText('@all')).toHaveClass('scope');
+    render(<ChatInput onSend={vi.fn()} onLockChange={vi.fn()} />);
+    // The scope chip defaults to 全体 and is a real (clickable) selector now.
+    const chip = screen.getByTestId('scope-selector');
+    expect(chip).toHaveClass('scope');
+    expect(chip).toHaveTextContent('@全体');
 
     await userEvent.type(screen.getByTestId('chat-input-textarea'), '@cl');
     const dropdown = screen.getByTestId('mention-suggestions');
@@ -188,6 +350,43 @@ describe('ChatInput (.composer structure)', () => {
     expect(within(suggestion).getByText('Claude')).toBeInTheDocument();
     expect(within(suggestion).getByText('架构设计 · 代码实现 · 重构')).toBeInTheDocument();
     expect(within(suggestion).getByText('@claude')).toBeInTheDocument();
+  });
+
+  it('scope picker locks a target agent by mouse and reports the choice to the parent', async () => {
+    const onLockChange = vi.fn();
+    render(<ChatInput onSend={vi.fn()} onLockChange={onLockChange} />);
+    // Open the picker and choose Claude by clicking (no typing).
+    await userEvent.click(screen.getByTestId('scope-selector'));
+    const menu = screen.getByTestId('scope-menu');
+    const claudeOption = within(menu)
+      .getAllByTestId('scope-option')
+      .find((el) => el.getAttribute('data-agent') === 'claude-opus');
+    expect(claudeOption).toBeDefined();
+    await userEvent.click(claudeOption as HTMLElement);
+    expect(onLockChange).toHaveBeenCalledWith('claude-opus');
+    // Picking 全体 reports null (clears the lock).
+    await userEvent.click(screen.getByTestId('scope-selector'));
+    await userEvent.click(within(screen.getByTestId('scope-menu')).getAllByTestId('scope-option')[0]);
+    expect(onLockChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it('a locked agent auto-prepends its @mention on send (no manual @ needed)', async () => {
+    const onSend = vi.fn();
+    render(<ChatInput onSend={onSend} onLockChange={vi.fn()} lockedAgentId="claude-opus" />);
+    // The chip reflects the lock, and sending a bare message targets the locked agent.
+    expect(screen.getByTestId('scope-selector')).toHaveTextContent('@Claude');
+    await userEvent.type(screen.getByTestId('chat-input-textarea'), '继续重构 router 模块');
+    await userEvent.click(screen.getByTestId('chat-send-button'));
+    expect(onSend).toHaveBeenCalledWith('@claude 继续重构 router 模块');
+  });
+
+  it('an explicit @mention overrides the lock (no double mention prepended)', async () => {
+    const onSend = vi.fn();
+    render(<ChatInput onSend={onSend} onLockChange={vi.fn()} lockedAgentId="claude-opus" />);
+    await userEvent.type(screen.getByTestId('chat-input-textarea'), '@gemini 看看这个设计');
+    await userEvent.click(screen.getByTestId('chat-send-button'));
+    // Sent verbatim — the locked @claude is NOT prepended over the explicit @gemini.
+    expect(onSend).toHaveBeenCalledWith('@gemini 看看这个设计');
   });
 });
 
@@ -213,8 +412,8 @@ describe('AgentStatus / StatusBar (right column, real data)', () => {
     // 消息统计: 2 total (1 user + 1 agent) — computed, not fabricated.
     expect(screen.getByText('状态栏')).toBeInTheDocument();
     expect(screen.getByText('协作中')).toBeInTheDocument(); // mode reflects a working agent
-    // honest empty audit state (no fabricated audit rows).
-    expect(screen.getByText('暂无审计记录。')).toBeInTheDocument();
+    // The 审计 entry into the real panel is present (replaced the dead placeholder).
+    expect(screen.getByTestId('sb-open-audit')).toBeInTheDocument();
   });
 
   it('shows a 待命 mode and the unselected-thread label when no thread is active', () => {
