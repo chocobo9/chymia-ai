@@ -1,0 +1,87 @@
+// catalog-routes — read-only Skill / SOP / MCP catalogs for the settings overlay.
+// These hit the REAL loaded manifest / SOP definition / MCP tool registry (no mocks)
+// via app.inject, so they gate that the routes reflect real data, shaped right.
+//
+// Distribution: happy ≤50%, edge ≥30%, adversarial ≥20%.
+
+import { describe, it, expect, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { buildApp } from '@choco/api/app-factory';
+
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => {
+  while (cleanups.length > 0) await cleanups.pop()?.();
+});
+
+function makeApp(): ReturnType<typeof buildApp> {
+  const app = buildApp({ db: new Database(':memory:') });
+  cleanups.push(app.close);
+  return app;
+}
+
+describe('catalog routes — Skill / SOP / MCP (read-only, real data)', () => {
+  it('GET /api/skills lists the loaded skill manifest (id + routing metadata)', async () => {
+    const res = await makeApp().api.inject({ method: 'GET', url: '/api/skills' });
+    expect(res.statusCode).toBe(200);
+    const { skills } = res.json<{
+      skills: { id: string; description: string; triggers: string[]; output: string }[];
+    }>();
+    expect(skills.length).toBeGreaterThan(0);
+    expect(skills[0].id.length).toBeGreaterThan(0);
+    expect(skills[0].description.length).toBeGreaterThan(0);
+    expect(Array.isArray(skills[0].triggers)).toBe(true);
+  });
+
+  it('[edge] skills carry their `group` (category) + POST /api/skills/sync re-reads the manifest', async () => {
+    const app = makeApp();
+    const list = await app.api.inject({ method: 'GET', url: '/api/skills' });
+    const { skills } = list.json<{ skills: { group?: string }[] }>();
+    // The real manifest groups skills (dev-chain / memory / meta / multi-agent).
+    expect(skills.some((s) => typeof s.group === 'string' && s.group.length > 0)).toBe(true);
+
+    const synced = await app.api.inject({ method: 'POST', url: '/api/skills/sync' });
+    expect(synced.statusCode).toBe(200);
+    const body = synced.json<{ skills: unknown[]; count: number }>();
+    expect(body.count).toBe(body.skills.length);
+    expect(body.count).toBe(skills.length); // same local manifest re-read
+  });
+
+  it('GET /api/sop returns the SOP definition with its stages', async () => {
+    const res = await makeApp().api.inject({ method: 'GET', url: '/api/sop' });
+    expect(res.statusCode).toBe(200);
+    const { sop } = res.json<{
+      sop: { label: string; domain: string; stages: { id: string; label: string; hardRules: unknown[]; pitfalls: unknown[] }[] };
+    }>();
+    expect(sop.label.length).toBeGreaterThan(0);
+    expect(sop.stages.length).toBeGreaterThan(0);
+  });
+
+  it('GET /api/mcp/tools returns the real MCP tool catalog (name + description)', async () => {
+    const res = await makeApp().api.inject({ method: 'GET', url: '/api/mcp/tools' });
+    expect(res.statusCode).toBe(200);
+    const { tools } = res.json<{ tools: { name: string; description: string }[] }>();
+    expect(tools.length).toBeGreaterThanOrEqual(9); // the nine M10 tools
+    const names = tools.map((t) => t.name);
+    expect(names).toContain('post_message');
+    expect(names).toContain('list_session_chain');
+  });
+
+  it('[edge] every SOP stage carries its hardRules + pitfalls arrays', async () => {
+    const res = await makeApp().api.inject({ method: 'GET', url: '/api/sop' });
+    const { sop } = res.json<{ sop: { stages: { hardRules: unknown[]; pitfalls: unknown[] }[] } }>();
+    for (const stage of sop.stages) {
+      expect(Array.isArray(stage.hardRules)).toBe(true);
+      expect(Array.isArray(stage.pitfalls)).toBe(true);
+    }
+  });
+
+  it('[adversarial] the MCP catalog exposes ONLY name + description — never the handler/inputSchema', async () => {
+    const res = await makeApp().api.inject({ method: 'GET', url: '/api/mcp/tools' });
+    const { tools } = res.json<{ tools: Record<string, unknown>[] }>();
+    for (const tool of tools) {
+      expect(Object.keys(tool).sort()).toEqual(['description', 'name']);
+      expect(typeof tool.description).toBe('string');
+      expect((tool.description as string).length).toBeGreaterThan(0);
+    }
+  });
+});

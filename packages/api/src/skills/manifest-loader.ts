@@ -27,8 +27,8 @@ const RawSkillSchema = z
     // SOP stage id this skill maps to; null when the skill is not part of a
     // gated SOP stage (matches SkillDefinition.sopStep: string | null).
     sop_step: z.union([z.string(), z.null()]).optional(),
-    // Grouping label used only for manifest organization; not part of the
-    // frozen SkillDefinition contract, so accepted-but-ignored when mapping.
+    // Grouping label (dev-chain / memory / meta / multi-agent) — surfaced as the
+    // skill's category in the settings 分类 filter.
     group: z.string().optional(),
   })
   .strict();
@@ -48,6 +48,9 @@ function toSkillDefinition(id: string, raw: z.infer<typeof RawSkillSchema>): Ski
   };
   if (raw.next !== undefined) {
     definition.next = raw.next;
+  }
+  if (raw.group !== undefined) {
+    definition.group = raw.group;
   }
   return definition;
 }

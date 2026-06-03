@@ -7,6 +7,8 @@ import { evaluateTrace, type SopEvalResult, type SopTraceInput } from './trace-e
 
 export interface SopService {
   loadDefinition(path: string): SopDefinition;
+  /** The currently loaded SOP definition (read surface for the settings 规则 pane). */
+  getDefinition(): SopDefinition;
   getSuggestedSkill(stageId: string): string | undefined;
   getStageHint(stageId: string): string;
   /** All known stage ids, in definition order. Used to validate a setter's stageId. */
@@ -26,6 +28,10 @@ export class SopServiceImpl implements SopService {
 
   loadDefinition(path: string): SopDefinition {
     this.definition = loadSopDefinition(path);
+    return this.definition;
+  }
+
+  getDefinition(): SopDefinition {
     return this.definition;
   }
 

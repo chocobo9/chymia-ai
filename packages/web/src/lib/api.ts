@@ -28,7 +28,15 @@ import type {
   SessionDigest,
   SessionEvent,
   AuditEntry,
+  SkillDefinition,
+  SopDefinition,
 } from '@choco/shared';
+
+/** One MCP tool's catalog entry (GET /api/mcp/tools). */
+export interface McpToolEntry {
+  readonly name: string;
+  readonly description: string;
+}
 
 /** A session-chain row enriched with its digest (sealed → stored; active → live). */
 export interface SessionChainEntry extends Omit<SessionRecord, 'digest'> {
@@ -325,6 +333,34 @@ export class ApiClient {
     const res = await this.fetchFn(this.url(`/api/audit/thread/${threadId}`));
     const data = await parseJson<{ entries: AuditEntry[] }>(res);
     return data.entries;
+  }
+
+  /** GET /api/skills — the skill manifest (M11), read-only. */
+  async listSkills(): Promise<readonly SkillDefinition[]> {
+    const res = await this.fetchFn(this.url('/api/skills'));
+    const data = await parseJson<{ skills: SkillDefinition[] }>(res);
+    return data.skills;
+  }
+
+  /** POST /api/skills/sync — re-read the local skill manifest from disk. */
+  async syncSkills(): Promise<readonly SkillDefinition[]> {
+    const res = await this.fetchFn(this.url('/api/skills/sync'), this.jsonInit('POST'));
+    const data = await parseJson<{ skills: SkillDefinition[] }>(res);
+    return data.skills;
+  }
+
+  /** GET /api/sop — the loaded SOP definition (M12 stages), read-only. */
+  async getSop(): Promise<SopDefinition> {
+    const res = await this.fetchFn(this.url('/api/sop'));
+    const data = await parseJson<{ sop: SopDefinition }>(res);
+    return data.sop;
+  }
+
+  /** GET /api/mcp/tools — the MCP tool catalog (M10), read-only. */
+  async listMcpTools(): Promise<readonly McpToolEntry[]> {
+    const res = await this.fetchFn(this.url('/api/mcp/tools'));
+    const data = await parseJson<{ tools: McpToolEntry[] }>(res);
+    return data.tools;
   }
 }
 

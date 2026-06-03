@@ -67,6 +67,7 @@ import { registerAgentRoutes } from '@choco/api/routes/agent-routes';
 import { registerEvidenceRoutes } from '@choco/api/routes/evidence-routes';
 import { registerSessionRoutes } from '@choco/api/routes/session-routes';
 import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
+import { registerCatalogRoutes } from '@choco/api/routes/catalog-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
 import { registerWorkspaceRoutes } from '@choco/api/routes/workspace-routes';
 import type { OsOpener } from '@choco/api/infrastructure/os-open';
@@ -358,6 +359,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   registerAuditRoutes(api, appServices);
   registerMessageRoutes(api, appServices);
   registerAgentRoutes(api, appServices);
+  registerCatalogRoutes(api, appServices);
   registerEvidenceRoutes(api, appServices);
   registerCallbackRoutes(api, appServices, { fileRoot });
   // Browser-initiated open/reveal of a workspace file (diff-block affordances),

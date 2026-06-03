@@ -549,10 +549,12 @@ describe('SettingsOverlay (设置)', () => {
     });
   });
 
-  it('[adv] unbacked settings panes show 未接入 placeholders, never fabricated accounts/skills', async () => {
+  it('[adv] the STILL-unbacked settings panes show 未接入 placeholders, never fabricated data', async () => {
     await mountApp();
     await userEvent.click(screen.getByTestId('owner-gear'));
-    for (const nav of ['accounts', 'skill', 'mcp', 'market', 'notif', 'rules'] as const) {
+    // Skill / MCP / 规则SOP are now wired to real catalogs (see settings-catalog.edge).
+    // These three have no backend yet, so they stay honest 未接入 placeholders.
+    for (const nav of ['accounts', 'market', 'notif'] as const) {
       await userEvent.click(screen.getByTestId(`settings-nav-${nav}`));
       expect(screen.getByTestId('settings-soon')).toHaveTextContent('未接入');
     }

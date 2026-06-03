@@ -13,6 +13,7 @@ export interface SkillDefinition {
   output: string; // 产出契约描述
   next?: string[]; // 链式下一个 skill
   sopStep?: string | null; // 对应的 SOP 阶段
+  group?: string; // 分类标签（dev-chain / memory / meta / multi-agent），用于设置页分类
 }
 
 /**

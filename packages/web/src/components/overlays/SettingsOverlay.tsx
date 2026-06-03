@@ -8,15 +8,18 @@
 //   • 运维监控   — LIVE: per-agent live status (agent store) + the /health-backed
 //                  ConnStrip; the token-usage bars are clearly marked 未接入.
 //   • 外观 / 系统 — appearance shows the active theme (Choco) honestly.
-//   • 账户与密钥 / Skill / MCP / 能力市场 / 通知 / 规则 — HONEST PLACEHOLDER: no
-//     backend management API yet, so each shows the design's heading + a clearly
-//     marked "未接入" note. We never fabricate accounts / skill mount counts.
+//   • Skill 管理 / 规则与SOP / MCP 管理 — LIVE (read-only): the real skill manifest
+//     (GET /api/skills), the loaded SOP definition (GET /api/sop), and the MCP tool
+//     catalog (GET /api/mcp/tools). Browse-only; editing/management is unbuilt.
+//   • 账户与密钥 / 能力市场 / 通知 — HONEST PLACEHOLDER: no backend yet, each shows a
+//     clearly-marked "未接入" note. We never fabricate accounts / usage numbers.
 //
 // Visual ported from directions.css `.set-*`.
 
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
+import type { SkillDefinition, SopDefinition } from '@choco/shared';
 import { useAgentStore } from '../../stores/agent-store.js';
-import type { AgentRosterEntry, AgentUpdatePatch, ApiClient, NewMemberInput } from '../../lib/api.js';
+import type { AgentRosterEntry, AgentUpdatePatch, ApiClient, McpToolEntry, NewMemberInput } from '../../lib/api.js';
 import type { HealthInfo } from '../../hooks/useHealth.js';
 import { useOverlayDismiss } from '../../hooks/useOverlayDismiss.js';
 import { Avatar, StatusDot, statusPresentation, shortName, modelBadge } from '../choco/primitives.js';
@@ -68,6 +71,181 @@ function SoonCard({ note }: { readonly note: string }): ReactElement {
   return (
     <div className="set-soon" data-testid="settings-soon">
       未接入：{note}
+    </div>
+  );
+}
+
+/** Sentinel category = "all skills" (no group filter). */
+const ALL_SKILL_CATEGORIES = '全部';
+
+/**
+ * Skill 管理 — the loaded skill manifest (M11), Clowder-style: a 同步 bar (re-reads
+ * the local manifest from disk) + a 分类 filter (by the manifest `group`) + the
+ * skill cards. Read-only browse (editing/preview is a separate, unbuilt concern).
+ */
+function SkillPane({ client }: { readonly client: ApiClient }): ReactElement {
+  const [skills, setSkills] = useState<readonly SkillDefinition[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [activeCat, setActiveCat] = useState(ALL_SKILL_CATEGORIES);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client.listSkills().then(
+      (s) => !cancelled && setSkills(s),
+      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const sync = async (): Promise<void> => {
+    setSyncing(true);
+    setError(null);
+    try {
+      setSkills(await client.syncSkills());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '同步失败');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  if (skills === null) {
+    return <div className="set-soon">{error !== null ? `加载失败：${error}` : '加载中…'}</div>;
+  }
+
+  const groups = Array.from(
+    new Set(skills.map((s) => s.group).filter((g): g is string => g !== undefined)),
+  ).sort();
+  const categories = [ALL_SKILL_CATEGORIES, ...groups];
+  const countIn = (c: string): number =>
+    c === ALL_SKILL_CATEGORIES ? skills.length : skills.filter((s) => s.group === c).length;
+  const filtered =
+    activeCat === ALL_SKILL_CATEGORIES ? skills : skills.filter((s) => s.group === activeCat);
+
+  return (
+    <div className="set-pane-body" data-testid="settings-skill">
+      <div className="skill-bar">
+        <span className="set-row-s">{skills.length} 个 skill · 本地清单</span>
+        <button
+          type="button"
+          className="skill-sync"
+          data-testid="skill-sync"
+          disabled={syncing}
+          onClick={() => void sync()}
+          title="重新从磁盘加载 manifest / skill 文件（本地清单，非远程市场）"
+        >
+          {syncing ? '同步中…' : '↻ 同步'}
+        </button>
+      </div>
+      {error !== null && <div className="member-edit-error">同步失败：{error}</div>}
+
+      <div className="skill-cats" data-testid="skill-categories" role="tablist">
+        {categories.map((c) => (
+          <button
+            key={c}
+            type="button"
+            role="tab"
+            aria-selected={activeCat === c}
+            className={`skill-cat${activeCat === c ? ' on' : ''}`}
+            data-testid={`skill-cat-${c}`}
+            onClick={() => setActiveCat(c)}
+          >
+            {c} ({countIn(c)})
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 && <div className="set-soon">该分类下没有 skill。</div>}
+      {filtered.map((s) => (
+        <div key={s.id} className="set-card" data-testid="skill-row" data-skill={s.id} data-group={s.group}>
+          <div className="set-card-t">
+            {s.id}
+            {s.group !== undefined && <span className="schip skill-group">{s.group}</span>}
+          </div>
+          <div className="set-row-s">{s.description}</div>
+          <div className="si-chips">
+            {s.triggers.slice(0, 6).map((t) => (
+              <span key={t} className="schip">
+                {t}
+              </span>
+            ))}
+          </div>
+          {s.sopStep !== null && <div className="set-mono dim">SOP 阶段 · {s.sopStep}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 规则与 SOP — read-only view of the loaded SOP definition + its stages (M12). */
+function SopPane({ client }: { readonly client: ApiClient }): ReactElement {
+  const [sop, setSop] = useState<SopDefinition | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void client.getSop().then(
+      (d) => !cancelled && setSop(d),
+      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+  if (error !== null) return <div className="set-soon">加载失败：{error}</div>;
+  if (sop === null) return <div className="set-soon">加载中…</div>;
+  return (
+    <div className="set-pane-body" data-testid="settings-rules">
+      <div className="set-card">
+        <div className="set-card-t">{sop.label}</div>
+        <div className="set-row-s">
+          {sop.domain} · {sop.stages.length} 个阶段
+        </div>
+      </div>
+      {sop.stages.map((st) => (
+        <div key={st.id} className="set-card" data-testid="sop-stage" data-stage={st.id}>
+          <div className="set-card-t">
+            {st.label} <span className="set-mono dim">{st.id}</span>
+          </div>
+          {st.suggestedSkill !== undefined && (
+            <div className="set-row-s">建议 skill：{st.suggestedSkill}</div>
+          )}
+          <div className="si-chips">
+            <span className="schip">{st.hardRules.length} 条硬规则</span>
+            <span className="schip">{st.pitfalls.length} 个坑</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** MCP 管理 — read-only catalog of the MCP tools agents can call (M10). */
+function McpPane({ client }: { readonly client: ApiClient }): ReactElement {
+  const [tools, setTools] = useState<readonly McpToolEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void client.listMcpTools().then(
+      (t) => !cancelled && setTools(t),
+      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+  if (error !== null) return <div className="set-soon">加载失败：{error}</div>;
+  if (tools === null) return <div className="set-soon">加载中…</div>;
+  return (
+    <div className="set-pane-body" data-testid="settings-mcp">
+      {tools.map((t) => (
+        <div key={t.name} className="set-card" data-testid="mcp-tool" data-tool={t.name}>
+          <div className="set-card-t set-mono">{t.name}</div>
+          <div className="set-row-s">{t.description}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -613,10 +791,10 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
       pane = <SoonCard note="账户与密钥管理尚未接入后端，无法在此读取或编辑真实凭据。" />;
       break;
     case 'skill':
-      pane = <SoonCard note="Skill 挂载与同步状态尚未接入后端。" />;
+      pane = <SkillPane client={client} />;
       break;
     case 'mcp':
-      pane = <SoonCard note="MCP 服务目录尚未接入后端。" />;
+      pane = <McpPane client={client} />;
       break;
     case 'market':
       pane = <SoonCard note="能力市场尚未接入。" />;
@@ -625,7 +803,7 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
       pane = <SoonCard note="通知偏好尚未接入持久化后端。" />;
       break;
     case 'rules':
-      pane = <SoonCard note="规则与 SOP 管理尚未接入后端。" />;
+      pane = <SopPane client={client} />;
       break;
   }
 

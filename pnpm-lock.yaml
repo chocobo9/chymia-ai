@@ -86,6 +86,9 @@ importers:
 
   packages/api:
     dependencies:
+      '@choco/mcp-server':
+        specifier: workspace:*
+        version: link:../mcp-server
       '@choco/shared':
         specifier: workspace:*
         version: link:../shared
