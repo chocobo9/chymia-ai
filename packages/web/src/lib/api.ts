@@ -67,6 +67,27 @@ export interface CreateAccountBody {
   readonly apiKey?: string;
 }
 
+/** GET /api/adapters/feishu/config payload — masked (no app_secret). */
+export interface FeishuConfigView {
+  readonly appId: string;
+  readonly enabled: boolean;
+  readonly hasAppSecret: boolean;
+  readonly ready: boolean;
+}
+
+/** GET /api/adapters/feishu/status payload. */
+export interface FeishuConnStatus {
+  readonly connected: boolean;
+  readonly ready: boolean;
+}
+
+/** Body for PUT /api/adapters/feishu/config (empty appSecret clears it). */
+export interface FeishuConfigPatch {
+  readonly appId?: string;
+  readonly appSecret?: string;
+  readonly enabled?: boolean;
+}
+
 /** POST /api/adapters/weixin/login/start payload — the QR to render + poll. */
 export interface WeixinQr {
   readonly qrUrl: string;
@@ -500,6 +521,25 @@ export class ApiClient {
   /** POST /api/adapters/weixin/logout — disconnect + forget the session. */
   async weixinLogout(): Promise<void> {
     await this.fetchFn(this.url('/api/adapters/weixin/logout'), this.jsonInit('POST'));
+  }
+
+  /** GET /api/adapters/feishu/config — masked Feishu config (no app_secret). */
+  async getFeishuConfig(): Promise<FeishuConfigView> {
+    const res = await this.fetchFn(this.url('/api/adapters/feishu/config'));
+    const data = await parseJson<{ config: FeishuConfigView }>(res);
+    return data.config;
+  }
+
+  /** PUT /api/adapters/feishu/config — set config (app_secret write-only); connects. */
+  async setFeishuConfig(patch: FeishuConfigPatch): Promise<{ config: FeishuConfigView; status: FeishuConnStatus }> {
+    const res = await this.fetchFn(this.url('/api/adapters/feishu/config'), this.jsonInit('PUT', patch));
+    return parseJson<{ config: FeishuConfigView; status: FeishuConnStatus }>(res);
+  }
+
+  /** GET /api/adapters/feishu/status — current connection state. */
+  async feishuStatus(): Promise<FeishuConnStatus> {
+    const res = await this.fetchFn(this.url('/api/adapters/feishu/status'));
+    return parseJson<FeishuConnStatus>(res);
   }
 
   /** GET /api/audit/thread/:id — the per-thread audit timeline (replies/tools/seals). */

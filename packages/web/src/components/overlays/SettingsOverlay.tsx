@@ -33,6 +33,7 @@ import type {
   ApiClient,
   McpToolEntry,
   NewMemberInput,
+  FeishuConfigView,
 } from '../../lib/api.js';
 import type { HealthInfo } from '../../hooks/useHealth.js';
 import { useOverlayDismiss } from '../../hooks/useOverlayDismiss.js';
@@ -1177,6 +1178,106 @@ function WeixinSection({ client }: { readonly client: ApiClient }): ReactElement
 }
 
 /**
+ * 飞书（Lark）— connects via the SDK's WebSocket LONG-CONNECTION: just app_id +
+ * app_secret (the app's event subscription set to「长连接」mode), NO public URL.
+ * Saving connects at runtime. The app_secret is write-only.
+ */
+function FeishuSection({ client }: { readonly client: ApiClient }): ReactElement {
+  const [cfg, setCfg] = useState<FeishuConfigView | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [appId, setAppId] = useState('');
+  const [appSecret, setAppSecret] = useState('');
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([client.getFeishuConfig(), client.feishuStatus()]).then(
+      ([c, s]) => {
+        if (cancelled) return;
+        setCfg(c);
+        setAppId(c.appId);
+        setEnabled(c.enabled);
+        setConnected(s.connected);
+      },
+      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const save = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { config, status } = await client.setFeishuConfig({
+        appId: appId.trim(),
+        enabled,
+        ...(appSecret.length > 0 ? { appSecret: appSecret.trim() } : {}),
+      });
+      setCfg(config);
+      setConnected(status.connected);
+      setAppSecret('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (cfg === null) {
+    return (
+      <div className="set-card" data-testid="feishu-section">
+        <div className="set-card-t">飞书（Lark）</div>
+        <div className="set-soon">{error !== null ? `加载失败：${error}` : '加载中…'}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="set-card" data-testid="feishu-section">
+      <div className="set-card-t">
+        飞书（Lark）
+        <span
+          className="schip"
+          data-testid="feishu-connected"
+          data-connected={connected ? 'true' : 'false'}
+          style={{ color: connected ? 'var(--st-idle)' : 'var(--ink-3)' }}
+        >
+          {connected ? '✓ 已连接' : '未连接'}
+        </span>
+      </div>
+      <div className="set-row-s">
+        飞书<b>自建应用</b>，事件订阅选「<b>长连接</b>」模式 → <b>无需公网地址</b>。给机器人开
+        im 消息权限 + 订阅 <code className="set-mono">im.message.receive_v1</code>，填下面的 App ID / App Secret。
+      </div>
+      {error !== null && <div className="member-edit-error">{error}</div>}
+      <div className="acct-form">
+        <label className="acct-auth-row" style={{ borderTop: 'none', padding: 0 }}>
+          <input type="checkbox" data-testid="feishu-enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          <span>启用（保存即连接）</span>
+        </label>
+        <input className="acct-input" placeholder="App ID（cli_xxx）" data-testid="feishu-appid" value={appId} onChange={(e) => setAppId(e.target.value)} />
+        <input
+          className="acct-input"
+          type="password"
+          autoComplete="off"
+          placeholder={cfg.hasAppSecret ? '已配置 App Secret（留空则不改）' : 'App Secret'}
+          data-testid="feishu-appsecret"
+          value={appSecret}
+          onChange={(e) => setAppSecret(e.target.value)}
+        />
+        <button type="button" className="member-add-btn" data-testid="feishu-save" disabled={busy} onClick={() => void save()}>
+          {busy ? '保存中…' : '保存并连接'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * IM 对接 — wire the team to WeCom (企业微信). The user enters the self-built app's
  * corpId/secret + callback token; on the next API restart the adapter mounts its
  * webhook and messages from WeChat flow through the agent pipeline. The secret is
@@ -1243,6 +1344,7 @@ function WeChatPane({ client }: { readonly client: ApiClient }): ReactElement {
   return (
     <div className="set-pane-body" data-testid="settings-im">
       <WeixinSection client={client} />
+      <FeishuSection client={client} />
       <div className="set-card" data-testid="wechat-form">
         <div className="set-card-t">企业微信（WeCom）对接</div>
         <div className="set-row-s">

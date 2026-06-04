@@ -77,6 +77,10 @@ import { WeChatConfigStore } from '@choco/api/config/wechat-config-store';
 import { registerWeixinRoutes } from '@choco/api/routes/weixin-routes';
 import { WeixinManager } from '@choco/api/runtime/weixin-manager';
 import type { WeixinTokenStore } from '@choco/api/config/weixin-token-store';
+import { registerFeishuRoutes } from '@choco/api/routes/feishu-routes';
+import { FeishuManager, type FeishuAdapterLike } from '@choco/api/runtime/feishu-manager';
+import type { FeishuConfigStore } from '@choco/api/config/feishu-config-store';
+import type { FeishuAdapterDeps } from '@choco/adapters/feishu';
 import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
 import { registerCatalogRoutes } from '@choco/api/routes/catalog-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
@@ -149,6 +153,13 @@ export interface BuildAppOverrides {
    */
   readonly weixinFetchFn?: typeof globalThis.fetch;
   readonly weixinTokenStore?: WeixinTokenStore;
+  /**
+   * M-FEISHU seams. OMITTED ⇒ the global ~/.choco store + the real WS adapter
+   * (inert until autoStart()/applyConfig). Tests inject a temp store + a fake
+   * adapter factory so applying config never opens a real WebSocket.
+   */
+  readonly feishuStore?: FeishuConfigStore;
+  readonly feishuAdapterFactory?: (deps: FeishuAdapterDeps) => FeishuAdapterLike;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
   /**
@@ -252,6 +263,11 @@ export interface BuiltApp {
    * reconnect a persisted session.
    */
   readonly weixinManager: WeixinManager;
+  /**
+   * M-FEISHU 飞书 manager — owns the long-connection adapter. The composition root
+   * calls `feishuManager.autoStart()` after listen to reconnect a persisted config.
+   */
+  readonly feishuManager: FeishuManager;
   /** Close DB + HTTP + Socket.io (test/shutdown teardown). */
   readonly close: () => Promise<void>;
 }
@@ -462,6 +478,18 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   });
   registerWeixinRoutes(api, weixinManager);
 
+  // M-FEISHU 飞书 manager — owns the long-connection adapter. Inert until
+  // autoStart()/applyConfig. Tests inject a temp store + a fake adapter factory so
+  // applying config never opens a real WebSocket.
+  const feishuManager = new FeishuManager({
+    submitPlatformMessage,
+    ...(overrides.feishuStore !== undefined ? { store: overrides.feishuStore } : {}),
+    ...(overrides.feishuAdapterFactory !== undefined
+      ? { adapterFactory: overrides.feishuAdapterFactory }
+      : {}),
+  });
+  registerFeishuRoutes(api, feishuManager);
+
   const close = async (): Promise<void> => {
     io.close();
     await api.close();
@@ -480,6 +508,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     sessionStore,
     submitPlatformMessage,
     weixinManager,
+    feishuManager,
     close,
   };
 }

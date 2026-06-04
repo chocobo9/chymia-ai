@@ -294,7 +294,7 @@ async function main(): Promise<void> {
   const agentOverrideStore = new JsonAgentOverrideStore(agentOverridesPath);
   logger.info({ agentOverridesPath }, 'agent overrides store loaded');
 
-  const { api, submitPlatformMessage, weixinManager } = buildApp({
+  const { api, submitPlatformMessage, weixinManager, feishuManager } = buildApp({
     agentServices,
     agentAvailability,
     agentOverrideStore,
@@ -335,6 +335,11 @@ async function main(): Promise<void> {
   // M14b: reconnect a persisted personal-WeChat (iLink) session, if any. No-op
   // when not logged in; starts the long-poll adapter when a bot_token is stored.
   weixinManager.autoStart();
+
+  // M-FEISHU: reconnect the Feishu (飞书) long connection when configured + enabled.
+  void feishuManager.autoStart().catch((err: unknown) => {
+    logger.error({ err: String(err) }, 'feishu autoStart failed');
+  });
 }
 
 void main();
