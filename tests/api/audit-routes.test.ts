@@ -31,6 +31,8 @@ async function seed(app: BuiltApp): Promise<void> {
     threadId: THREAD,
     agentId: CLAUDE,
     toolName: 'Write',
+    toolInput: '{"file_path":"two-sum-viz.html"}',
+    toolResult: 'wrote 1.2KB',
     timestamp: 1_700_000_010_000,
     durationMs: 42,
     sessionId: 'sess-1',
@@ -92,10 +94,14 @@ describe('GET /api/audit/thread/:id — merged timeline (happy)', () => {
 
     const tool = entries.find((e) => e.type === 'tool');
     expect(tool).toMatchObject({ agentId: 'claude-opus', toolName: 'Write', durationMs: 42, invocationId: 'inv-1' });
+    // The tool's real args + result ride along so an expanded row shows what it did.
+    expect(tool).toMatchObject({ toolInput: '{"file_path":"two-sum-viz.html"}', toolResult: 'wrote 1.2KB' });
 
     const normalReply = entries.find((e) => e.type === 'reply' && e.isError !== true);
     expect(normalReply).toMatchObject({ agentId: 'claude-opus', toolCount: 2 });
     expect(normalReply?.textChars).toBeGreaterThan(0);
+    // The actual reply text rides along (具体发送了什么), not just the char count.
+    expect(normalReply?.text).toContain('two-sum-viz.html');
 
     // The system/notice reply is flagged isError and attributed to codex.
     const notice = entries.find((e) => e.type === 'reply' && e.isError === true);

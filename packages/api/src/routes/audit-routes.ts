@@ -44,6 +44,9 @@ export function registerAuditRoutes(app: FastifyInstance, services: AppServices)
         timestamp: message.timestamp,
         textChars: message.content.length,
         toolCount,
+        // The actual reply text, so the UI row can expand to show 具体发送了什么
+        // (not just a character count). Omitted when the turn produced no text.
+        ...(message.content.length > 0 ? { text: message.content } : {}),
         ...(message.origin === 'system' ? { isError: true } : {}),
       });
     }
@@ -56,6 +59,9 @@ export function registerAuditRoutes(app: FastifyInstance, services: AppServices)
         timestamp: event.timestamp,
         toolName: event.toolName,
         invocationId: event.invocationId,
+        // The tool's args + result, so an expanded row shows what the call did.
+        ...(event.toolInput !== undefined ? { toolInput: event.toolInput } : {}),
+        ...(event.toolResult !== undefined ? { toolResult: event.toolResult } : {}),
         ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
         ...(event.sessionId !== undefined ? { sessionId: event.sessionId } : {}),
       });

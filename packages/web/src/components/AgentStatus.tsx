@@ -85,6 +85,48 @@ function auditTag(e: AuditEntry): { readonly label: string; readonly err: boolea
   }
 }
 
+/**
+ * The expanded detail for one audit row — the REAL content behind the summary
+ * pill (具体发送了什么): a reply's text, a tool's args + result, or a session
+ * boundary's id. Aligned to Clowder's AuditEventsTab, which expands a row to its
+ * underlying event data.
+ */
+function auditDetail(e: AuditEntry): ReactElement {
+  if (e.type === 'reply') {
+    const text = e.text !== undefined && e.text.length > 0 ? e.text : '（本回合无文本，仅工具活动）';
+    return <p className="audit-detail-text">{text}</p>;
+  }
+  if (e.type === 'tool') {
+    return (
+      <div className="audit-detail-tool">
+        <div>
+          <span className="audit-detail-k">工具</span>
+          {e.toolName ?? 'tool'}
+          {e.durationMs !== undefined ? ` · ${e.durationMs}ms` : ''}
+        </div>
+        {e.toolInput !== undefined && (
+          <div>
+            <span className="audit-detail-k">参数</span>
+            {e.toolInput}
+          </div>
+        )}
+        {e.toolResult !== undefined && (
+          <div>
+            <span className="audit-detail-k">结果</span>
+            {e.toolResult}
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <p className="audit-detail-text">
+      session {e.sessionId ?? ''}
+      {e.sequenceNo !== undefined ? ` · #${e.sequenceNo}` : ''}
+    </p>
+  );
+}
+
 interface AgentStatusItemProps {
   readonly agentId: string;
   readonly displayName: string;
@@ -124,14 +166,37 @@ export interface AgentStatusProps {
   readonly client?: ApiClient;
 }
 
-/** One audit-event row: a [type] pill + relative time (the design's row shape). */
-function AuditRow(props: { readonly entry: AuditEntry; readonly now: number }): ReactElement {
-  const { entry, now } = props;
+/**
+ * One audit-event row: a clickable [type] pill + relative time that EXPANDS to its
+ * detail (the real reply text / tool args+result / session id) — the original
+ * design's row, made operable. Before this the row was a display-only div; clicking
+ * did nothing. Aligned to Clowder's AuditEventsTab (row → expand → event detail).
+ */
+function AuditRow(props: {
+  readonly entry: AuditEntry;
+  readonly now: number;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+}): ReactElement {
+  const { entry, now, expanded, onToggle } = props;
   const tag = auditTag(entry);
   return (
-    <div className="audit-row" data-testid="sb-audit-event" data-type={entry.type}>
-      <span className={`audit-tag${tag.err ? ' err' : ''}`}>{tag.label}</span>
-      <span className="audit-t">{timeAgo(entry.timestamp, now)}</span>
+    <div className="audit-row-wrap" data-testid="sb-audit-event" data-type={entry.type}>
+      <button
+        type="button"
+        className="audit-row audit-row-btn"
+        data-testid="sb-audit-event-toggle"
+        aria-expanded={expanded}
+        onClick={onToggle}
+      >
+        <span className={`audit-tag${tag.err ? ' err' : ''}`}>{tag.label}</span>
+        <span className="audit-t">{timeAgo(entry.timestamp, now)}</span>
+      </button>
+      {expanded && (
+        <div className={`audit-detail${tag.err ? ' err' : ''}`} data-testid="sb-audit-detail">
+          {auditDetail(entry)}
+        </div>
+      )}
     </div>
   );
 }
@@ -154,6 +219,8 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
   const [busyId, setBusyId] = useState<string | null>(null);
   // The session whose transcript is open in the Session tab (null = show the list).
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  // The audit row currently expanded to its detail (null = all collapsed).
+  const [expandedAuditKey, setExpandedAuditKey] = useState<string | null>(null);
 
   const messages = useMemo(
     () => (activeThreadId === null ? [] : messagesByThread[activeThreadId] ?? []),
@@ -376,7 +443,18 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
                       <div className="sb-audit-empty">该会话还没有可审计的活动。</div>
                     )}
                     {!loading &&
-                      auditShown.map((e, i) => <AuditRow key={`${e.type}:${e.timestamp}:${i}`} entry={e} now={now} />)}
+                      auditShown.map((e, i) => {
+                        const key = `${e.type}:${e.timestamp}:${i}`;
+                        return (
+                          <AuditRow
+                            key={key}
+                            entry={e}
+                            now={now}
+                            expanded={expandedAuditKey === key}
+                            onToggle={() => setExpandedAuditKey((p) => (p === key ? null : key))}
+                          />
+                        );
+                      })}
                   </>
                 )}
 
@@ -415,9 +493,18 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
                     {q.length > 0 && matchedAudit.length === 0 && matchedSessions.length === 0 && (
                       <div className="sb-audit-empty">没有匹配的审计 / session。</div>
                     )}
-                    {matchedAudit.slice(0, PREVIEW_LIMIT).map((e, i) => (
-                      <AuditRow key={`${e.type}:${e.timestamp}:${i}`} entry={e} now={now} />
-                    ))}
+                    {matchedAudit.slice(0, PREVIEW_LIMIT).map((e, i) => {
+                      const key = `search:${e.type}:${e.timestamp}:${i}`;
+                      return (
+                        <AuditRow
+                          key={key}
+                          entry={e}
+                          now={now}
+                          expanded={expandedAuditKey === key}
+                          onToggle={() => setExpandedAuditKey((p) => (p === key ? null : key))}
+                        />
+                      );
+                    })}
                     {matchedSessions.map(renderSessionRow)}
                   </>
                 )}

@@ -25,8 +25,8 @@ const CHAIN: readonly SessionChainEntry[] = [
   { sessionId: 'sess-9c1b0400', threadId: THREAD, agentId: CLAUDE, sequenceNo: 2, status: 'active', createdAt: 1_700_000_300_000, digest: null },
 ];
 const AUDIT: readonly AuditEntry[] = [
-  { type: 'reply', agentId: CLAUDE, timestamp: 1_700_000_110_000, textChars: 128, toolCount: 2 },
-  { type: 'tool', agentId: CLAUDE, timestamp: 1_700_000_120_000, toolName: 'Write', durationMs: 42 },
+  { type: 'reply', agentId: CLAUDE, timestamp: 1_700_000_110_000, textChars: 128, toolCount: 2, text: '已写好 two-sum 哈希解法并加了可视化。' },
+  { type: 'tool', agentId: CLAUDE, timestamp: 1_700_000_120_000, toolName: 'Write', durationMs: 42, toolInput: '{"file_path":"two-sum.html"}', toolResult: 'wrote 1.2KB' },
   { type: 'session_seal', agentId: CLAUDE, timestamp: 1_700_000_200_000, sequenceNo: 1 },
 ];
 // Real merged-transcript shape (matches what GET /api/sessions/:id/transcript returns
@@ -130,6 +130,27 @@ describe('审计 & Session panel — original Choco design, real data', () => {
     expect(screen.getByTestId('sb-view-logs')).toBeInTheDocument();
     expect(screen.queryByTestId('sb-open-audit')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sb-open-sessions')).not.toBeInTheDocument();
+  });
+
+  it('[happy] clicking an 审计事件 row expands to its REAL detail (the reply text), not just a count', async () => {
+    render(<AgentStatus client={fakeClient()} />);
+    const rows = await screen.findAllByTestId('sb-audit-event');
+    expect(screen.queryByTestId('sb-audit-detail')).not.toBeInTheDocument(); // collapsed by default
+    await userEvent.click(within(rows[0]).getByTestId('sb-audit-event-toggle')); // the reply row
+    const detail = await screen.findByTestId('sb-audit-detail');
+    expect(within(detail).getByText(/哈希解法/)).toBeInTheDocument(); // 具体发送了什么
+  });
+
+  it('[edge] expanding a tool row shows its args + result; clicking again collapses', async () => {
+    render(<AgentStatus client={fakeClient()} />);
+    const rows = await screen.findAllByTestId('sb-audit-event');
+    const toolToggle = within(rows[1]).getByTestId('sb-audit-event-toggle');
+    await userEvent.click(toolToggle);
+    const detail = await screen.findByTestId('sb-audit-detail');
+    expect(within(detail).getByText(/two-sum\.html/)).toBeInTheDocument(); // toolInput
+    expect(within(detail).getByText(/wrote 1\.2KB/)).toBeInTheDocument(); // toolResult
+    await userEvent.click(toolToggle);
+    expect(screen.queryByTestId('sb-audit-detail')).not.toBeInTheDocument(); // toggles closed
   });
 
   it('[adversarial] with NO client the panel is inert (no crash); the live readout still renders', async () => {

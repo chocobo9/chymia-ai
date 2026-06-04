@@ -23,10 +23,17 @@ export interface AuditEntry {
   readonly textChars?: number;
   /** reply: number of tool calls captured for this turn. */
   readonly toolCount?: number;
+  /** reply: the agent's reply text — the detail shown when the row is expanded
+   *  (具体发送了什么). Omitted when the turn produced no text (tool-only). */
+  readonly text?: string;
   /** reply: true for a system/error notice reply (not a normal output). */
   readonly isError?: boolean;
   /** tool: the tool name (Write / Read / Bash / evidence_search / …). */
   readonly toolName?: string;
+  /** tool: the JSON-encoded tool input (args) — shown on expand. */
+  readonly toolInput?: string;
+  /** tool: the tool result text — shown on expand. */
+  readonly toolResult?: string;
   /** tool: paired tool_use→tool_result duration, when known. */
   readonly durationMs?: number;
   /** session_start / session_seal: the CLI session id + its 1-based chain index. */
