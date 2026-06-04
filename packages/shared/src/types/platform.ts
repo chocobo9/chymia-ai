@@ -63,6 +63,38 @@ export interface PlatformAdapter {
 }
 
 /**
+ * WeChatSettings — the user-configurable WeCom (企业微信) adapter config persisted
+ * by the M13 wiring (the `secret` is stored separately, never in this shape).
+ * `enabled` gates whether the adapter is wired at API start.
+ */
+export interface WeChatSettings {
+  /** WeCom corpId. */
+  readonly corpId: string;
+  /** WeCom self-built app AgentId (required to send replies; numeric string). */
+  readonly agentId: string;
+  /** Callback token (SHA1 signature verification). */
+  readonly token: string;
+  /** WeCom API base (default https://qyapi.weixin.qq.com/cgi-bin). */
+  readonly apiBase: string;
+  /** Whether to wire the adapter on API start. */
+  readonly enabled: boolean;
+}
+
+/**
+ * WeChatSettingsView — the MASKED settings the GET route returns: `hasSecret`
+ * (presence only, never the secret) + the webhook path WeCom must call + `ready`
+ * (enabled && all creds present → would wire on the next API start).
+ */
+export interface WeChatSettingsView extends WeChatSettings {
+  readonly hasSecret: boolean;
+  /** Whether an EncodingAESKey is configured (required to decrypt WeCom callbacks). */
+  readonly hasEncodingAesKey: boolean;
+  /** Path WeCom POSTs to: <your public base>/api/adapters/wechat/webhook */
+  readonly webhookPath: string;
+  readonly ready: boolean;
+}
+
+/**
  * PlatformMappingType — 平台映射记录的类型维度（§A10 表的 `type` 列）。
  * 'thread' = 平台会话 ↔ 内部 threadId；'user' = 平台用户 ↔ 内部 userId。
  */

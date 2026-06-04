@@ -24,6 +24,16 @@ import type {
 
 import { parseWeChatXml } from './xml-parser.js';
 import { TokenManager, type FetchFn } from './token-manager.js';
+import { deriveAesKeyIv, decryptWeComMessage, type AesKeyIv } from './crypt.js';
+
+/**
+ * Pull the `<Encrypt>` ciphertext out of a WeCom encrypted callback body
+ * (`<xml><Encrypt><![CDATA[...]]></Encrypt>...</xml>`). Returns null when absent.
+ */
+function extractEncrypt(body: string): string | null {
+  const m = /<Encrypt>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/Encrypt>/.exec(body);
+  return m !== null && typeof m[1] === 'string' ? m[1].trim() : null;
+}
 
 /** Result of the platform-ingress seam (mirrors app-factory PlatformIngressResult). */
 export interface IngressResult {
@@ -64,8 +74,20 @@ export interface WeChatAdapterConfig {
   readonly secret: string;
   /** Callback token for SHA1 signature verification (CHOCO_WECHAT_TOKEN). */
   readonly token: string;
-  /** API base (CHOCO_WECHAT_API_BASE). */
+  /** API base, e.g. https://qyapi.weixin.qq.com/cgi-bin (CHOCO_WECHAT_API_BASE). */
   readonly apiBase: string;
+  /**
+   * WeCom self-built app AgentId — REQUIRED by message/send (a reply without it
+   * fails with errcode 92000). A numeric string, e.g. "1000002".
+   */
+  readonly agentId: string;
+  /**
+   * WeCom callback EncodingAESKey (43 chars). When set, inbound callbacks are
+   * treated as ENCRYPTED (WXBizMsgCrypt): the GET echostr / POST <Encrypt> blob is
+   * AES-decrypted before parsing. WeCom 自建应用「接收消息」requires this. Omitted ⇒
+   * plaintext mode (the body is parsed as-is — dev/compat only).
+   */
+  readonly encodingAesKey?: string;
 }
 
 /** Dependencies for {@link createWeChatAdapter}. */
@@ -192,6 +214,8 @@ class WeChatAdapter implements PlatformAdapter {
   private readonly config: WeChatAdapterConfig;
   private readonly outbound: OutboundSender;
   private readonly logger: AdapterLogger;
+  /** AES key/IV when EncodingAESKey is configured (encrypted mode); else null. */
+  private readonly keyIv: AesKeyIv | null;
   private handler: InboundHandler;
   private started = false;
 
@@ -200,6 +224,10 @@ class WeChatAdapter implements PlatformAdapter {
     this.submit = deps.submitPlatformMessage;
     this.config = deps.config;
     this.logger = deps.logger ?? NOOP_LOGGER;
+    this.keyIv =
+      deps.config.encodingAesKey !== undefined && deps.config.encodingAesKey.length > 0
+        ? deriveAesKeyIv(deps.config.encodingAesKey)
+        : null;
     this.outbound =
       deps.outboundSender ??
       createWeComOutboundSender({
@@ -216,12 +244,17 @@ class WeChatAdapter implements PlatformAdapter {
   private registerWebhook(): void {
     // WeChat posts raw XML (text/xml | application/xml). Fastify has no built-in
     // XML parser, so capture the body verbatim as a string for parseWeChatXml +
-    // signature verification. Guard double-registration (idempotent if the api
-    // is shared / re-wired). This only adds parsers; it does not alter existing routes.
+    // signature verification. Only the CONTENT-TYPE PARSERS are double-registration
+    // safe (registerXmlBodyParser swallows the duplicate). The GET/POST webhook
+    // ROUTES below are NOT: constructing two adapters on the same Fastify instance
+    // throws FST_ERR_DUPLICATED_ROUTE. That's fine — the composition root wires the
+    // adapter exactly once (main.ts, before listen); re-wiring is unsupported.
     this.registerXmlBodyParser('text/xml');
     this.registerXmlBodyParser('application/xml');
 
-    // GET: WeChat URL-verification echo (returns echostr when signature matches).
+    // GET: WeChat URL-verification echo. Encrypted mode (EncodingAESKey set):
+    // verify msg_signature over the ciphertext echostr, then DECRYPT it and return
+    // the plaintext. Plaintext mode: return echostr as-is.
     this.api.get(WEBHOOK_PATH, async (request, reply) => {
       const query = request.query as WebhookQuery;
       const echo = query.echostr ?? '';
@@ -229,21 +262,52 @@ class WeChatAdapter implements PlatformAdapter {
         await reply.code(401).send('invalid signature');
         return;
       }
+      if (this.keyIv !== null && echo.length > 0) {
+        try {
+          const { message } = decryptWeComMessage(echo, this.keyIv);
+          await reply.code(200).send(message);
+        } catch (err) {
+          this.logger.warn({ path: WEBHOOK_PATH, err: String(err) }, 'wechat echostr decrypt failed');
+          await reply.code(401).send('decrypt failed');
+        }
+        return;
+      }
       await reply.code(200).send(echo);
     });
 
-    // POST: inbound message. Parse XML → IncomingPlatformMessage → handler.
+    // POST: inbound message. Encrypted mode: extract <Encrypt>, verify
+    // msg_signature over IT, decrypt → inner XML. Plaintext mode: verify over the
+    // body. Then parse XML → IncomingPlatformMessage → handler.
     this.api.post(WEBHOOK_PATH, async (request, reply) => {
       const body = this.readBody(request);
       const query = request.query as WebhookQuery;
 
-      if (!verifySignature(this.config.token, query, body)) {
+      let xml = body;
+      if (this.keyIv !== null) {
+        const encrypt = extractEncrypt(body);
+        if (encrypt === null) {
+          await reply.code(200).send(''); // no <Encrypt> → ack-and-ignore
+          return;
+        }
+        if (!verifySignature(this.config.token, query, encrypt)) {
+          this.logger.warn({ path: WEBHOOK_PATH }, 'wechat webhook signature mismatch');
+          await reply.code(401).send('invalid signature');
+          return;
+        }
+        try {
+          xml = decryptWeComMessage(encrypt, this.keyIv).message;
+        } catch (err) {
+          this.logger.warn({ path: WEBHOOK_PATH, err: String(err) }, 'wechat inbound decrypt failed');
+          await reply.code(401).send('decrypt failed');
+          return;
+        }
+      } else if (!verifySignature(this.config.token, query, body)) {
         this.logger.warn({ path: WEBHOOK_PATH }, 'wechat webhook signature mismatch');
         await reply.code(401).send('invalid signature');
         return;
       }
 
-      const parsed = parseWeChatXml(body);
+      const parsed = parseWeChatXml(xml);
       // WeChat expects a fast 200 ack on any well-formed callback; non-text /
       // unparseable payloads are acked-and-ignored (no agent routing).
       if (parsed === null || parsed.kind !== 'text' || parsed.text.length === 0) {
@@ -386,6 +450,8 @@ export function createWeComOutboundSender(deps: OutboundSenderConfig): OutboundS
     const payload = {
       touser: channelId,
       msgtype: 'text',
+      // WeCom message/send REQUIRES the self-built app's AgentId (integer).
+      agentid: Number(deps.config.agentId),
       text: { content },
     };
     const res = await fetchFn(url, {

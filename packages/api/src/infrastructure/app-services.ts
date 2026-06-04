@@ -23,6 +23,7 @@ import type { AgentConfig } from '@choco/shared';
 import type { AgentService } from '@choco/api/providers/base';
 import type { AccountStore } from '@choco/api/config/account-store';
 import type { AuthCliRunner } from '@choco/api/config/provider-auth';
+import type { WeChatConfigStore } from '@choco/api/config/wechat-config-store';
 
 /**
  * The wired service bundle shared by all routes. Immutable references — routes
@@ -89,6 +90,12 @@ export interface AppServices {
    * inject a fake that returns canned status + records the commands.
    */
   readonly authRunner: AuthCliRunner;
+  /**
+   * M13 WeCom adapter config store (~/.choco/wechat.json). The config routes
+   * read/write it (secret write-only); the composition root reads it at start to
+   * decide whether to wire the WeChat webhook.
+   */
+  readonly wechatConfigStore: WeChatConfigStore;
   readonly socket: SocketManager;
   /**
    * Structured logger for non-fatal route notes (the same {@link RouteLogger}

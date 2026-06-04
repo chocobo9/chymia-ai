@@ -23,6 +23,7 @@ import type {
   AccountSummary,
   ClientId,
   ProviderAuthStatus,
+  WeChatSettingsView,
 } from '@choco/shared';
 import { useAgentStore } from '../../stores/agent-store.js';
 import type {
@@ -43,6 +44,7 @@ type SettingsNavId =
   | 'ops'
   | 'appearance'
   | 'accounts'
+  | 'im'
   | 'skill'
   | 'mcp'
   | 'market'
@@ -59,6 +61,7 @@ const NAV: readonly NavEntry[] = [
   { id: 'ops', label: '运维监控' },
   { id: 'appearance', label: '外观' },
   { id: 'accounts', label: '账户与密钥' },
+  { id: 'im', label: 'IM 对接' },
   { id: 'skill', label: 'Skill 管理' },
   { id: 'mcp', label: 'MCP 管理' },
   { id: 'market', label: '能力市场' },
@@ -71,6 +74,7 @@ const PANE_HEAD: Readonly<Record<SettingsNavId, { readonly title: string; readon
   ops: { title: '运维监控', sub: '服务健康与运行态观测。' },
   appearance: { title: '外观', sub: '主题、语言与界面密度。' },
   accounts: { title: '账户与密钥', sub: '模型账户、凭据与执行身份。' },
+  im: { title: 'IM 对接', sub: '把团队接到企业微信（WeCom），消息走 agent 管线。' },
   skill: { title: 'Skill 管理', sub: 'Skill 包的挂载与同步。' },
   mcp: { title: 'MCP 管理', sub: 'MCP 服务与工具目录。' },
   market: { title: '能力市场', sub: '搜索并安装能力包。' },
@@ -1041,6 +1045,147 @@ function AccountsPane({ client }: { readonly client: ApiClient }): ReactElement 
   );
 }
 
+/**
+ * IM 对接 — wire the team to WeCom (企业微信). The user enters the self-built app's
+ * corpId/secret + callback token; on the next API restart the adapter mounts its
+ * webhook and messages from WeChat flow through the agent pipeline. The secret is
+ * write-only (the view shows hasSecret only). A live webhook needs a PUBLIC URL.
+ */
+function WeChatPane({ client }: { readonly client: ApiClient }): ReactElement {
+  const [cfg, setCfg] = useState<WeChatSettingsView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [corpId, setCorpId] = useState('');
+  const [agentId, setAgentId] = useState('');
+  const [token, setToken] = useState('');
+  const [apiBase, setApiBase] = useState('');
+  const [secret, setSecret] = useState('');
+  const [aesKey, setAesKey] = useState('');
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client.getWeChatConfig().then(
+      (c) => {
+        if (cancelled) return;
+        setCfg(c);
+        setCorpId(c.corpId);
+        setAgentId(c.agentId);
+        setToken(c.token);
+        setApiBase(c.apiBase);
+        setEnabled(c.enabled);
+      },
+      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await client.setWeChatConfig({
+        corpId: corpId.trim(),
+        agentId: agentId.trim(),
+        token: token.trim(),
+        apiBase: apiBase.trim(),
+        enabled,
+        ...(secret.length > 0 ? { secret } : {}),
+        ...(aesKey.length > 0 ? { encodingAesKey: aesKey.trim() } : {}),
+      });
+      setCfg(next);
+      setSecret('');
+      setAesKey('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (cfg === null) {
+    return <div className="set-soon">{error !== null ? `加载失败：${error}` : '加载中…'}</div>;
+  }
+
+  return (
+    <div className="set-pane-body" data-testid="settings-im">
+      <div className="set-card" data-testid="wechat-form">
+        <div className="set-card-t">企业微信（WeCom）对接</div>
+        <div className="set-row-s">
+          用户在企业微信里发消息 → agent 处理 → 回复发回企业微信。需要一个 WeCom
+          自建应用（corpId + secret）、回调 Token，以及一个<b>公网可达</b>的回调地址（本地用内网穿透，如 frp / ngrok / cloudflared）。
+        </div>
+        <div className="acct-form">
+          <label className="acct-auth-row" style={{ borderTop: 'none', padding: 0 }}>
+            <input
+              type="checkbox"
+              data-testid="wechat-enabled"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />
+            <span>启用（保存后重启 API 生效）</span>
+          </label>
+          <input className="acct-input" placeholder="corpId（企业ID）" data-testid="wechat-corpid" value={corpId} onChange={(e) => setCorpId(e.target.value)} />
+          <input className="acct-input" placeholder="AgentId（自建应用，数字，如 1000002）" data-testid="wechat-agentid" value={agentId} onChange={(e) => setAgentId(e.target.value)} />
+          <input className="acct-input" placeholder="回调 Token" data-testid="wechat-token" value={token} onChange={(e) => setToken(e.target.value)} />
+          <input
+            className="acct-input"
+            type="password"
+            autoComplete="off"
+            placeholder={cfg.hasSecret ? '已配置 App Secret（留空则不改）' : 'App Secret'}
+            data-testid="wechat-secret"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+          />
+          <input
+            className="acct-input"
+            type="password"
+            autoComplete="off"
+            placeholder={
+              cfg.hasEncodingAesKey
+                ? '已配置 EncodingAESKey（留空则不改）'
+                : 'EncodingAESKey（43位，企业微信加密回调必填）'
+            }
+            data-testid="wechat-aeskey"
+            value={aesKey}
+            onChange={(e) => setAesKey(e.target.value)}
+          />
+          <input className="acct-input" placeholder="API Base（默认 https://qyapi.weixin.qq.com/cgi-bin）" data-testid="wechat-apibase" value={apiBase} onChange={(e) => setApiBase(e.target.value)} />
+          <button type="button" className="member-add-btn" data-testid="wechat-save" disabled={saving} onClick={() => void save()}>
+            {saving ? '保存中…' : '保存'}
+          </button>
+        </div>
+        {error !== null && <div className="member-edit-error">{error}</div>}
+      </div>
+
+      <div className="set-card">
+        <div className="set-card-t">回调地址</div>
+        <div className="set-row-s">在企业微信后台「接收消息 / API 接收」里，把回调 URL 设为你的公网地址 + 下面这个路径：</div>
+        <code className="trust-path" data-testid="wechat-webhook-path">
+          &lt;你的公网地址&gt;{cfg.webhookPath}
+        </code>
+        <div className="set-row-s">
+          状态：
+          <b
+            data-testid="wechat-ready"
+            data-ready={cfg.ready ? 'true' : 'false'}
+            style={{ color: cfg.ready ? 'var(--st-idle)' : 'var(--ink-3)' }}
+          >
+            {cfg.ready ? '配置就绪 — 重启 API 后 webhook 生效' : '未就绪（需启用 + 填全 corpId / token / secret）'}
+          </b>
+        </div>
+        {cfg.ready && !cfg.hasEncodingAesKey && (
+          <div className="member-edit-error" data-testid="wechat-aeskey-warning">
+            ⚠ 未配置 EncodingAESKey：企业微信的加密回调消息将无法解密（收不到消息）。请填上面的 EncodingAESKey。
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** The full settings surface. */
 export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
   const { onClose, client, health, socketConnected } = props;
@@ -1188,6 +1333,9 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
       break;
     case 'accounts':
       pane = <AccountsPane client={client} />;
+      break;
+    case 'im':
+      pane = <WeChatPane client={client} />;
       break;
     case 'skill':
       pane = <SkillPane client={client} />;

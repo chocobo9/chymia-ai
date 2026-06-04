@@ -30,6 +30,7 @@ const NONCE = 'Wm9uY2VOb25jZTEyMzQ1Ng';
 
 const SIGNED_CONFIG = {
   corpId: 'ww1a2b3c4d5e6f7g8',
+  agentId: '1000002',
   secret: 'Xy7Qa9Bc3Df1Gh5Jk2Lm8Np4Qr6St0Uv',
   token: CALLBACK_TOKEN,
   apiBase: 'https://qyapi.weixin.qq.com/cgi-bin',

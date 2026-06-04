@@ -28,6 +28,7 @@ const SENDER_OPENID = 'oWxYz09876543210abcdEFghIJklmn';
 const OFFICIAL_ACCOUNT = 'gh_7f3a9c2e1b08';
 const CONFIG = {
   corpId: 'ww1a2b3c4d5e6f7g8',
+  agentId: '1000002',
   secret: 'Xy7Qa9Bc3Df1Gh5Jk2Lm8Np4Qr6St0Uv',
   token: '',
   apiBase: 'https://qyapi.weixin.qq.com/cgi-bin',
@@ -353,5 +354,108 @@ describe('createWeComOutboundSender — token-error retry (ADVERSARIAL)', () => 
     const sender = createWeComOutboundSender({ config: CONFIG, fetchFn });
     await expect(sender(SENDER_OPENID, '高频发送测试')).rejects.toThrow(/45009/);
     expect(sendAttempts).toBe(1); // not retried (only token errcodes trigger refresh+retry)
+  });
+});
+
+// ── THE FIX UNDER TEST: reply-back carries agentid + honors the /cgi-bin base ──
+// Regression proof for the two real gaps that broke WeCom reply-back:
+//   (1) message/send was missing the REQUIRED agentid (WeCom rejects with 92000);
+//   (2) the default API base lacked the /cgi-bin suffix, so gettoken + message/send
+//       hit a non-existent path.
+// We drive the REAL createWeComOutboundSender (not the fake OutboundSender) with an
+// INJECTED fetchFn that captures every request URL + body, and assert both gaps stay
+// closed. agentId:'1000002' → body agentid:1000002 (NUMBER, not "1000002").
+
+interface CapturedRequest {
+  readonly url: string;
+  readonly body: unknown;
+}
+
+/** Parse the JSON body of a captured message/send POST. */
+function parseSendBody(init: RequestInit | undefined): Record<string, unknown> {
+  const raw = typeof init?.body === 'string' ? init.body : '';
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
+describe('createWeComOutboundSender — agentid + /cgi-bin reply-back proof (EDGE/REGRESSION)', () => {
+  it('sends gettoken + message/send under the /cgi-bin base and puts the NUMERIC agentid in the body', async () => {
+    // Arrange — capture every request the sender makes (no network).
+    const captured: CapturedRequest[] = [];
+    const fetchFn: FetchFn = async (url, init) => {
+      captured.push({ url, body: init?.body });
+      if (url.includes('/gettoken')) {
+        return new Response(
+          JSON.stringify({ access_token: 'wecom-access-token-7f3a9c2e', expires_in: 7200 }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    // Act — CONFIG.apiBase is 'https://qyapi.weixin.qq.com/cgi-bin', agentId '1000002'.
+    const sender = createWeComOutboundSender({ config: CONFIG, fetchFn });
+    await sender(SENDER_OPENID, '审批已通过，可以发布。');
+
+    // Assert — BOTH requests live under the /cgi-bin base (gap #2 closed).
+    const gettoken = captured.find((c) => c.url.includes('/gettoken'));
+    const sendReq = captured.find((c) => c.url.includes('/message/send'));
+    expect(gettoken).toBeDefined();
+    expect(sendReq).toBeDefined();
+    expect(gettoken?.url.startsWith('https://qyapi.weixin.qq.com/cgi-bin/')).toBe(true);
+    expect(sendReq?.url.startsWith('https://qyapi.weixin.qq.com/cgi-bin/')).toBe(true);
+
+    // Assert — the message/send body carries agentid as the NUMERIC form of '1000002'
+    // (gap #1 closed), alongside touser + text.content.
+    const body = parseSendBody({ body: sendReq?.body as BodyInit });
+    expect(body.agentid).toBe(1000002);
+    expect(typeof body.agentid).toBe('number');
+    expect(body.touser).toBe(SENDER_OPENID);
+    expect((body.text as { content?: string }).content).toBe('审批已通过，可以发布。');
+    expect(body.msgtype).toBe('text');
+  });
+
+  it('keeps the agentid intact on the token-error (40001) refresh+retry resend', async () => {
+    // Arrange — first message/send returns 40001 (token error) → forced refresh →
+    // a SECOND message/send must still carry the same numeric agentid.
+    const tokens = ['stale-token-aaa', 'fresh-token-bbb'];
+    let tokenIndex = 0;
+    const sendBodies: Array<Record<string, unknown>> = [];
+    const sendUrls: string[] = [];
+
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.includes('/gettoken')) {
+        const t = tokens[Math.min(tokenIndex, tokens.length - 1)];
+        tokenIndex += 1;
+        return new Response(JSON.stringify({ access_token: t, expires_in: 7200 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      sendUrls.push(url);
+      sendBodies.push(parseSendBody(init));
+      const usedToken = new URL(url).searchParams.get('access_token') ?? '';
+      const errcode = usedToken === 'stale-token-aaa' ? 40001 : 0;
+      return new Response(JSON.stringify({ errcode, errmsg: errcode ? 'invalid token' : 'ok' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    // Act
+    const sender = createWeComOutboundSender({ config: CONFIG, fetchFn });
+    await sender(SENDER_OPENID, '重试后仍要带上 agentid。');
+
+    // Assert — two message/send attempts, BOTH under /cgi-bin, BOTH carrying the
+    // numeric agentid (the retry does not drop it).
+    expect(sendBodies).toHaveLength(2);
+    expect(sendUrls.every((u) => u.startsWith('https://qyapi.weixin.qq.com/cgi-bin/'))).toBe(true);
+    for (const body of sendBodies) {
+      expect(body.agentid).toBe(1000002);
+      expect(typeof body.agentid).toBe('number');
+      expect(body.touser).toBe(SENDER_OPENID);
+    }
   });
 });

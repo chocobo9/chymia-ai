@@ -33,6 +33,7 @@ import type {
   AccountSummary,
   AuthType,
   ProviderAuthStatus,
+  WeChatSettingsView,
 } from '@choco/shared';
 
 /** One MCP tool's catalog entry (GET /api/mcp/tools). */
@@ -64,6 +65,17 @@ export interface CreateAccountBody {
   readonly baseUrl?: string;
   readonly models?: readonly string[];
   readonly apiKey?: string;
+}
+
+/** Body for PUT /api/adapters/wechat/config (empty secret string clears it). */
+export interface WeChatConfigPatch {
+  readonly corpId?: string;
+  readonly agentId?: string;
+  readonly token?: string;
+  readonly apiBase?: string;
+  readonly enabled?: boolean;
+  readonly secret?: string;
+  readonly encodingAesKey?: string;
 }
 
 /** Body for PATCH /api/accounts/:id (empty apiKey string clears the stored key). */
@@ -428,6 +440,23 @@ export class ApiClient {
     if (res.ok) return;
     const body = (await res.json().catch(() => ({}))) as { reason?: string };
     throw new Error(body.reason ?? `登出失败 (HTTP ${res.status})`);
+  }
+
+  /** GET /api/adapters/wechat/config — masked WeCom adapter config (no secret). */
+  async getWeChatConfig(): Promise<WeChatSettingsView> {
+    const res = await this.fetchFn(this.url('/api/adapters/wechat/config'));
+    const data = await parseJson<{ config: WeChatSettingsView }>(res);
+    return data.config;
+  }
+
+  /** PUT /api/adapters/wechat/config — set the WeCom config (secret write-only). */
+  async setWeChatConfig(patch: WeChatConfigPatch): Promise<WeChatSettingsView> {
+    const res = await this.fetchFn(
+      this.url('/api/adapters/wechat/config'),
+      this.jsonInit('PUT', patch),
+    );
+    const data = await parseJson<{ config: WeChatSettingsView }>(res);
+    return data.config;
   }
 
   /** GET /api/audit/thread/:id — the per-thread audit timeline (replies/tools/seals). */

@@ -26,3 +26,12 @@ export {
   type TokenManagerConfig,
   type FetchFn,
 } from './token-manager.js';
+
+export {
+  deriveAesKeyIv,
+  msgSignature,
+  decryptWeComMessage,
+  encryptWeComMessage,
+  type AesKeyIv,
+  type DecryptedWeCom,
+} from './crypt.js';

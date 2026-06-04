@@ -24,6 +24,7 @@ const OFFICIAL_ACCOUNT = 'gh_7f3a9c2e1b08';
 // check), since the outbound sender is faked and never hits the network.
 const CONFIG = {
   corpId: 'ww1a2b3c4d5e6f7g8',
+  agentId: '1000002',
   secret: 'fake-secret-not-used-with-fake-sender',
   token: '',
   apiBase: 'https://qyapi.weixin.qq.com/cgi-bin',

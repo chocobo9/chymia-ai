@@ -53,6 +53,8 @@ import {
 } from '@choco/api/runtime/workspace-trust';
 import { JsonAgentOverrideStore } from '@choco/api/config/agent-overrides';
 import { JsonRuntimeRosterStore } from '@choco/api/config/runtime-roster';
+import { WeChatConfigStore } from '@choco/api/config/wechat-config-store';
+import { wireWeChatAdapter } from '@choco/api/runtime/wechat-wiring';
 import {
   buildAgentServicesFromRoster,
   buildMemberService,
@@ -292,7 +294,7 @@ async function main(): Promise<void> {
   const agentOverrideStore = new JsonAgentOverrideStore(agentOverridesPath);
   logger.info({ agentOverridesPath }, 'agent overrides store loaded');
 
-  const { api } = buildApp({
+  const { api, submitPlatformMessage } = buildApp({
     agentServices,
     agentAvailability,
     agentOverrideStore,
@@ -309,6 +311,23 @@ async function main(): Promise<void> {
     // invocation audit + invariant probe warnings now land in the rolling file.
     logger: routeLoggerFrom(logger),
   });
+
+  // M13: wire the WeChat (WeCom) adapter when configured + enabled (its webhook
+  // mounts on `api`, so this MUST run before listen). Not configured → no-op.
+  const wechatStore = new WeChatConfigStore();
+  const wechatWired = await wireWeChatAdapter({
+    api,
+    submitPlatformMessage,
+    store: wechatStore,
+    logger,
+    now: Date.now,
+  });
+  logger.info(
+    { wired: wechatWired, webhook: '/api/adapters/wechat/webhook' },
+    wechatWired
+      ? 'WeChat adapter wired — webhook live'
+      : 'WeChat adapter not configured/disabled — skipped (configure in 设置 → IM 对接)',
+  );
 
   await api.listen({ port, host });
   logger.info({ host, port, url: `http://${host}:${port}` }, 'api listening');

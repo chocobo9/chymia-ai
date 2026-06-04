@@ -69,9 +69,11 @@ import { registerSessionRoutes } from '@choco/api/routes/session-routes';
 import { registerTrustRoutes } from '@choco/api/routes/trust-routes';
 import { registerAccountRoutes } from '@choco/api/routes/account-routes';
 import { registerAuthRoutes } from '@choco/api/routes/auth-routes';
+import { registerWeChatRoutes } from '@choco/api/routes/wechat-routes';
 import { AccountStore } from '@choco/api/config/account-store';
 import { resolveAccountEnv } from '@choco/api/config/account-resolver';
 import { defaultAuthCliRunner, type AuthCliRunner } from '@choco/api/config/provider-auth';
+import { WeChatConfigStore } from '@choco/api/config/wechat-config-store';
 import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
 import { registerCatalogRoutes } from '@choco/api/routes/catalog-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
@@ -132,6 +134,11 @@ export interface BuildAppOverrides {
    * dispatched commands WITHOUT spawning a real CLI or a browser.
    */
   readonly authRunner?: AuthCliRunner;
+  /**
+   * M13 WeCom adapter config store. OMITTED ⇒ a real store over ~/.choco/wechat.json.
+   * Tests inject one at a temp path.
+   */
+  readonly wechatConfigStore?: WeChatConfigStore;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
   /**
@@ -276,6 +283,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   // Provider-auth (OAuth/login) CLI runner. Default spawns the real CLIs; tests
   // inject a fake so the login/logout/status routes never spawn a real login.
   const authRunner = overrides.authRunner ?? defaultAuthCliRunner;
+  // M13 WeCom adapter config store (~/.choco/wechat.json). Tests inject one at a
+  // temp path so they never read/write the real config.
+  const wechatConfigStore = overrides.wechatConfigStore ?? new WeChatConfigStore();
 
   // --- Agent roster + registry (services injected; fakes win in tests) -------
   // 成员增删: the roster is agents.yaml (base) PLUS any runtime-added members,
@@ -372,6 +382,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     buildMemberService,
     accountStore,
     authRunner,
+    wechatConfigStore,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),
@@ -386,6 +397,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   registerTrustRoutes(api, appServices);
   registerAccountRoutes(api, appServices);
   registerAuthRoutes(api, appServices);
+  registerWeChatRoutes(api, appServices);
   registerAuditRoutes(api, appServices);
   registerMessageRoutes(api, appServices);
   registerAgentRoutes(api, appServices);
