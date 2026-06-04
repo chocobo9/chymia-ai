@@ -67,6 +67,24 @@ export interface CreateAccountBody {
   readonly apiKey?: string;
 }
 
+/** POST /api/adapters/weixin/login/start payload — the QR to render + poll. */
+export interface WeixinQr {
+  readonly qrUrl: string;
+  readonly qrPayload: string;
+}
+
+/** GET /api/adapters/weixin/login/status payload. */
+export interface WeixinLoginStatus {
+  readonly status: 'waiting' | 'scanned' | 'confirmed' | 'expired' | 'error';
+  readonly message?: string;
+}
+
+/** GET /api/adapters/weixin/status payload. */
+export interface WeixinConnStatus {
+  readonly connected: boolean;
+  readonly hasToken: boolean;
+}
+
 /** Body for PUT /api/adapters/wechat/config (empty secret string clears it). */
 export interface WeChatConfigPatch {
   readonly corpId?: string;
@@ -457,6 +475,31 @@ export class ApiClient {
     );
     const data = await parseJson<{ config: WeChatSettingsView }>(res);
     return data.config;
+  }
+
+  /** POST /api/adapters/weixin/login/start — fetch a QR to scan for personal WeChat. */
+  async weixinLoginStart(): Promise<WeixinQr> {
+    const res = await this.fetchFn(this.url('/api/adapters/weixin/login/start'), this.jsonInit('POST'));
+    return parseJson<WeixinQr>(res);
+  }
+
+  /** GET /api/adapters/weixin/login/status — poll a QR's scan/login status. */
+  async weixinLoginStatus(qrPayload: string): Promise<WeixinLoginStatus> {
+    const res = await this.fetchFn(
+      this.url(`/api/adapters/weixin/login/status?qrPayload=${encodeURIComponent(qrPayload)}`),
+    );
+    return parseJson<WeixinLoginStatus>(res);
+  }
+
+  /** GET /api/adapters/weixin/status — current connection state. */
+  async weixinStatus(): Promise<WeixinConnStatus> {
+    const res = await this.fetchFn(this.url('/api/adapters/weixin/status'));
+    return parseJson<WeixinConnStatus>(res);
+  }
+
+  /** POST /api/adapters/weixin/logout — disconnect + forget the session. */
+  async weixinLogout(): Promise<void> {
+    await this.fetchFn(this.url('/api/adapters/weixin/logout'), this.jsonInit('POST'));
   }
 
   /** GET /api/audit/thread/:id — the per-thread audit timeline (replies/tools/seals). */

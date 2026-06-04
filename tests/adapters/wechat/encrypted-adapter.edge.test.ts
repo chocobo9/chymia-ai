@@ -145,13 +145,13 @@ describe('WeChat ENCRYPTED webhook — POST signature + decrypt rejection (adver
 
     const keyIv = deriveAesKeyIv(ENCODING_AES_KEY);
     const good = encryptWeComMessage(buildWeChatXml('@claude-opus 正常内容', '5002'), keyIv, CORP_ID);
-    // Corrupt the FINAL AES block, which carries the PKCS7 pad bytes: flipping a byte
-    // there makes the post-decrypt pad length invalid → decryptWeComMessage throws.
-    // (Corrupting a middle block can still unpad cleanly and merely yield garbage XML
-    // that is ack-and-ignored — we need a genuine decrypt FAILURE here.)
+    // TRUNCATE the ciphertext to a non-AES-block-multiple length. AES-256-CBC
+    // requires the input to be a whole number of 16-byte blocks, so decipher.final()
+    // ALWAYS throws on a partial trailing block → decryptWeComMessage throws → 401.
+    // (A byte-FLIP is NOT reliable: the message sits in the early blocks, so a
+    // last-block flip can still recover the original msg and route it — a flake.)
     const cipherBytes = Buffer.from(good, 'base64');
-    cipherBytes[cipherBytes.length - 1] ^= 0xff; // flip the last ciphertext byte
-    const tampered = cipherBytes.toString('base64');
+    const tampered = cipherBytes.subarray(0, cipherBytes.length - 5).toString('base64');
     const body = `<xml><Encrypt><![CDATA[${tampered}]]></Encrypt></xml>`;
     const ts = '1717398200';
     const nonce = 'qa-tamper-02';

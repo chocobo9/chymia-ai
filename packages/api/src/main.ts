@@ -294,7 +294,7 @@ async function main(): Promise<void> {
   const agentOverrideStore = new JsonAgentOverrideStore(agentOverridesPath);
   logger.info({ agentOverridesPath }, 'agent overrides store loaded');
 
-  const { api, submitPlatformMessage } = buildApp({
+  const { api, submitPlatformMessage, weixinManager } = buildApp({
     agentServices,
     agentAvailability,
     agentOverrideStore,
@@ -331,6 +331,10 @@ async function main(): Promise<void> {
 
   await api.listen({ port, host });
   logger.info({ host, port, url: `http://${host}:${port}` }, 'api listening');
+
+  // M14b: reconnect a persisted personal-WeChat (iLink) session, if any. No-op
+  // when not logged in; starts the long-poll adapter when a bot_token is stored.
+  weixinManager.autoStart();
 }
 
 void main();

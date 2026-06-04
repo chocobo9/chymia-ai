@@ -16,7 +16,8 @@
 //
 // Visual ported from directions.css `.set-*`.
 
-import { useEffect, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import QRCode from 'qrcode';
 import type {
   SkillDefinition,
   SopDefinition,
@@ -1045,6 +1046,136 @@ function AccountsPane({ client }: { readonly client: ApiClient }): ReactElement 
   );
 }
 
+/** Phase labels for the personal-WeChat QR login. */
+const WEIXIN_PHASE_LABEL: Readonly<Record<string, string>> = {
+  waiting: '等待扫码…',
+  scanned: '已扫码，请在手机上确认',
+  confirmed: '已确认',
+  expired: '二维码已过期，请重新获取',
+  error: '出错',
+};
+
+/**
+ * 个人微信（扫码登录）— connects a PERSONAL WeChat via Tencent's iLink Bot gateway:
+ * fetch a QR, the user scans it with their WeChat, then the long-poll adapter runs.
+ * No company / public URL / registration. The bot_token never reaches the browser.
+ */
+function WeixinSection({ client }: { readonly client: ApiClient }): ReactElement {
+  const [connected, setConnected] = useState(false);
+  const [qr, setQr] = useState<{ readonly dataUrl: string; readonly payload: string } | null>(null);
+  const [phase, setPhase] = useState<string>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pollingRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client.weixinStatus().then(
+      (s) => !cancelled && setConnected(s.connected),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+      pollingRef.current = false;
+    };
+  }, [client]);
+
+  const poll = useCallback(
+    async (payload: string): Promise<void> => {
+      pollingRef.current = true;
+      while (pollingRef.current) {
+        let res: { status: string; message?: string };
+        try {
+          res = await client.weixinLoginStatus(payload);
+        } catch {
+          res = { status: 'error', message: '网络错误' };
+        }
+        if (!pollingRef.current) break;
+        setPhase(res.status);
+        if (res.status === 'confirmed') {
+          setConnected(true);
+          setQr(null);
+          break;
+        }
+        if (res.status === 'expired' || res.status === 'error') {
+          if (res.status === 'error') setError(res.message ?? '登录出错');
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      pollingRef.current = false;
+    },
+    [client],
+  );
+
+  const startLogin = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setPhase('idle');
+    try {
+      const { qrUrl, qrPayload } = await client.weixinLoginStart();
+      const dataUrl = await QRCode.toDataURL(qrUrl, { width: 200, margin: 1 });
+      setQr({ dataUrl, payload: qrPayload });
+      setPhase('waiting');
+      void poll(qrPayload);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '获取二维码失败');
+    } finally {
+      setBusy(false);
+    }
+  }, [client, poll]);
+
+  const logout = useCallback(async (): Promise<void> => {
+    pollingRef.current = false;
+    try {
+      await client.weixinLogout();
+    } catch {
+      /* best-effort */
+    }
+    setConnected(false);
+    setQr(null);
+    setPhase('idle');
+  }, [client]);
+
+  return (
+    <div className="set-card" data-testid="weixin-section">
+      <div className="set-card-t">个人微信（扫码登录）</div>
+      <div className="set-row-s">
+        用你的<b>个人微信</b>扫码授权（腾讯 iLink），无需企业 / 公网地址 / 注册。消息走 agent 管线。
+        注意：个人微信接机器人是灰色地带，建议用小号。
+      </div>
+      {error !== null && <div className="member-edit-error">{error}</div>}
+      {connected ? (
+        <div className="acct-auth-row" style={{ borderTop: 'none' }}>
+          <span className="acct-auth-status" data-testid="weixin-connected" style={{ color: 'var(--st-idle)' }}>
+            ✓ 已连接
+          </span>
+          <button type="button" className="acct-btn acct-btn--danger" data-testid="weixin-logout" onClick={() => void logout()}>
+            退出登录
+          </button>
+        </div>
+      ) : (
+        <div>
+          <button type="button" className="member-add-btn" data-testid="weixin-login" disabled={busy} onClick={() => void startLogin()}>
+            {busy ? '获取二维码…' : '扫码登录'}
+          </button>
+          {qr !== null && (
+            <div style={{ marginTop: '12px', textAlign: 'center' }}>
+              <img src={qr.dataUrl} alt="微信登录二维码" width={200} height={200} data-testid="weixin-qr" />
+              <div className="set-row-s" data-testid="weixin-phase">{WEIXIN_PHASE_LABEL[phase] ?? '准备中…'}</div>
+              {(phase === 'expired' || phase === 'error') && (
+                <button type="button" className="acct-btn" data-testid="weixin-qr-refresh" onClick={() => void startLogin()}>
+                  重新获取二维码
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * IM 对接 — wire the team to WeCom (企业微信). The user enters the self-built app's
  * corpId/secret + callback token; on the next API restart the adapter mounts its
@@ -1111,6 +1242,7 @@ function WeChatPane({ client }: { readonly client: ApiClient }): ReactElement {
 
   return (
     <div className="set-pane-body" data-testid="settings-im">
+      <WeixinSection client={client} />
       <div className="set-card" data-testid="wechat-form">
         <div className="set-card-t">企业微信（WeCom）对接</div>
         <div className="set-row-s">

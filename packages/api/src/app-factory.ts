@@ -74,6 +74,9 @@ import { AccountStore } from '@choco/api/config/account-store';
 import { resolveAccountEnv } from '@choco/api/config/account-resolver';
 import { defaultAuthCliRunner, type AuthCliRunner } from '@choco/api/config/provider-auth';
 import { WeChatConfigStore } from '@choco/api/config/wechat-config-store';
+import { registerWeixinRoutes } from '@choco/api/routes/weixin-routes';
+import { WeixinManager } from '@choco/api/runtime/weixin-manager';
+import type { WeixinTokenStore } from '@choco/api/config/weixin-token-store';
 import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
 import { registerCatalogRoutes } from '@choco/api/routes/catalog-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
@@ -139,6 +142,13 @@ export interface BuildAppOverrides {
    * Tests inject one at a temp path.
    */
   readonly wechatConfigStore?: WeChatConfigStore;
+  /**
+   * M14b personal-WeChat (iLink) seams. OMITTED ⇒ global fetch + the global token
+   * store (inert until autoStart()/login). Tests inject a fake fetch + a temp token
+   * store so login/poll/send never hit the network or the real ~/.choco.
+   */
+  readonly weixinFetchFn?: typeof globalThis.fetch;
+  readonly weixinTokenStore?: WeixinTokenStore;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
   /**
@@ -236,6 +246,12 @@ export interface BuiltApp {
   readonly submitPlatformMessage: (
     incoming: IncomingPlatformMessage,
   ) => Promise<PlatformIngressResult>;
+  /**
+   * M14b personal-WeChat (iLink) manager — owns the QR login + long-poll adapter.
+   * The composition root calls `weixinManager.autoStart()` after listen to
+   * reconnect a persisted session.
+   */
+  readonly weixinManager: WeixinManager;
   /** Close DB + HTTP + Socket.io (test/shutdown teardown). */
   readonly close: () => Promise<void>;
 }
@@ -435,6 +451,17 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     return { threadId, userId, replies };
   };
 
+  // M14b personal-WeChat (iLink) manager — owns the QR login + long-poll adapter.
+  // Constructed here (needs submitPlatformMessage); its routes are registered now
+  // (before listen). Tests inject one with a fake fetch + temp token store; it
+  // never polls until autoStart()/login (main.ts calls autoStart).
+  const weixinManager = new WeixinManager({
+    submitPlatformMessage,
+    ...(overrides.weixinFetchFn !== undefined ? { fetchFn: overrides.weixinFetchFn } : {}),
+    ...(overrides.weixinTokenStore !== undefined ? { tokenStore: overrides.weixinTokenStore } : {}),
+  });
+  registerWeixinRoutes(api, weixinManager);
+
   const close = async (): Promise<void> => {
     io.close();
     await api.close();
@@ -452,6 +479,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     platformMappingStore,
     sessionStore,
     submitPlatformMessage,
+    weixinManager,
     close,
   };
 }
