@@ -130,6 +130,9 @@
 .sess-ev-tool { font-family: var(--mono); color: var(--hl-kw); }
 .sess-ev-dur { font-family: var(--mono); color: var(--ink-3); }
 .sess-ev--err .sess-ev-body, .sess-ev-body.sess-ev--err { color: var(--st-error); }
+.sess-viewer { display: flex; flex-direction: column; gap: 4px; }
+.sess-viewer-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1px 0 3px; }
+.sess-viewer-t { font-family: var(--mono); font-size: var(--fs-mono-tag); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* audit timeline (reuses .wsp docked shell) */
 .audit-filters { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
@@ -374,6 +377,9 @@
 .sb-audit .audit-t { font-size: var(--fs-mono-tag); color: var(--ink-3); margin-left: auto; white-space: nowrap; flex: 0 0 auto; }
 /* a Session-tab row: [#seq name] tag (grows) + status badge + inline 封存/恢复 */
 .sb-audit .audit-row.sb-sess .audit-tag { flex: 1 1 auto; max-width: none; }
+.sb-session-open { border: none; cursor: pointer; text-align: left; }
+.sb-session-open:hover:not(:disabled) { text-decoration: underline; filter: brightness(1.12); }
+.sb-session-open:disabled { cursor: default; }
 .sb-chain-act { flex: 0 0 auto; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); font-family: var(--font); font-size: var(--fs-mono-tag); font-weight: var(--fw-semi); padding: 2px 8px; border-radius: var(--r-pill); cursor: pointer; }
 .sb-chain-act:hover:not(:disabled) { color: var(--brand); border-color: var(--brand); }
 .sb-chain-act:disabled { opacity: .5; cursor: default; }

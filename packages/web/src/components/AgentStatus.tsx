@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { AgentStatus as AgentStatusValue, AuditEntry, StoredMessage } from '@choco/shared';
 import type { ApiClient, SessionChainEntry } from '../lib/api.js';
+import { SessionTranscriptViewer } from './SessionTranscriptViewer.js';
 import { useAgentStore } from '../stores/agent-store.js';
 import { useChatStore } from '../stores/chat-store.js';
 import { statusPresentation } from './choco/primitives.js';
@@ -151,6 +152,8 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
   const [audit, setAudit] = useState<readonly AuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The session whose transcript is open in the Session tab (null = show the list).
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
 
   const messages = useMemo(
     () => (activeThreadId === null ? [] : messagesByThread[activeThreadId] ?? []),
@@ -223,6 +226,18 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
     [client, activeThreadId],
   );
 
+  // Open a session's transcript (具体发送了什么) inline, switching to the Session tab
+  // so the viewer is visible even when opened from the 搜索 tab's results.
+  const openSession = useCallback((sessionId: string): void => {
+    setOpenSessionId(sessionId);
+    setTab('Session');
+  }, []);
+
+  // Switching threads closes any open transcript — it belonged to the old thread.
+  useEffect(() => {
+    setOpenSessionId(null);
+  }, [activeThreadId]);
+
   const q = query.trim().toLowerCase();
   const matchedAudit = useMemo(
     () => (q.length === 0 ? audit : audit.filter((e) => auditTag(e).label.toLowerCase().includes(q))),
@@ -236,9 +251,17 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
 
   const renderSessionRow = (s: SessionChainEntry): ReactElement => (
     <div className="audit-row sb-sess" data-testid="sb-session-row" data-session={s.sessionId} data-status={s.status} key={s.sessionId}>
-      <span className="audit-tag" title={s.sessionId} style={{ color: colorOf(s.agentId as string) }}>
+      <button
+        type="button"
+        className="audit-tag sb-session-open"
+        data-testid="sb-session-open"
+        title={`查看 ${s.sessionId} 的会话记录`}
+        style={{ color: colorOf(s.agentId as string) }}
+        disabled={client === undefined}
+        onClick={() => openSession(s.sessionId)}
+      >
         #{s.sequenceNo} {nameOf(s.agentId as string)}
-      </span>
+      </button>
       <span className={`sess-badge sess-badge--${s.status}`}>{s.status === 'active' ? '进行中' : '已封存'}</span>
       {s.status === 'active' ? (
         <button
@@ -358,13 +381,23 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
                 )}
 
                 {!noThread && tab === 'Session' && (
-                  <>
-                    {loading && <div className="sb-audit-empty">加载 session…</div>}
-                    {!loading && sessions.length === 0 && (
-                      <div className="sb-audit-empty">该会话还没有 session。</div>
-                    )}
-                    {!loading && sessions.map(renderSessionRow)}
-                  </>
+                  openSessionId !== null && client !== undefined ? (
+                    <SessionTranscriptViewer
+                      sessionId={openSessionId}
+                      client={client}
+                      nameOf={nameOf}
+                      colorOf={colorOf}
+                      onClose={() => setOpenSessionId(null)}
+                    />
+                  ) : (
+                    <>
+                      {loading && <div className="sb-audit-empty">加载 session…</div>}
+                      {!loading && sessions.length === 0 && (
+                        <div className="sb-audit-empty">该会话还没有 session。</div>
+                      )}
+                      {!loading && sessions.map(renderSessionRow)}
+                    </>
+                  )
                 )}
 
                 {!noThread && tab === '搜索' && (

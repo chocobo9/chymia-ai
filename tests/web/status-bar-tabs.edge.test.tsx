@@ -11,7 +11,7 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AuditEntry } from '@choco/shared';
+import type { AuditEntry, SessionEvent } from '@choco/shared';
 import { AgentStatus } from '../../packages/web/src/components/AgentStatus.js';
 import { ApiClient, type SessionChainEntry } from '../../packages/web/src/lib/api.js';
 import { useChatStore } from '../../packages/web/src/stores/chat-store.js';
@@ -29,11 +29,21 @@ const AUDIT: readonly AuditEntry[] = [
   { type: 'tool', agentId: CLAUDE, timestamp: 1_700_000_120_000, toolName: 'Write', durationMs: 42 },
   { type: 'session_seal', agentId: CLAUDE, timestamp: 1_700_000_200_000, sequenceNo: 1 },
 ];
+// Real merged-transcript shape (matches what GET /api/sessions/:id/transcript returns
+// in tests/api/session-routes.test.ts): a `message` event carrying the agent's reply
+// text + a `tool_event` carrying the tool name/duration.
+const TRANSCRIPT: readonly SessionEvent[] = [
+  { kind: 'message', id: 'msg-1', agentId: CLAUDE, timestamp: 1_700_000_110_000, content: '我先写两数之和的哈希解法，再加可视化。' },
+  { kind: 'tool_event', id: 'te-1', agentId: CLAUDE, timestamp: 1_700_000_120_000, toolName: 'Write', durationMs: 42, toolInput: '{"file_path":"two-sum-viz.html"}' },
+];
 
-function fakeClient(over: { sessions?: readonly SessionChainEntry[]; audit?: readonly AuditEntry[] } = {}): ApiClient {
+function fakeClient(
+  over: { sessions?: readonly SessionChainEntry[]; audit?: readonly AuditEntry[]; transcript?: readonly SessionEvent[] } = {},
+): ApiClient {
   const client = new ApiClient({ baseUrl: 'http://test', fetchFn: () => Promise.reject(new Error('no net')) });
   vi.spyOn(client, 'getSessions').mockResolvedValue(over.sessions ?? CHAIN);
   vi.spyOn(client, 'getAudit').mockResolvedValue(over.audit ?? AUDIT);
+  vi.spyOn(client, 'getSessionTranscript').mockResolvedValue(over.transcript ?? TRANSCRIPT);
   vi.spyOn(client, 'sealSession').mockResolvedValue({ status: 'sealed' });
   vi.spyOn(client, 'reopenSession').mockResolvedValue({ status: 'active' });
   return client;
@@ -126,5 +136,56 @@ describe('审计 & Session panel — original Choco design, real data', () => {
     render(<AgentStatus />);
     expect(screen.getByTestId('agent-status')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('该会话还没有可审计的活动。')).toBeInTheDocument());
+  });
+});
+
+// Clicking a session must OPEN its transcript (具体发送了什么) — the row was display-only
+// before. Mirrors Clowder's audit/SessionEventsViewer: click a session → its real
+// messages + tool calls render (fetched via ApiClient.getSessionTranscript).
+describe('Session transcript viewer — click a session row to see what was actually sent', () => {
+  async function openFirstSession(client: ApiClient): Promise<void> {
+    render(<AgentStatus client={client} />);
+    await screen.findAllByTestId('sb-audit-event');
+    await userEvent.click(screen.getByTestId('sb-audit-tab-Session'));
+    const rows = await screen.findAllByTestId('sb-session-open');
+    await userEvent.click(rows[0]);
+  }
+
+  it('[happy] opens the clicked session and renders its real message content + tool call', async () => {
+    const client = fakeClient();
+    await openFirstSession(client);
+
+    await waitFor(() => expect(client.getSessionTranscript).toHaveBeenCalledTimes(1));
+    expect(await screen.findByTestId('session-transcript')).toBeInTheDocument();
+    const events = await screen.findAllByTestId('session-event');
+    expect(events).toHaveLength(2); // one message + one tool_event
+    // The ACTUAL reply text the user couldn't see before is now shown.
+    expect(screen.getByText(/哈希解法/)).toBeInTheDocument();
+    // The tool call that ran is shown too.
+    expect(screen.getByText(/Write/)).toBeInTheDocument();
+  });
+
+  it('[edge] 返回 closes the viewer and restores the session list', async () => {
+    const client = fakeClient();
+    await openFirstSession(client);
+    await screen.findByTestId('session-transcript');
+
+    await userEvent.click(screen.getByTestId('session-viewer-close'));
+
+    expect(screen.queryByTestId('session-transcript')).not.toBeInTheDocument();
+    expect((await screen.findAllByTestId('sb-session-row')).length).toBeGreaterThan(0);
+  });
+
+  it('[edge] a session with an empty transcript shows the honest empty state', async () => {
+    const client = fakeClient({ transcript: [] });
+    await openFirstSession(client);
+    expect(await screen.findByText('这个 session 还没有记录。')).toBeInTheDocument();
+  });
+
+  it('[adversarial] a failing getSessionTranscript surfaces 加载失败, never crashes the panel', async () => {
+    const client = fakeClient();
+    vi.mocked(client.getSessionTranscript).mockRejectedValue(new Error('net down'));
+    await openFirstSession(client);
+    expect(await screen.findByText('会话记录加载失败。')).toBeInTheDocument();
   });
 });
