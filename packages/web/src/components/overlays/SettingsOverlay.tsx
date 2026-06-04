@@ -19,7 +19,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import QRCode from 'qrcode';
 import type {
-  SkillDefinition,
   SopDefinition,
   AccountSummary,
   ClientId,
@@ -34,6 +33,7 @@ import type {
   McpToolEntry,
   NewMemberInput,
   FeishuConfigView,
+  SkillListEntry,
 } from '../../lib/api.js';
 import type { HealthInfo } from '../../hooks/useHealth.js';
 import { useOverlayDismiss } from '../../hooks/useOverlayDismiss.js';
@@ -102,10 +102,22 @@ const ALL_SKILL_CATEGORIES = '全部';
  * skill cards. Read-only browse (editing/preview is a separate, unbuilt concern).
  */
 function SkillPane({ client }: { readonly client: ApiClient }): ReactElement {
-  const [skills, setSkills] = useState<readonly SkillDefinition[] | null>(null);
+  const [skills, setSkills] = useState<readonly SkillListEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [activeCat, setActiveCat] = useState(ALL_SKILL_CATEGORIES);
+
+  // Optimistic toggle: flip locally at once, persist, revert on failure. Enabled
+  // skills are injected into the agent's system prompt on the next turn.
+  const toggle = async (id: string, enabled: boolean): Promise<void> => {
+    setSkills((prev) => prev?.map((s) => (s.id === id ? { ...s, enabled } : s)) ?? null);
+    try {
+      await client.setSkillEnabled(id, enabled);
+    } catch (e) {
+      setSkills((prev) => prev?.map((s) => (s.id === id ? { ...s, enabled: !enabled } : s)) ?? null);
+      setError(e instanceof Error ? e.message : '切换失败');
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -146,7 +158,9 @@ function SkillPane({ client }: { readonly client: ApiClient }): ReactElement {
   return (
     <div className="set-pane-body" data-testid="settings-skill">
       <div className="skill-bar">
-        <span className="set-row-s">{skills.length} 个 skill · 本地清单</span>
+        <span className="set-row-s" data-testid="skill-enabled-count">
+          {skills.length} 个 skill · {skills.filter((s) => s.enabled).length} 已启用（注入 agent）
+        </span>
         <button
           type="button"
           className="skill-sync"
@@ -178,10 +192,20 @@ function SkillPane({ client }: { readonly client: ApiClient }): ReactElement {
 
       {filtered.length === 0 && <div className="set-soon">该分类下没有 skill。</div>}
       {filtered.map((s) => (
-        <div key={s.id} className="set-card" data-testid="skill-row" data-skill={s.id} data-group={s.group}>
+        <div key={s.id} className="set-card" data-testid="skill-row" data-skill={s.id} data-group={s.group} data-enabled={s.enabled ? 'true' : 'false'}>
           <div className="set-card-t">
             {s.id}
             {s.group !== undefined && <span className="schip skill-group">{s.group}</span>}
+            <label className="skill-toggle" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <input
+                type="checkbox"
+                data-testid="skill-toggle"
+                data-skill={s.id}
+                checked={s.enabled}
+                onChange={(e) => void toggle(s.id, e.target.checked)}
+              />
+              <span className="set-row-s">{s.enabled ? '已启用' : '关'}</span>
+            </label>
           </div>
           <div className="set-row-s">{s.description}</div>
           <div className="si-chips">

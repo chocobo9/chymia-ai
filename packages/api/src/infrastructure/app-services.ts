@@ -24,6 +24,7 @@ import type { AgentService } from '@choco/api/providers/base';
 import type { AccountStore } from '@choco/api/config/account-store';
 import type { AuthCliRunner } from '@choco/api/config/provider-auth';
 import type { WeChatConfigStore } from '@choco/api/config/wechat-config-store';
+import type { SkillService } from '@choco/api/skills/skill-service';
 
 /**
  * The wired service bundle shared by all routes. Immutable references — routes
@@ -84,6 +85,11 @@ export interface AppServices {
    * (the list returns `hasApiKey` only).
    */
   readonly accountStore: AccountStore;
+  /**
+   * M11 skill governance — per-skill on/off + the enabled-skill prompt block. The
+   * catalog routes read its list + toggle it; the invoke seam injects its block.
+   */
+  readonly skillService: SkillService;
   /**
    * Provider-auth CLI runner — the seam the OAuth/login routes use to run
    * `claude auth status|login|logout` etc. Default spawns the real CLIs; tests

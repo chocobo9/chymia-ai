@@ -81,6 +81,8 @@ import { registerFeishuRoutes } from '@choco/api/routes/feishu-routes';
 import { FeishuManager, type FeishuAdapterLike } from '@choco/api/runtime/feishu-manager';
 import type { FeishuConfigStore } from '@choco/api/config/feishu-config-store';
 import type { FeishuAdapterDeps } from '@choco/adapters/feishu';
+import { SkillService } from '@choco/api/skills/skill-service';
+import { SkillEnablementStore } from '@choco/api/skills/skill-enablement-store';
 import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
 import { registerCatalogRoutes } from '@choco/api/routes/catalog-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
@@ -160,6 +162,11 @@ export interface BuildAppOverrides {
    */
   readonly feishuStore?: FeishuConfigStore;
   readonly feishuAdapterFactory?: (deps: FeishuAdapterDeps) => FeishuAdapterLike;
+  /**
+   * M11 skill governance service. OMITTED ⇒ a real service over the global enabled
+   * store + on-disk manifest. Tests inject one with a temp store + fake manifest.
+   */
+  readonly skillService?: SkillService;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
   /**
@@ -315,6 +322,11 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   // Provider-auth (OAuth/login) CLI runner. Default spawns the real CLIs; tests
   // inject a fake so the login/logout/status routes never spawn a real login.
   const authRunner = overrides.authRunner ?? defaultAuthCliRunner;
+  // M11 skill governance — per-skill on/off + the enabled-skill prompt block the
+  // invoke seam injects into the system prompt. Default off (opt-in). Tests inject
+  // a service over a temp store + fake manifest/content.
+  const skillService =
+    overrides.skillService ?? new SkillService({ store: new SkillEnablementStore() });
   // M13 WeCom adapter config store (~/.choco/wechat.json). Tests inject one at a
   // temp path so they never read/write the real config.
   const wechatConfigStore = overrides.wechatConfigStore ?? new WeChatConfigStore();
@@ -381,6 +393,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     logger,
     sopService,
     accountStore,
+    skillBlock: () => skillService.block(),
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),
@@ -414,6 +427,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     buildMemberService,
     accountStore,
     authRunner,
+    skillService,
     wechatConfigStore,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
@@ -530,6 +544,8 @@ interface InvokeDeps {
    * to its api_key account (if any) → provider env vars merged into the CLI env.
    */
   readonly accountStore: AccountStore;
+  /** M11: the ENABLED-skill system-prompt block, recomputed per invocation. */
+  readonly skillBlock: () => string;
   /**
    * Structured logger seam for invariant probes ({@link RouteLogger}). Defaults
    * to the silent NOOP_LOGGER in buildApp, so probes are silent in tests unless
@@ -589,7 +605,14 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
     }
     const effectiveContext =
       sopStageHint !== undefined ? { ...context, sopStageHint } : context;
-    const systemPrompt = buildSystemPrompt(effectiveContext, deps.resolveConfig);
+    // M11: append the ENABLED-skill guidance so a toggled-on skill actually reaches
+    // the agent (empty when none enabled → unchanged prompt).
+    const baseSystemPrompt = buildSystemPrompt(effectiveContext, deps.resolveConfig);
+    const skillBlock = deps.skillBlock();
+    const systemPrompt =
+      baseSystemPrompt.length > 0 && skillBlock.length > 0
+        ? `${baseSystemPrompt}\n\n${skillBlock}`
+        : baseSystemPrompt;
 
     const hierarchical = await buildHierarchicalContext({
       messages: history,

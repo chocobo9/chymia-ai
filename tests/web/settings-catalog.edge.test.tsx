@@ -10,16 +10,16 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { SkillDefinition, SopDefinition } from '@choco/shared';
+import type { SopDefinition } from '@choco/shared';
 import { SettingsOverlay } from '../../packages/web/src/components/overlays/SettingsOverlay.js';
-import { ApiClient, type McpToolEntry } from '../../packages/web/src/lib/api.js';
+import { ApiClient, type McpToolEntry, type SkillListEntry } from '../../packages/web/src/lib/api.js';
 import type { HealthInfo } from '../../packages/web/src/hooks/useHealth.js';
 import { useAgentStore } from '../../packages/web/src/stores/agent-store.js';
 import { ROSTER } from './fixtures.js';
 
-const SKILLS: readonly SkillDefinition[] = [
-  { id: 'tdd', description: '测试驱动开发：先写测试再实现。', triggers: ['写新功能', '修 bug'], notFor: ['纯文档'], output: '通过的测试 + 实现', sopStep: 'impl', group: 'dev-chain' },
-  { id: 'expert-panel', description: '多专家分角色评审。', triggers: ['方案对比'], notFor: [], output: '评审结论', sopStep: null, group: 'multi-agent' },
+const SKILLS: readonly SkillListEntry[] = [
+  { id: 'tdd', description: '测试驱动开发：先写测试再实现。', triggers: ['写新功能', '修 bug'], notFor: ['纯文档'], output: '通过的测试 + 实现', sopStep: 'impl', group: 'dev-chain', enabled: false },
+  { id: 'expert-panel', description: '多专家分角色评审。', triggers: ['方案对比'], notFor: [], output: '评审结论', sopStep: null, group: 'multi-agent', enabled: false },
 ];
 const MANUAL = { type: 'manual_only', reason: '人工审查' } as const;
 const SOP: SopDefinition = {

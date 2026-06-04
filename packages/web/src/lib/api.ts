@@ -47,6 +47,11 @@ export interface SessionChainEntry extends Omit<SessionRecord, 'digest'> {
   readonly digest: SessionDigest | null;
 }
 
+/** A skill in the catalog plus its on/off state (GET /api/skills). */
+export interface SkillListEntry extends SkillDefinition {
+  readonly enabled: boolean;
+}
+
 /**
  * TrustStatus — GET/POST /api/trust payload. `workspace` is the directory agents
  * run their CLIs in (null when none is configured); `trusted` gates whether the
@@ -549,18 +554,24 @@ export class ApiClient {
     return data.entries;
   }
 
-  /** GET /api/skills — the skill manifest (M11), read-only. */
-  async listSkills(): Promise<readonly SkillDefinition[]> {
+  /** GET /api/skills — the skill catalog with each skill's on/off state (M11). */
+  async listSkills(): Promise<readonly SkillListEntry[]> {
     const res = await this.fetchFn(this.url('/api/skills'));
-    const data = await parseJson<{ skills: SkillDefinition[] }>(res);
+    const data = await parseJson<{ skills: SkillListEntry[] }>(res);
     return data.skills;
   }
 
   /** POST /api/skills/sync — re-read the local skill manifest from disk. */
-  async syncSkills(): Promise<readonly SkillDefinition[]> {
+  async syncSkills(): Promise<readonly SkillListEntry[]> {
     const res = await this.fetchFn(this.url('/api/skills/sync'), this.jsonInit('POST'));
-    const data = await parseJson<{ skills: SkillDefinition[] }>(res);
+    const data = await parseJson<{ skills: SkillListEntry[] }>(res);
     return data.skills;
+  }
+
+  /** PUT /api/skills/:id/enabled — turn a skill on/off (injected into the agent prompt). */
+  async setSkillEnabled(id: string, enabled: boolean): Promise<void> {
+    const res = await this.fetchFn(this.url(`/api/skills/${id}/enabled`), this.jsonInit('PUT', { enabled }));
+    if (!res.ok) throw new Error(`切换失败 (HTTP ${res.status})`);
   }
 
   /** GET /api/sop — the loaded SOP definition (M12 stages), read-only. */

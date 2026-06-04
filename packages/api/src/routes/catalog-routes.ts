@@ -9,8 +9,8 @@
 // real loaded manifest / definition / tool registry.
 
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import type { AppServices } from '@choco/api/infrastructure/app-services';
-import { loadManifest } from '@choco/api/skills/manifest-loader';
 // The MCP tool DEFS (name + description) come from the mcp-server's tool factories.
 // These modules are SDK-free (only the server entrypoint imports the MCP SDK), so
 // importing them here to CATALOG tool metadata stays light. Handlers are never run.
@@ -44,20 +44,31 @@ function mcpToolCatalog(): McpToolEntry[] {
 
 /** Register the read-only Skill / SOP / MCP catalog routes. */
 export function registerCatalogRoutes(app: FastifyInstance, services: AppServices): void {
-  const { sopService } = services;
+  const { sopService, skillService } = services;
 
+  // GET /api/skills — the catalog WITH each skill's on/off state (enabled skills
+  // are injected into the agent system prompt by the invoke seam).
   app.get('/api/skills', async (_request, reply) => {
-    const manifest = loadManifest();
-    return reply.send({ skills: Object.values(manifest.skills) });
+    return reply.send({ skills: skillService.list() });
   });
 
-  // POST /api/skills/sync — re-load the manifest from disk (picks up edits to
-  // manifest.yaml / skill files) and return the fresh list. Our skills are LOCAL
-  // files (no remote registry), so "同步" = re-read from disk — honest, not a fake
-  // "download from marketplace".
+  // POST /api/skills/sync — re-read the manifest from disk (picks up edits to
+  // manifest.yaml / skill files). Our skills are LOCAL files (no remote registry),
+  // so "同步" = re-read from disk — honest, not a fake "download from marketplace".
   app.post('/api/skills/sync', async (_request, reply) => {
-    const skills = Object.values(loadManifest().skills);
+    const skills = skillService.list();
     return reply.send({ skills, count: skills.length });
+  });
+
+  // PUT /api/skills/:id/enabled — turn a skill on/off. Enabling injects its guidance
+  // into the agent's system prompt on the NEXT turn; disabling removes it.
+  app.put('/api/skills/:id/enabled', async (request, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(request.params);
+    const body = z.object({ enabled: z.boolean() }).safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: 'invalid_params' });
+    const ok = skillService.setEnabled(params.data.id, body.data.enabled);
+    if (!ok) return reply.code(404).send({ error: 'skill_not_found' });
+    return reply.send({ id: params.data.id, enabled: body.data.enabled });
   });
 
   app.get('/api/sop', async (_request, reply) => {
