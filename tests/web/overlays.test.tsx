@@ -201,11 +201,18 @@ describe('SettingsOverlay (设置) — owner gear', () => {
     expect(screen.getByTestId('settings-usage-placeholder')).toHaveTextContent('未接入');
   });
 
-  it('unbacked panes (账户/Skill/MCP) render honest placeholders, not fabricated data', async () => {
-    await mountApp();
+  it('账户与密钥 now renders the real AccountsPane (BYOK), not a 未接入 placeholder', async () => {
+    // The account feature wired a real pane into this nav (was a stub). With no
+    // accounts configured the pane shows its honest empty-state, not a SoonCard.
+    const { client } = await mountApp();
+    vi.spyOn(client, 'listAccounts').mockResolvedValue([]);
     await userEvent.click(screen.getByTestId('owner-gear'));
     await userEvent.click(screen.getByTestId('settings-nav-accounts'));
-    expect(screen.getByTestId('settings-soon')).toHaveTextContent('未接入');
+    expect(screen.getByTestId('settings-accounts')).toBeInTheDocument();
+    expect(screen.getByTestId('account-create-form')).toBeInTheDocument();
+    expect(await screen.findByTestId('accounts-empty')).toBeInTheDocument();
+    // It is NOT the honest-placeholder card anymore.
+    expect(screen.queryByTestId('settings-soon')).not.toBeInTheDocument();
   });
 
   it('closes from the close button, leaving the core workspace intact underneath', async () => {

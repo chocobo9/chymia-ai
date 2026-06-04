@@ -48,6 +48,7 @@ export interface SopDefinition {
   id: string;
   domain: string;
   label: string;
+  description?: string; // 这套 SOP 怎么被消费（如"hint 告示牌，非硬 gate"）— 设置页展示
   stages: SopStage[];
 }
 

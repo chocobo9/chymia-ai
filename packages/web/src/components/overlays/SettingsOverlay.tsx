@@ -17,9 +17,21 @@
 // Visual ported from directions.css `.set-*`.
 
 import { useEffect, useState, type ReactElement } from 'react';
-import type { SkillDefinition, SopDefinition } from '@choco/shared';
+import type {
+  SkillDefinition,
+  SopDefinition,
+  AccountSummary,
+  ClientId,
+  ProviderAuthStatus,
+} from '@choco/shared';
 import { useAgentStore } from '../../stores/agent-store.js';
-import type { AgentRosterEntry, AgentUpdatePatch, ApiClient, McpToolEntry, NewMemberInput } from '../../lib/api.js';
+import type {
+  AgentRosterEntry,
+  AgentUpdatePatch,
+  ApiClient,
+  McpToolEntry,
+  NewMemberInput,
+} from '../../lib/api.js';
 import type { HealthInfo } from '../../hooks/useHealth.js';
 import { useOverlayDismiss } from '../../hooks/useOverlayDismiss.js';
 import { Avatar, StatusDot, statusPresentation, shortName, modelBadge } from '../choco/primitives.js';
@@ -180,7 +192,40 @@ function SkillPane({ client }: { readonly client: ApiClient }): ReactElement {
   );
 }
 
-/** 规则与 SOP — read-only view of the loaded SOP definition + its stages (M12). */
+/** A severity badge for a SOP rule/pitfall (blocker = 阻断, warn = 警告). */
+function SevBadge({ severity }: { readonly severity: 'blocker' | 'warn' }): ReactElement {
+  return <span className={`sop-sev sop-sev--${severity}`}>{severity === 'blocker' ? '阻断' : '警告'}</span>;
+}
+
+/** A labelled list of SOP rules (硬规则 / 常见坑) with severity + text. */
+function SopRuleList({
+  title,
+  rules,
+  testid,
+}: {
+  readonly title: string;
+  readonly rules: SopDefinition['stages'][number]['hardRules'];
+  readonly testid: string;
+}): ReactElement | null {
+  if (rules.length === 0) return null;
+  return (
+    <div className="sop-rules">
+      <div className="sop-rules-h">{title}</div>
+      {rules.map((r) => (
+        <div key={r.id} className="sop-rule" data-testid={testid}>
+          <SevBadge severity={r.severity} />
+          <span className="sop-rule-t">{r.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 规则与 SOP (M12) — the loaded SOP, Clowder-style: a consumption note (the SOP is a
+ * hint 告示牌, NOT a hard gate) + each stage's ACTUAL hard rules + pitfalls with their
+ * text and severity (not just counts). Read-only.
+ */
 function SopPane({ client }: { readonly client: ApiClient }): ReactElement {
   const [sop, setSop] = useState<SopDefinition | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -194,35 +239,43 @@ function SopPane({ client }: { readonly client: ApiClient }): ReactElement {
       cancelled = true;
     };
   }, [client]);
-  if (error !== null) return <div className="set-soon">加载失败：{error}</div>;
-  if (sop === null) return <div className="set-soon">加载中…</div>;
+  if (sop === null) {
+    return <div className="set-soon">{error !== null ? `加载失败：${error}` : '加载中…'}</div>;
+  }
   return (
     <div className="set-pane-body" data-testid="settings-rules">
       <div className="set-card">
-        <div className="set-card-t">{sop.label}</div>
-        <div className="set-row-s">
-          {sop.domain} · {sop.stages.length} 个阶段
+        <div className="set-card-t">
+          {sop.label} <span className="set-mono dim">{sop.domain}</span>
+        </div>
+        {sop.description !== undefined && (
+          <div className="set-row-s" data-testid="sop-consumption">{sop.description}</div>
+        )}
+        <div className="si-chips">
+          <span className="schip">{sop.stages.length} 阶段</span>
         </div>
       </div>
       {sop.stages.map((st) => (
         <div key={st.id} className="set-card" data-testid="sop-stage" data-stage={st.id}>
           <div className="set-card-t">
             {st.label} <span className="set-mono dim">{st.id}</span>
+            {st.suggestedSkill !== undefined && (
+              <span className="schip skill-group">skill · {st.suggestedSkill}</span>
+            )}
           </div>
-          {st.suggestedSkill !== undefined && (
-            <div className="set-row-s">建议 skill：{st.suggestedSkill}</div>
-          )}
-          <div className="si-chips">
-            <span className="schip">{st.hardRules.length} 条硬规则</span>
-            <span className="schip">{st.pitfalls.length} 个坑</span>
-          </div>
+          <SopRuleList title="硬规则" rules={st.hardRules} testid="sop-rule" />
+          <SopRuleList title="常见坑" rules={st.pitfalls} testid="sop-pitfall" />
         </div>
       ))}
     </div>
   );
 }
 
-/** MCP 管理 — read-only catalog of the MCP tools agents can call (M10). */
+/**
+ * MCP 管理 (M10) — Clowder-style server-centric: the tools the agents can call are
+ * grouped UNDER their MCP server. We ship ONE built-in stdio server (choco mcp-server);
+ * external MCP install/config is honestly noted as not-yet-backed.
+ */
 function McpPane({ client }: { readonly client: ApiClient }): ReactElement {
   const [tools, setTools] = useState<readonly McpToolEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -236,16 +289,26 @@ function McpPane({ client }: { readonly client: ApiClient }): ReactElement {
       cancelled = true;
     };
   }, [client]);
-  if (error !== null) return <div className="set-soon">加载失败：{error}</div>;
-  if (tools === null) return <div className="set-soon">加载中…</div>;
+  if (tools === null) {
+    return <div className="set-soon">{error !== null ? `加载失败：${error}` : '加载中…'}</div>;
+  }
   return (
     <div className="set-pane-body" data-testid="settings-mcp">
-      {tools.map((t) => (
-        <div key={t.name} className="set-card" data-testid="mcp-tool" data-tool={t.name}>
-          <div className="set-card-t set-mono">{t.name}</div>
-          <div className="set-row-s">{t.description}</div>
+      <div className="set-card mcp-server" data-testid="mcp-server" data-server="builtin">
+        <div className="set-card-t">
+          内置 MCP 服务 <span className="schip">{tools.length} 工具</span>
         </div>
-      ))}
+        <div className="set-row-s set-mono dim">stdio · node（choco mcp-server）</div>
+        <div className="mcp-tools">
+          {tools.map((t) => (
+            <div key={t.name} className="mcp-tool" data-testid="mcp-tool" data-tool={t.name}>
+              <span className="set-mono mcp-tool-n">{t.name}</span>
+              <span className="set-row-s">{t.description}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="set-soon">仅内置 MCP 服务；外部 MCP 的安装 / 配置尚未接入后端。</div>
     </div>
   );
 }
@@ -642,6 +705,342 @@ export interface SettingsOverlayProps {
   readonly socketConnected: boolean;
 }
 
+/** Provider labels for the account pane (clientId → human name). */
+const ACCOUNT_PROVIDER_LABEL: Readonly<Record<ClientId, string>> = {
+  anthropic: 'Claude (Anthropic)',
+  openai: 'Codex (OpenAI)',
+  google: 'Gemini (Google)',
+};
+
+/** One account card: shows the masked state + inline key-update + delete. */
+function AccountCard(props: {
+  readonly account: AccountSummary;
+  readonly onSaveKey: (id: string, apiKey: string) => Promise<void>;
+  readonly onDelete: (id: string) => Promise<void>;
+}): ReactElement {
+  const { account, onSaveKey, onDelete } = props;
+  const [key, setKey] = useState('');
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="set-card" data-testid="account-row" data-account={account.id} data-client={account.clientId}>
+      <div className="set-card-t">
+        {account.displayName}
+        <span className="schip">{ACCOUNT_PROVIDER_LABEL[account.clientId]}</span>
+        <span className="schip">{account.authType === 'api_key' ? 'API Key' : 'OAuth'}</span>
+        <span
+          className="schip"
+          data-testid="account-haskey"
+          data-haskey={account.hasApiKey ? 'true' : 'false'}
+          style={{ color: account.hasApiKey ? 'var(--st-idle)' : 'var(--ink-3)' }}
+        >
+          {account.hasApiKey ? '✓ 已配置密钥' : '无密钥'}
+        </span>
+      </div>
+      {account.baseUrl !== undefined && account.baseUrl.length > 0 && (
+        <div className="set-mono dim" data-testid="account-baseurl">{account.baseUrl}</div>
+      )}
+      {account.models !== undefined && account.models.length > 0 && (
+        <div className="si-chips">
+          {account.models.map((m) => (
+            <span key={m} className="schip">{m}</span>
+          ))}
+        </div>
+      )}
+      <div className="acct-row">
+        <input
+          className="acct-input"
+          type="password"
+          autoComplete="off"
+          placeholder={account.hasApiKey ? '输入新密钥以替换' : '粘贴 API key，如 sk-…'}
+          data-testid="account-key-input"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <button
+          type="button"
+          className="acct-btn"
+          data-testid="account-key-save"
+          disabled={saving || key.trim().length === 0}
+          onClick={() => {
+            setSaving(true);
+            void onSaveKey(account.id, key.trim()).finally(() => {
+              setSaving(false);
+              setKey('');
+            });
+          }}
+        >
+          {saving ? '保存中…' : '保存密钥'}
+        </button>
+        <button
+          type="button"
+          className="acct-btn acct-btn--danger"
+          data-testid="account-delete"
+          onClick={() => void onDelete(account.id)}
+        >
+          删除
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Human status line for one provider's OAuth/login state. */
+function authStatusLabel(p: ProviderAuthStatus): string {
+  if (!p.available) return `未安装 ${p.cli}`;
+  if (p.loggedIn === true) return p.detail !== undefined ? `✓ 已登录 · ${p.detail}` : '✓ 已登录';
+  if (p.loggedIn === false) return '未登录';
+  return p.detail ?? '状态未知';
+}
+
+/**
+ * 订阅 / OAuth 登录 — the login half of 账户与密钥. Each provider authenticates via its
+ * OWN CLI (claude 订阅、codex、gemini Google OAuth); we surface its login status and
+ * trigger `login`/`logout`. The browser flow is the CLI's; the user finishes it
+ * there, then 刷新. gemini has no CLI login (OAuth is implicit) — we say so honestly.
+ */
+function ProviderAuthSection({ client }: { readonly client: ApiClient }): ReactElement {
+  const [providers, setProviders] = useState<readonly ProviderAuthStatus[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<ClientId | null>(null);
+
+  const load = (): void => {
+    void client.getAuthStatus().then(
+      (p) => setProviders(p),
+      (e) => setError(e instanceof Error ? e.message : '加载失败'),
+    );
+  };
+  useEffect(() => {
+    let cancelled = false;
+    void client.getAuthStatus().then(
+      (p) => !cancelled && setProviders(p),
+      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const act = async (id: ClientId, fn: () => Promise<void>): Promise<void> => {
+    setBusyId(id);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '操作失败');
+    } finally {
+      setBusyId(null);
+      load();
+    }
+  };
+
+  return (
+    <div className="set-card" data-testid="provider-auth">
+      <div className="set-card-t">订阅 / OAuth 登录</div>
+      <div className="set-row-s">
+        用 provider 自己的账号登录（claude 订阅 / codex / gemini）。登录在浏览器里完成，完成后点「刷新」看状态。
+        这是 API key 之外的另一条路：已登录就不必再填 key。
+      </div>
+      {error !== null && <div className="member-edit-error">{error}</div>}
+      {providers === null && <div className="set-soon">加载登录状态…</div>}
+      {providers?.map((p) => (
+        <div
+          className="acct-auth-row"
+          data-testid="provider-auth-row"
+          data-client={p.clientId}
+          data-loggedin={String(p.loggedIn)}
+          key={p.clientId}
+        >
+          <span className="acct-auth-name">{ACCOUNT_PROVIDER_LABEL[p.clientId]}</span>
+          <span
+            className="acct-auth-status"
+            style={{ color: p.loggedIn === true ? 'var(--st-idle)' : 'var(--ink-3)' }}
+          >
+            {authStatusLabel(p)}
+          </span>
+          {p.available && p.supportsLogin && p.loggedIn === true && (
+            <button
+              type="button"
+              className="acct-btn acct-btn--danger"
+              data-testid="provider-logout"
+              disabled={busyId === p.clientId}
+              onClick={() => void act(p.clientId, () => client.providerLogout(p.clientId))}
+            >
+              {busyId === p.clientId ? '…' : '登出'}
+            </button>
+          )}
+          {p.available && p.supportsLogin && p.loggedIn !== true && (
+            <button
+              type="button"
+              className="acct-btn"
+              data-testid="provider-login"
+              disabled={busyId === p.clientId}
+              onClick={() => void act(p.clientId, () => client.providerLogin(p.clientId))}
+            >
+              {busyId === p.clientId ? '启动中…' : '登录'}
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        className="acct-btn"
+        data-testid="provider-auth-refresh"
+        onClick={load}
+        style={{ marginTop: '8px' }}
+      >
+        ↻ 刷新状态
+      </button>
+    </div>
+  );
+}
+
+/**
+ * 账户与密钥 — provider accounts (Anthropic/OpenAI/Google) with optional BYOK keys.
+ * The key is write-only: the list shows `hasApiKey` only, never the key. A saved
+ * key is injected into that provider's CLI spawn env on the next turn.
+ */
+function AccountsPane({ client }: { readonly client: ApiClient }): ReactElement {
+  const [accounts, setAccounts] = useState<readonly AccountSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [clientId, setClientId] = useState<ClientId>('openai');
+  const [displayName, setDisplayName] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void client.listAccounts().then(
+      (a) => !cancelled && setAccounts(a),
+      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const reload = async (): Promise<void> => {
+    try {
+      setAccounts(await client.listAccounts());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载失败');
+    }
+  };
+
+  const create = async (): Promise<void> => {
+    if (displayName.trim().length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.createAccount({
+        clientId,
+        displayName: displayName.trim(),
+        ...(apiKey.length > 0 ? { apiKey } : {}),
+        ...(baseUrl.trim().length > 0 ? { baseUrl: baseUrl.trim() } : {}),
+      });
+      setDisplayName('');
+      setApiKey('');
+      setBaseUrl('');
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '创建失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveKey = async (id: string, key: string): Promise<void> => {
+    try {
+      await client.updateAccount(id, { apiKey: key });
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存失败');
+    }
+  };
+
+  const remove = async (id: string): Promise<void> => {
+    // eslint-disable-next-line no-alert -- deleting a credential deserves a confirm
+    if (!window.confirm(`删除账户「${id}」及其密钥？此操作不可撤销。`)) return;
+    try {
+      await client.deleteAccount(id);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '删除失败');
+    }
+  };
+
+  return (
+    <div className="set-pane-body" data-testid="settings-accounts">
+      <ProviderAuthSection client={client} />
+      <div className="set-card" data-testid="account-create-form">
+        <div className="set-card-t">添加账户（API Key）</div>
+        <div className="set-row-s">
+          为某个 provider 配置 API key（BYOK）。密钥只写不读：保存后只显示「已配置」，下一轮该
+          agent 的 CLI 会带上它。不填密钥 = 仍用该 CLI 自己的登录。
+        </div>
+        <div className="acct-form">
+          <select
+            className="acct-input"
+            data-testid="account-clientid"
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value as ClientId)}
+          >
+            {(['anthropic', 'openai', 'google'] as const).map((c) => (
+              <option key={c} value={c}>
+                {ACCOUNT_PROVIDER_LABEL[c]}
+              </option>
+            ))}
+          </select>
+          <input
+            className="acct-input"
+            placeholder="账户显示名，如 my-openai"
+            data-testid="account-displayname"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+          <input
+            className="acct-input"
+            placeholder="Base URL（可选，自建/代理端点）"
+            data-testid="account-baseurl-input"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+          <input
+            className="acct-input"
+            type="password"
+            autoComplete="off"
+            placeholder="API key（可选），如 sk-…"
+            data-testid="account-apikey"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          <button
+            type="button"
+            className="member-add-btn"
+            data-testid="account-create-submit"
+            disabled={busy || displayName.trim().length === 0}
+            onClick={() => void create()}
+          >
+            {busy ? '创建中…' : '＋ 创建账户'}
+          </button>
+        </div>
+      </div>
+
+      {error !== null && <div className="member-edit-error">{error}</div>}
+
+      {accounts === null && <div className="set-soon">加载中…</div>}
+      {accounts !== null && accounts.length === 0 && (
+        <div className="set-soon" data-testid="accounts-empty">
+          还没有配置任何 provider 账户。agent 当前各自使用 CLI 的环境鉴权。
+        </div>
+      )}
+      {accounts?.map((a) => (
+        <AccountCard key={a.id} account={a} onSaveKey={saveKey} onDelete={remove} />
+      ))}
+    </div>
+  );
+}
+
 /** The full settings surface. */
 export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
   const { onClose, client, health, socketConnected } = props;
@@ -788,7 +1187,7 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
       );
       break;
     case 'accounts':
-      pane = <SoonCard note="账户与密钥管理尚未接入后端，无法在此读取或编辑真实凭据。" />;
+      pane = <AccountsPane client={client} />;
       break;
     case 'skill':
       pane = <SkillPane client={client} />;

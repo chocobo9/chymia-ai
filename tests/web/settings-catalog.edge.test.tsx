@@ -8,7 +8,7 @@
 
 import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { SkillDefinition, SopDefinition } from '@choco/shared';
 import { SettingsOverlay } from '../../packages/web/src/components/overlays/SettingsOverlay.js';
@@ -21,11 +21,21 @@ const SKILLS: readonly SkillDefinition[] = [
   { id: 'tdd', description: '测试驱动开发：先写测试再实现。', triggers: ['写新功能', '修 bug'], notFor: ['纯文档'], output: '通过的测试 + 实现', sopStep: 'impl', group: 'dev-chain' },
   { id: 'expert-panel', description: '多专家分角色评审。', triggers: ['方案对比'], notFor: [], output: '评审结论', sopStep: null, group: 'multi-agent' },
 ];
+const MANUAL = { type: 'manual_only', reason: '人工审查' } as const;
 const SOP: SopDefinition = {
-  id: 'dev', domain: 'software', label: '研发 SOP',
+  id: 'dev',
+  domain: 'engineering',
+  label: '研发 SOP',
+  description: 'hint 告示牌，非硬 gate。',
   stages: [
-    { id: 'kickoff', label: '立项', suggestedSkill: 'planner', hardRules: [{ rule: 'r1' }], pitfalls: [] },
-    { id: 'impl', label: '实现', hardRules: [], pitfalls: [{ rule: 'p1' }] },
+    {
+      id: 'kickoff',
+      label: '立项',
+      suggestedSkill: 'planner',
+      hardRules: [{ id: 'k1', text: 'spec 必须有 AC checklist', severity: 'blocker', predicate: MANUAL }],
+      pitfalls: [{ id: 'kp', text: '没确认就直接动手', severity: 'warn', predicate: MANUAL }],
+    },
+    { id: 'impl', label: '实现', hardRules: [], pitfalls: [] },
   ] as unknown as SopDefinition['stages'],
 };
 const MCP_TOOLS: readonly McpToolEntry[] = [
@@ -95,23 +105,31 @@ describe('settings catalogs — Skill / SOP / MCP (read-only real data)', () => 
     expect(client.syncSkills).toHaveBeenCalledTimes(1);
   });
 
-  it('[happy] MCP 管理 lists the real tool catalog (name + description)', async () => {
+  it('[happy] MCP 管理 groups the real tools under the built-in server card', async () => {
     renderSettings();
     await userEvent.click(screen.getByTestId('settings-nav-mcp'));
-    const tools = await screen.findAllByTestId('mcp-tool');
+    const server = await screen.findByTestId('mcp-server');
+    expect(server).toHaveAttribute('data-server', 'builtin');
+    expect(within(server).getByText('内置 MCP 服务')).toBeInTheDocument();
+    const tools = within(server).getAllByTestId('mcp-tool');
     expect(tools).toHaveLength(2);
     expect(screen.getByText('post_message')).toBeInTheDocument();
     expect(screen.getByText('list_session_chain')).toBeInTheDocument();
   });
 
-  it('[edge] 规则与 SOP shows the definition label + each stage with its rule/pitfall counts', async () => {
+  it('[edge] 规则与 SOP shows the consumption note + each stage rule/pitfall TEXT with severity', async () => {
     renderSettings();
     await userEvent.click(screen.getByTestId('settings-nav-rules'));
     const stages = await screen.findAllByTestId('sop-stage');
     expect(stages).toHaveLength(2);
     expect(screen.getByText('研发 SOP')).toBeInTheDocument();
-    expect(screen.getByText('1 条硬规则')).toBeInTheDocument(); // kickoff has 1 hard rule
-    expect(screen.getByText('建议 skill：planner')).toBeInTheDocument();
+    // The consumption note (how the SOP is used — a hint, not a gate).
+    expect(screen.getByTestId('sop-consumption')).toHaveTextContent('hint 告示牌');
+    // The ACTUAL rule + pitfall text (not just counts) + severity badge.
+    const rule = screen.getByTestId('sop-rule');
+    expect(rule).toHaveTextContent('spec 必须有 AC checklist');
+    expect(within(rule).getByText('阻断')).toBeInTheDocument(); // blocker severity
+    expect(screen.getByTestId('sop-pitfall')).toHaveTextContent('没确认就直接动手');
   });
 
   it('[edge] each pane fetches its OWN catalog only when opened (not all up front)', async () => {

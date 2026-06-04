@@ -269,6 +269,21 @@
 .skill-cat.on { color: #fff; background: var(--brand); border-color: var(--brand); }
 .skill-group { margin-left: 8px; color: var(--ink-3); background: var(--soft); }
 
+/* 规则与 SOP — per-stage rule/pitfall lists with severity (Clowder RulesPrompts parity) */
+.sop-rules { margin-top: 10px; }
+.sop-rules-h { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 5px; }
+.sop-rule { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+.sop-rule-t { font-size: 12.5px; color: var(--ink-2); }
+.sop-sev { flex: 0 0 auto; font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: var(--r-pill); }
+.sop-sev--blocker { color: var(--st-error, #c0392b); background: color-mix(in oklab, var(--st-error, #c0392b) 12%, transparent); }
+.sop-sev--warn { color: #b9744a; background: color-mix(in oklab, #b9744a 14%, transparent); }
+
+/* MCP 管理 — tools grouped under their server (Clowder McpManage parity) */
+.mcp-server .mcp-tools { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.mcp-tool { display: flex; flex-direction: column; gap: 1px; padding: 6px 0; }
+.mcp-tool + .mcp-tool { border-top: 1px solid color-mix(in oklab, var(--line) 60%, transparent); }
+.mcp-tool-n { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+
 /* members */
 .set-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .member-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); padding: 16px; box-shadow: var(--bubble-shadow); }

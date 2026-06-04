@@ -30,6 +30,9 @@ import type {
   AuditEntry,
   SkillDefinition,
   SopDefinition,
+  AccountSummary,
+  AuthType,
+  ProviderAuthStatus,
 } from '@choco/shared';
 
 /** One MCP tool's catalog entry (GET /api/mcp/tools). */
@@ -51,6 +54,25 @@ export interface SessionChainEntry extends Omit<SessionRecord, 'digest'> {
 export interface TrustStatus {
   readonly workspace: string | null;
   readonly trusted: boolean;
+}
+
+/** Body for POST /api/accounts (create a provider account, optional BYOK key). */
+export interface CreateAccountBody {
+  readonly clientId: ClientId;
+  readonly authType?: AuthType;
+  readonly displayName: string;
+  readonly baseUrl?: string;
+  readonly models?: readonly string[];
+  readonly apiKey?: string;
+}
+
+/** Body for PATCH /api/accounts/:id (empty apiKey string clears the stored key). */
+export interface UpdateAccountBody {
+  readonly displayName?: string;
+  readonly authType?: AuthType;
+  readonly baseUrl?: string;
+  readonly models?: readonly string[];
+  readonly apiKey?: string;
 }
 import { webConfig } from './config.js';
 
@@ -357,6 +379,55 @@ export class ApiClient {
   async setTrust(trust: boolean): Promise<TrustStatus> {
     const res = await this.fetchFn(this.url('/api/trust'), this.jsonInit('POST', { trust }));
     return parseJson<TrustStatus>(res);
+  }
+
+  /** GET /api/accounts — provider accounts, MASKED (hasApiKey only, never the key). */
+  async listAccounts(): Promise<readonly AccountSummary[]> {
+    const res = await this.fetchFn(this.url('/api/accounts'));
+    const data = await parseJson<{ accounts: AccountSummary[] }>(res);
+    return data.accounts;
+  }
+
+  /** POST /api/accounts — create a provider account (+ optional BYOK apiKey). */
+  async createAccount(input: CreateAccountBody): Promise<AccountSummary> {
+    const res = await this.fetchFn(this.url('/api/accounts'), this.jsonInit('POST', input));
+    const data = await parseJson<{ account: AccountSummary }>(res);
+    return data.account;
+  }
+
+  /** PATCH /api/accounts/:id — update metadata and/or the apiKey. */
+  async updateAccount(id: string, input: UpdateAccountBody): Promise<AccountSummary> {
+    const res = await this.fetchFn(this.url(`/api/accounts/${id}`), this.jsonInit('PATCH', input));
+    const data = await parseJson<{ account: AccountSummary }>(res);
+    return data.account;
+  }
+
+  /** DELETE /api/accounts/:id — remove the account and its stored secret. */
+  async deleteAccount(id: string): Promise<void> {
+    await this.fetchFn(this.url(`/api/accounts/${id}`), this.jsonInit('DELETE'));
+  }
+
+  /** GET /api/auth — each provider CLI's OAuth/subscription login status. */
+  async getAuthStatus(): Promise<readonly ProviderAuthStatus[]> {
+    const res = await this.fetchFn(this.url('/api/auth'));
+    const data = await parseJson<{ providers: ProviderAuthStatus[] }>(res);
+    return data.providers;
+  }
+
+  /** POST /api/auth/:clientId/login — trigger the provider CLI's browser login. */
+  async providerLogin(clientId: ClientId): Promise<void> {
+    const res = await this.fetchFn(this.url(`/api/auth/${clientId}/login`), this.jsonInit('POST'));
+    if (res.ok) return;
+    const body = (await res.json().catch(() => ({}))) as { reason?: string };
+    throw new Error(body.reason ?? `登录启动失败 (HTTP ${res.status})`);
+  }
+
+  /** POST /api/auth/:clientId/logout — trigger the provider CLI's logout. */
+  async providerLogout(clientId: ClientId): Promise<void> {
+    const res = await this.fetchFn(this.url(`/api/auth/${clientId}/logout`), this.jsonInit('POST'));
+    if (res.ok) return;
+    const body = (await res.json().catch(() => ({}))) as { reason?: string };
+    throw new Error(body.reason ?? `登出失败 (HTTP ${res.status})`);
   }
 
   /** GET /api/audit/thread/:id — the per-thread audit timeline (replies/tools/seals). */

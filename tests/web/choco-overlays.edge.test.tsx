@@ -550,11 +550,14 @@ describe('SettingsOverlay (设置)', () => {
   });
 
   it('[adv] the STILL-unbacked settings panes show 未接入 placeholders, never fabricated data', async () => {
-    await mountApp();
+    const { client } = await mountApp();
+    // 账户与密钥 is now a REAL backed pane (BYOK accounts) — stub its load so the
+    // pane reaches a stable empty-state (asserted in its own test below).
+    vi.spyOn(client, 'listAccounts').mockResolvedValue([]);
     await userEvent.click(screen.getByTestId('owner-gear'));
-    // Skill / MCP / 规则SOP are now wired to real catalogs (see settings-catalog.edge).
-    // These three have no backend yet, so they stay honest 未接入 placeholders.
-    for (const nav of ['accounts', 'market', 'notif'] as const) {
+    // Skill / MCP / 规则SOP / 账户 are now wired to real backends. 能力市场 / 通知 have
+    // no backend yet, so they stay honest 未接入 placeholders.
+    for (const nav of ['market', 'notif'] as const) {
       await userEvent.click(screen.getByTestId(`settings-nav-${nav}`));
       expect(screen.getByTestId('settings-soon')).toHaveTextContent('未接入');
     }
@@ -562,6 +565,16 @@ describe('SettingsOverlay (设置)', () => {
     await userEvent.click(screen.getByTestId('settings-nav-ops'));
     expect(screen.getByTestId('settings-usage-placeholder')).toHaveTextContent('未接入');
     expect(within(screen.getByTestId('settings-ops')).queryByText(/128k/)).not.toBeInTheDocument();
+  });
+
+  it('[adv] 账户与密钥 renders the real AccountsPane (not a 未接入 placeholder)', async () => {
+    const { client } = await mountApp();
+    vi.spyOn(client, 'listAccounts').mockResolvedValue([]);
+    await userEvent.click(screen.getByTestId('owner-gear'));
+    await userEvent.click(screen.getByTestId('settings-nav-accounts'));
+    expect(screen.getByTestId('settings-accounts')).toBeInTheDocument();
+    expect(await screen.findByTestId('accounts-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-soon')).not.toBeInTheDocument();
   });
 });
 

@@ -50,10 +50,16 @@ describe('catalog routes — Skill / SOP / MCP (read-only, real data)', () => {
     const res = await makeApp().api.inject({ method: 'GET', url: '/api/sop' });
     expect(res.statusCode).toBe(200);
     const { sop } = res.json<{
-      sop: { label: string; domain: string; stages: { id: string; label: string; hardRules: unknown[]; pitfalls: unknown[] }[] };
+      sop: { label: string; domain: string; description?: string; stages: { id: string; label: string; hardRules: { text: string; severity: string }[]; pitfalls: unknown[] }[] };
     }>();
     expect(sop.label.length).toBeGreaterThan(0);
     expect(sop.stages.length).toBeGreaterThan(0);
+    // The consumption note is surfaced now (was parsed-but-dropped).
+    expect(typeof sop.description).toBe('string');
+    // Stage rules carry real text + severity (not just counts).
+    const withRule = sop.stages.find((s) => s.hardRules.length > 0);
+    expect(withRule?.hardRules[0].text.length).toBeGreaterThan(0);
+    expect(['blocker', 'warn']).toContain(withRule?.hardRules[0].severity);
   });
 
   it('GET /api/mcp/tools returns the real MCP tool catalog (name + description)', async () => {

@@ -14,3 +14,4 @@ export * from './types/context.js';
 export * from './types/hierarchical-context.js';
 export * from './types/platform.js';
 export * from './types/routing.js';
+export * from './types/account.js';

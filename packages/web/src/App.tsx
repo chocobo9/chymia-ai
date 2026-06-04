@@ -223,8 +223,24 @@ export function App(props: AppProps = {}): ReactElement {
 
   const sendMessage = useCallback(
     async (content: string) => {
-      if (activeThreadId === null) return;
-      const threadId = activeThreadId;
+      // No active thread → auto-create one and use it RIGHT NOW. The empty state
+      // invites "下达指令" directly, and the backend ensureThread's on first message
+      // anyway; the composer must not be dead until a thread is hand-picked. We use
+      // the returned id directly (setActiveThread is async — can't read it back this
+      // tick); the socket effect joins the new room on the next render.
+      let threadId = activeThreadId;
+      if (threadId === null) {
+        try {
+          const thread = await client.createThread();
+          upsertThread(thread);
+          setActiveThread(thread.id);
+          setMessages(thread.id, []);
+          threadId = thread.id;
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'create failed');
+          return;
+        }
+      }
       // Bug 1: insert the user message optimistically so it shows AT ONCE — not
       // only after the (post-turn, ~10-30s) POST resolves. The agent reply then
       // streams in via agent_event; on POST resolve we swap the temp message for
@@ -245,7 +261,17 @@ export function App(props: AppProps = {}): ReactElement {
         setSending(false);
       }
     },
-    [client, activeThreadId, addOptimisticUserMessage, replaceOptimisticMessage, removeMessage, reconcileReplies],
+    [
+      client,
+      activeThreadId,
+      addOptimisticUserMessage,
+      replaceOptimisticMessage,
+      removeMessage,
+      reconcileReplies,
+      upsertThread,
+      setActiveThread,
+      setMessages,
+    ],
   );
 
   // Open/reveal a workspace file an agent wrote (diff-block affordances). Uses the
@@ -417,7 +443,6 @@ export function App(props: AppProps = {}): ReactElement {
           <div className="app__composer">
             <ChatInput
               onSend={(content) => void sendMessage(content)}
-              disabled={activeThreadId === null}
               busy={sending}
               onCancel={handleStop}
               lockedAgentId={lockedAgentId}

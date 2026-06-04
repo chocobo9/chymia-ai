@@ -202,16 +202,18 @@ describe('§D system_info notice → a VISIBLE notice bubble', () => {
     expect(notice).toHaveAttribute('data-agent', 'codex-gpt');
   });
 
-  it('edge: a system_info notice clears any in-flight streaming buffer too', async () => {
+  it('edge: a system_info about ANOTHER agent surfaces a notice but does NOT wipe a live stream (parallel-safe)', async () => {
+    // Parallel @all reality: an unavailable-agent (codex) notice must NOT clear a
+    // DIFFERENT agent's (claude) in-flight stream — that was the "输出到一半消失" bug.
     const { socket } = await mountApp();
     await selectDefaultThread();
     act(() => socket.fire('agent_event', textFrame(CLAUDE, '流式…', 1)));
     await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
     act(() => socket.fire('agent_event', systemInfoFrame(CODEX, CODEX_NOTICE, 9)));
-    await waitFor(() =>
-      expect(screen.queryByTestId('streaming-indicator')).not.toBeInTheDocument(),
-    );
-    expect(screen.getByTestId('transcript-notice')).toHaveTextContent(CODEX_NOTICE);
+    // The notice appears…
+    expect(await screen.findByTestId('transcript-notice')).toHaveTextContent(CODEX_NOTICE);
+    // …and Claude's live stream survives (codex's notice only clears codex).
+    expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument();
   });
 });
 

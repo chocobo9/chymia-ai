@@ -21,6 +21,8 @@ import type { AgentOverrideStore } from '@choco/api/config/agent-overrides';
 import type { RuntimeRosterStore } from '@choco/api/config/runtime-roster';
 import type { AgentConfig } from '@choco/shared';
 import type { AgentService } from '@choco/api/providers/base';
+import type { AccountStore } from '@choco/api/config/account-store';
+import type { AuthCliRunner } from '@choco/api/config/provider-auth';
 
 /**
  * The wired service bundle shared by all routes. Immutable references — routes
@@ -74,6 +76,19 @@ export interface AppServices {
    * without a restart. In tests it defaults to a no-op (registration-only) service.
    */
   readonly buildMemberService: (config: AgentConfig) => AgentService;
+  /**
+   * M-ACCOUNT provider-account store (~/.choco accounts.json + credentials.json).
+   * The account routes CRUD it; the invoke seam reads it to inject the agent's
+   * provider API key into the CLI spawn env. Secrets never cross the read API
+   * (the list returns `hasApiKey` only).
+   */
+  readonly accountStore: AccountStore;
+  /**
+   * Provider-auth CLI runner — the seam the OAuth/login routes use to run
+   * `claude auth status|login|logout` etc. Default spawns the real CLIs; tests
+   * inject a fake that returns canned status + records the commands.
+   */
+  readonly authRunner: AuthCliRunner;
   readonly socket: SocketManager;
   /**
    * Structured logger for non-fatal route notes (the same {@link RouteLogger}

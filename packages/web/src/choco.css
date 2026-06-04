@@ -506,3 +506,29 @@ body { margin: 0; }
 .trust-foot {
   margin: 14px 0 0; font-size: var(--fs-meta); color: var(--ink-3);
 }
+
+/* ── 账户与密钥 pane (provider accounts + BYOK keys) ──────────────────────────── */
+.acct-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.acct-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.acct-input {
+  flex: 1 1 auto; min-width: 0; padding: 7px 10px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm);
+  font-family: var(--font); font-size: var(--fs-body); color: var(--ink);
+}
+.acct-input:focus { outline: none; border-color: var(--brand); }
+.acct-btn {
+  flex: 0 0 auto; padding: 7px 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink);
+  font-family: var(--font); font-size: var(--fs-body); cursor: pointer;
+}
+.acct-btn:not(:disabled):hover { border-color: var(--brand); }
+.acct-btn:disabled { opacity: .55; cursor: not-allowed; }
+.acct-btn--danger { color: var(--st-error); }
+.acct-btn--danger:hover { border-color: var(--st-error); }
+.acct-auth-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.acct-auth-row:first-of-type { border-top: none; }
+.acct-auth-name { font-weight: var(--fw-semi); color: var(--ink); min-width: 140px; }
+.acct-auth-status { flex: 1 1 auto; font-size: var(--fs-secondary); }

@@ -470,8 +470,10 @@ describe('empty / honest states + deferred controls', () => {
     // The center main-bar title shows the unselected label (it also appears in
     // the status bar's Thread row, so scope to .main-title here).
     expect(document.querySelector('.main-title')).toHaveTextContent('未选择会话');
-    // Composer is disabled until a thread is active.
-    expect(screen.getByTestId('chat-input-textarea')).toBeDisabled();
+    // Composer is ENABLED even with no thread selected: the empty state invites
+    // "下达指令" directly, and sending auto-creates a thread (App.sendMessage), so
+    // the input must not be dead until a thread is hand-picked.
+    expect(screen.getByTestId('chat-input-textarea')).not.toBeDisabled();
   });
 });
 

@@ -102,6 +102,7 @@ export function loadSopDefinition(path: string): SopDefinition {
     id: raw.id,
     domain: raw.domain,
     label: raw.label,
+    ...(raw.description !== undefined ? { description: raw.description } : {}),
     stages: raw.stages.map(mapStage),
   };
 }

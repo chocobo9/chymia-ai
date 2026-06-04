@@ -2,7 +2,7 @@
 //
 // Spawns BOTH halves of the running system together and streams their logs with
 // a per-process prefix:
-//   - API  : `npx tsx packages/api/src/main.ts`         (the composition root)
+//   - API  : `npx tsx watch packages/api/src/main.ts`   (composition root; auto-reloads)
 //   - WEB  : `pnpm --filter @choco/web dev`           (the Vite dev server)
 //
 // Run with:  pnpm app    (root package.json script)  — or  node scripts/launch.mjs
@@ -57,8 +57,14 @@ const childEnv = { ...process.env, CHOCO_WORKSPACE: workspace };
 const procs = [
   {
     label: 'api',
+    // `tsx watch` (not bare `tsx`): auto-restart the API on a backend source edit,
+    // matching the web's Vite HMR. Without it the API process freezes at its start
+    // code, so a newly-added route 404s in the browser even though the source has
+    // it (the "GET /api/accounts not found while the new UI renders" papercut).
+    // tsx owns the inner restart, so the parent stays alive — the crash supervisor
+    // below is NOT consumed by edits. Only re-runs on file save (no thrash at idle).
     command: 'npx',
-    args: ['tsx', 'packages/api/src/main.ts'],
+    args: ['tsx', 'watch', 'packages/api/src/main.ts'],
   },
   {
     label: 'web',

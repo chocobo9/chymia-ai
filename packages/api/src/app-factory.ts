@@ -67,6 +67,11 @@ import { registerAgentRoutes } from '@choco/api/routes/agent-routes';
 import { registerEvidenceRoutes } from '@choco/api/routes/evidence-routes';
 import { registerSessionRoutes } from '@choco/api/routes/session-routes';
 import { registerTrustRoutes } from '@choco/api/routes/trust-routes';
+import { registerAccountRoutes } from '@choco/api/routes/account-routes';
+import { registerAuthRoutes } from '@choco/api/routes/auth-routes';
+import { AccountStore } from '@choco/api/config/account-store';
+import { resolveAccountEnv } from '@choco/api/config/account-resolver';
+import { defaultAuthCliRunner, type AuthCliRunner } from '@choco/api/config/provider-auth';
 import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
 import { registerCatalogRoutes } from '@choco/api/routes/catalog-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
@@ -115,6 +120,18 @@ export interface BuildAppOverrides {
    * members without real CLIs. main.ts injects the real provider factory.
    */
   readonly buildMemberService?: (config: AgentConfig) => AgentService;
+  /**
+   * M-ACCOUNT provider-account store. OMITTED ⇒ a real {@link AccountStore} over
+   * the global ~/.choco files. Tests inject one pointed at a temp dir so they
+   * never read/write the real credentials.
+   */
+  readonly accountStore?: AccountStore;
+  /**
+   * Provider-auth CLI runner seam (OAuth/login routes). OMITTED ⇒ the real
+   * cross-spawn runner. Tests inject a fake so login/logout/status assert the
+   * dispatched commands WITHOUT spawning a real CLI or a browser.
+   */
+  readonly authRunner?: AuthCliRunner;
   /** Sandbox root for read_file callbacks. Defaults to the repo cwd. */
   readonly fileRoot?: string;
   /**
@@ -253,6 +270,12 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   });
   const sessionMutex = new SessionMutex();
   const invocations = new InvocationRegistry({ now });
+  // M-ACCOUNT: global provider-account store (~/.choco). Default reads the real
+  // global files; tests inject one pointed at a temp dir.
+  const accountStore = overrides.accountStore ?? new AccountStore();
+  // Provider-auth (OAuth/login) CLI runner. Default spawns the real CLIs; tests
+  // inject a fake so the login/logout/status routes never spawn a real login.
+  const authRunner = overrides.authRunner ?? defaultAuthCliRunner;
 
   // --- Agent roster + registry (services injected; fakes win in tests) -------
   // 成员增删: the roster is agents.yaml (base) PLUS any runtime-added members,
@@ -315,6 +338,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     now,
     logger,
     sopService,
+    accountStore,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),
@@ -346,6 +370,8 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     agentOverrides: agentOverrideStore,
     runtimeRoster,
     buildMemberService,
+    accountStore,
+    authRunner,
     ...(overrides.defaultWorkspace !== undefined
       ? { defaultWorkspace: overrides.defaultWorkspace }
       : {}),
@@ -358,6 +384,8 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   registerThreadRoutes(api, appServices);
   registerSessionRoutes(api, appServices);
   registerTrustRoutes(api, appServices);
+  registerAccountRoutes(api, appServices);
+  registerAuthRoutes(api, appServices);
   registerAuditRoutes(api, appServices);
   registerMessageRoutes(api, appServices);
   registerAgentRoutes(api, appServices);
@@ -428,6 +456,11 @@ interface InvokeDeps {
   readonly resolveConfig: ResolveAgentConfig;
   readonly apiBaseUrl: string;
   readonly now: () => number;
+  /**
+   * M-ACCOUNT provider-account store. At spawn time the agent's clientId resolves
+   * to its api_key account (if any) → provider env vars merged into the CLI env.
+   */
+  readonly accountStore: AccountStore;
   /**
    * Structured logger seam for invariant probes ({@link RouteLogger}). Defaults
    * to the silent NOOP_LOGGER in buildApp, so probes are silent in tests unless
@@ -528,6 +561,15 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
         invocationId: record.invocationId,
         callbackToken: record.callbackToken,
       });
+    }
+
+    // M-ACCOUNT: inject the provider API key for this agent's clientId (if the
+    // user configured an api_key account). Merged into the spawn env so the real
+    // claude/codex/gemini CLI reads ANTHROPIC_API_KEY / OPENAI_API_KEY /
+    // GEMINI_API_KEY. No account (or an oauth account) → nothing injected → the
+    // CLI uses its own ambient login (opt-in, never hijacks a subscription).
+    if (cfg !== undefined) {
+      Object.assign(callbackEnv, resolveAccountEnv(deps.accountStore, cfg.clientId));
     }
 
     const agentService: AgentService = deps.registry.getService(agentId);
