@@ -69,6 +69,13 @@ export interface CliLineStream {
   readonly lines: AsyncIterable<string>;
   /** stdout 流结束 + 进程收尾后 resolve 的退出信息 */
   readonly exit: Promise<CliExitInfo>;
+  /**
+   * 主动 SIGTERM 子进程。供 service 在「逻辑回合已完成」（如 claude 收到
+   * result/success）后**提前回收**进程，不必在关键路径 `await exit` 干等慢收尾
+   * （Windows + --mcp-config 的 MCP 子进程收尾会拖）。幂等：进程已退出则 no-op。
+   * 调用后 `exit` 仍会照常 resolve（'close' 触发 settleExit 清理定时器/监听）。
+   */
+  readonly kill: () => void;
 }
 
 /**
@@ -219,5 +226,12 @@ export function spawnCliLineStream(params: CliSpawnParams): CliLineStream {
     child.stdin.end();
   }
 
-  return { lines: iterateLines(), exit };
+  // Proactive reclaim handle: SIGTERM the child (idempotent — once settled, no-op).
+  const kill = (): void => {
+    if (!exitSettled) {
+      child.kill('SIGTERM');
+    }
+  };
+
+  return { lines: iterateLines(), exit, kill };
 }

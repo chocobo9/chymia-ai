@@ -215,7 +215,7 @@ describe('parseClaudeLine — adversarial', () => {
       JSON.stringify({ type: 'result', subtype: 'success' }),
     ]);
     expect(state.sessionId).toBe('sess-resilient-7');
-    expect(messages.map((m) => m.type)).toEqual(['session_init', 'text']);
+    expect(messages.map((m) => m.type)).toEqual(['session_init', 'text', 'done']);
     expect(messages[1].content).toBe('继续输出');
   });
 

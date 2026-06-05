@@ -194,8 +194,10 @@ function transformResult(
 ): ParseResult {
   const subtype = asString(event.subtype);
   if (subtype === 'success' || subtype === undefined) {
-    // 成功（或无 subtype 的普通 result）不产生用户可见消息；done 由 service 在收尾时发。
-    return { messages: [], state };
+    // 成功（或无 subtype 的普通 result）= 本轮逻辑回合结束 → emit `done`。这样 service
+    // 能在「逻辑回复完成」时立即收尾、提前回收子进程，而不必 `await` 进程退出——避免
+    // claude(--mcp-config) 慢收尾长时间攥着 SessionMutex / 卡住 route-serial 的接龙链。
+    return { messages: [makeMessage(deps, 'done', { isFinal: true }, state.model)], state };
   }
   // 优先取 errors 数组，其次 error/result 字符串，最后用 subtype 兜底。
   const errors = asArray(event.errors)

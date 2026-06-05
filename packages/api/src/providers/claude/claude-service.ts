@@ -111,6 +111,11 @@ export interface ClaudeServiceDeps {
   readonly permissionMode?: ClaudePermissionMode;
   /** 时间源（测试确定性） */
   readonly now?: () => number;
+  /**
+   * 注入 spawn 实现（默认真实 {@link spawnCliLineStream}）。测试用 fake 控制
+   * lines/exit/kill，以验证 done 时机（逻辑回合结束即收尾，不干等进程退出）。
+   */
+  readonly spawn?: typeof spawnCliLineStream;
 }
 
 /** 把多模态 contentBlocks 渲染为附加在 prompt 后的文本说明（图片走 --add-dir 由上层处理） */
@@ -171,6 +176,7 @@ export class ClaudeAgentService implements AgentService {
   private readonly defaultTimeoutMs: number;
   private readonly permissionMode: string;
   private readonly now: () => number;
+  private readonly spawnStream: typeof spawnCliLineStream;
 
   constructor(deps: ClaudeServiceDeps) {
     this.agentId = deps.agentId;
@@ -183,6 +189,7 @@ export class ClaudeAgentService implements AgentService {
     assertValidPermissionMode(permissionMode);
     this.permissionMode = permissionMode;
     this.now = deps.now ?? Date.now;
+    this.spawnStream = deps.spawn ?? spawnCliLineStream;
   }
 
   /** Claude Code 支持把 system prompt 作为原生参数注入 */
@@ -201,7 +208,7 @@ export class ClaudeAgentService implements AgentService {
   ): AsyncIterable<AgentMessage> {
     const model = options?.model ?? this.defaultModel;
     const args = buildArgs(prompt, options, this.defaultModel, this.permissionMode);
-    const { lines, exit } = spawnCliLineStream({
+    const { lines, exit, kill } = this.spawnStream({
       command: this.command,
       args,
       cwd: options?.workingDirectory,
@@ -213,14 +220,34 @@ export class ClaudeAgentService implements AgentService {
     let state: ParserState = createClaudeParserState();
     const deps = { agentId: this.agentId, now: this.now, model };
 
+    let sawDone = false;
     for await (const line of lines) {
       const result = parseClaudeLine(line, state, deps);
       state = result.state;
       for (const msg of result.messages) {
         yield msg;
+        if (msg.type === 'done') {
+          sawDone = true;
+        }
+      }
+      // result/success → 本轮逻辑回合结束。立即停止消费 stdout，不让 `for await` 在
+      // cli-spawn 的 `await waitForClose()` 上干等进程关闭（claude 的 MCP 子进程收尾慢）。
+      if (sawDone) {
+        break;
       }
     }
 
+    if (sawDone) {
+      // 逻辑回复已完整产出（done 已 yield）。提前回收进程：SIGTERM + 让 exit 在后台
+      // resolve 收尾（清理定时器/监听），不在关键路径 await——这样上游 SessionMutex 立刻
+      // 释放、route-serial 立刻接力下一个 agent（修「@all 只有第一个 agent 回」）。
+      kill();
+      void exit;
+      return;
+    }
+
+    // 流在没有 result/success 的情况下结束（崩溃 / abort / 非零退出）→ 用退出信息收尾，
+    // 由 finalizeStream 区分 error（异常退出）与 done（干净退出但无 result，少见）。
     const info = await exit;
     yield* finalizeStream(info, {
       agentId: this.agentId,

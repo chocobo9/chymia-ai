@@ -266,15 +266,18 @@ describe('claude-parser (unit, happy path)', () => {
     });
   });
 
-  it('skips successful result (no user-visible message)', () => {
-    // Arrange
+  it('emits done on a successful result (logical turn completion)', () => {
+    // Arrange — result/success marks the turn logically complete. The parser now
+    // emits `done` here so the service finishes + reclaims the process immediately,
+    // instead of blocking until the slow CLI process exit (the @all-serial stall).
     const frame = JSON.stringify({ type: 'result', subtype: 'success' });
 
     // Act
     const { messages } = run([frame]);
 
     // Assert
-    expect(messages).toHaveLength(0);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ type: 'done', isFinal: true });
   });
 
   it('parses a full realistic stream in order', () => {
@@ -291,7 +294,7 @@ describe('claude-parser (unit, happy path)', () => {
     const { messages } = run(lines);
 
     // Assert
-    expect(messages.map((m) => m.type)).toEqual(['session_init', 'text', 'text', 'tool_use']);
+    expect(messages.map((m) => m.type)).toEqual(['session_init', 'text', 'text', 'tool_use', 'done']);
   });
 
   it('transformClaudeEvent is pure: same input twice yields equal output', () => {
