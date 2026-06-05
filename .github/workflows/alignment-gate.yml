@@ -1,0 +1,22 @@
+name: alignment-gate
+# 本地 commit-msg hook 能被 git commit --no-verify 绕过；这一层在 push 到
+# main / PR 时再验一遍 HEAD 提交，绕不过去。它不阻止 push，但会把违规提交
+# 标红并留下审计记录。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  alignment-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # 需要 HEAD~1 才能 diff 出本次改动的文件
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 校验对齐证据 trailer
+        run: node .harness/validate-commit.mjs --ci

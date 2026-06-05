@@ -25,7 +25,11 @@ data/
 # not ours to publish. Excluded from the repo.
 reference/
 # Orchestrator-internal scaffolding (build state, gate output, handoff log) — NOT for upload.
-.harness/
+# Ignore everything under .harness EXCEPT the alignment-gate scripts, which must be
+# version-controlled so CI (.github/workflows/alignment-gate.yml) can run them.
+.harness/*
+!.harness/check-alignment.mjs
+!.harness/validate-commit.mjs
 # Project governance / task spec — internal, not published.
 CLAUDE.md
 PROJECT_SPEC.md

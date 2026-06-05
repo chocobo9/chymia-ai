@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node "$(git rev-parse --show-toplevel)/.harness/validate-commit.mjs" "$1"
