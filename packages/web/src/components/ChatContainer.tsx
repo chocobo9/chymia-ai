@@ -12,6 +12,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from 'react';
 import type { AgentId, StoredMessage } from '@choco/shared';
+import { BROADCAST_MENTIONS } from '@choco/shared';
 import {
   useChatStore,
   type StreamingMessage,
@@ -128,17 +129,39 @@ function streamingToView(
   };
 }
 
-interface UserBubbleProps {
-  readonly message: StoredMessage;
+/**
+ * The REAL recipient label for a user message — the agents it was actually
+ * addressed to. Was hardcoded "@all" for EVERY message, which lied about routing
+ * (an "@gemini" message went only to gemini, not @all). Now: the parsed @mentions
+ * (resolved to display names), else "@all" only when the text truly broadcasts,
+ * else null (no explicit target → default routing → no label).
+ */
+function recipientLabel(message: StoredMessage, roster: readonly AgentRosterEntry[]): string | null {
+  if (message.mentions.length > 0) {
+    return message.mentions
+      .map((id) => `@${roster.find((a) => a.id === (id as string))?.displayName ?? (id as string)}`)
+      .join(' ');
+  }
+  const lower = message.content.toLowerCase();
+  if (BROADCAST_MENTIONS.some((token) => lower.includes(token.toLowerCase()))) return '@all';
+  return null;
 }
 
-function UserBubble({ message }: UserBubbleProps): ReactElement {
+interface UserBubbleProps {
+  readonly message: StoredMessage;
+  readonly roster: readonly AgentRosterEntry[];
+}
+
+function UserBubble({ message, roster }: UserBubbleProps): ReactElement {
+  const to = recipientLabel(message, roster);
   return (
     <div className="msg-user" data-testid="user-message">
       <div className="ubub chat-message__text">{message.content}</div>
-      <div className="umeta">
-        <span className="to">@all</span>
-      </div>
+      {to !== null && (
+        <div className="umeta">
+          <span className="to" data-testid="user-message-to">{to}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -329,7 +352,7 @@ export function ChatContainer({ onRevealFile, onLoadFile }: ChatContainerProps =
           }
           const message = item.message;
           if (message.agentId === null) {
-            return <UserBubble key={message.id} message={message} />;
+            return <UserBubble key={message.id} message={message} roster={roster} />;
           }
           if (message.origin === 'system') {
             // A persisted unavailable-agent / system notice renders as a notice

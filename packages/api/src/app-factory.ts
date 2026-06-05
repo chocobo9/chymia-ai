@@ -285,6 +285,14 @@ export interface BuiltApp {
 const DEFAULT_DB_PATH = 'choco.db';
 
 /**
+ * Cap on the input text recorded in the `invoked` audit event. The full effective
+ * prompt (history context + user message) can be large; we store a bounded prefix
+ * so the audit row stays sane while still letting the user SEE what each agent
+ * actually received (the prior gap: invocations recorded no input at all).
+ */
+const AUDIT_INPUT_MAX_CHARS = 4000;
+
+/**
  * Silent default logger — used when no {@link RouteLogger} is injected. Matches
  * the AgentRouter's own behavior (silent when omitted), so wiring this default
  * does not change observable behavior; it only gives routes a non-undefined sink
@@ -790,6 +798,13 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       mode: context.mode,
       ...(context.chainIndex !== undefined ? { chainIndex: context.chainIndex } : {}),
       ...(context.chainTotal !== undefined ? { chainTotal: context.chainTotal } : {}),
+      // 本回合这个 agent 实际收到的输入 = effectivePrompt（层级上下文 + 用户消息；serial
+      // 链里还含前序队友回复）。截断防审计行过大。让用户在审计里直接看到「它收到了什么」，
+      // 尤其多 agent 时能逐个核对各自的输入（之前 invoked 完全不记输入）。
+      prompt:
+        effectivePrompt.length > AUDIT_INPUT_MAX_CHARS
+          ? `${effectivePrompt.slice(0, AUDIT_INPUT_MAX_CHARS)}…[截断 ${effectivePrompt.length - AUDIT_INPUT_MAX_CHARS} 字]`
+          : effectivePrompt,
     });
 
     // Tally this turn's output for invariant 4 (productive-invocation probe).

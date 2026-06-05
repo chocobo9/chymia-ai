@@ -67,6 +67,10 @@ describe('GET /api/audit/thread/:id — emitted audit events (happy)', () => {
     const invoked = events.find((e) => e.type === 'invoked');
     expect(invoked?.data).toMatchObject({ agentId: 'claude-opus', mode: 'serial' });
     expect(typeof invoked?.data.invocationId).toBe('string');
+    // The agent's INPUT is recorded on `invoked` — so the user can see what each
+    // agent actually received (prior gap: invocations carried no input at all).
+    expect(typeof invoked?.data.prompt).toBe('string');
+    expect(invoked?.data.prompt as string).toContain('写个可视化');
 
     const responded = events.find((e) => e.type === 'responded');
     expect(responded?.data).toMatchObject({ agentId: 'claude-opus', toolCalls: 1 });

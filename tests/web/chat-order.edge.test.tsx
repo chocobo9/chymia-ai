@@ -67,4 +67,24 @@ describe('ChatContainer — chronological merge of persisted + streaming + notic
     // Chronological by timestamp — the live stream (B) sits between the persisted A and C.
     expect(order).toEqual(['A', 'B', 'C', 'D']);
   });
+
+  it('[regression] a user bubble shows the REAL recipient (@gemini), not a hardcoded @all', () => {
+    useChatStore.setState({
+      threads: [],
+      activeThreadId: THREAD,
+      messagesByThread: {
+        [THREAD]: [
+          // An @gemini message: mentions=[gemini-pro] → label should name gemini, not @all.
+          { id: 'm-g', threadId: THREAD, userId: 'user', agentId: null, content: '@gemini 读这个目录', mentions: [GEMINI], origin: 'user', timestamp: 100 },
+        ],
+      },
+      streamingByThread: {},
+      noticesByThread: {},
+    });
+
+    const { getByTestId } = render(<ChatContainer />);
+    const to = getByTestId('user-message-to').textContent ?? '';
+    expect(to).toContain('Gemini'); // resolved to gemini's display name
+    expect(to).not.toBe('@all'); // the old hardcoded lie is gone
+  });
 });
