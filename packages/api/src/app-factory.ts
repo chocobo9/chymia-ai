@@ -264,6 +264,7 @@ export interface BuiltApp {
    */
   readonly submitPlatformMessage: (
     incoming: IncomingPlatformMessage,
+    opts?: { readonly onTextDelta?: (agentId: AgentId, text: string) => void },
   ) => Promise<PlatformIngressResult>;
   /**
    * M14b personal-WeChat (iLink) manager — owns the QR login + long-poll adapter.
@@ -469,6 +470,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   // returning the collected replies for the adapter to send back to the platform.
   const submitPlatformMessage = async (
     incoming: IncomingPlatformMessage,
+    opts?: { readonly onTextDelta?: (agentId: AgentId, text: string) => void },
   ): Promise<PlatformIngressResult> => {
     const threadId = await platformMappingStore.resolveThread(
       incoming.adapterName,
@@ -478,10 +480,15 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
       incoming.adapterName,
       incoming.platformUserId,
     );
+    // Platform users are off-web → mirror their inbound message to live web clients
+    // (broadcastInbound). Phase 2: forward per-agent text deltas to the adapter's
+    // optional sink so it can drive a 飞书 streaming card; omitted → unchanged.
     const { replies } = await handleThreadMessage(appServices, {
       threadId,
       userId,
       content: incoming.text,
+      broadcastInbound: true,
+      ...(opts?.onTextDelta !== undefined ? { onTextDelta: opts.onTextDelta } : {}),
     });
     return { threadId, userId, replies };
   };

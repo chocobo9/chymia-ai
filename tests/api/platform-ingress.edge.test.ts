@@ -267,3 +267,81 @@ describe('HTTP-vs-ingress behavior parity (adversarial on the refactor)', () => 
     expect(ingressResult.replies[0]?.agentId).toBe(CLAUDE);
   });
 });
+
+describe('onTextDelta seam is pure-increment (edge + regression on the Phase-2 change)', () => {
+  // The dev added an optional `onTextDelta` to HandleThreadMessageInput +
+  // submitPlatformMessage. The 飞书 adapter uses it; the HTTP route + the WeChat /
+  // Telegram adapters do NOT pass it. These prove the seam is byte-for-byte
+  // unchanged when the option is OMITTED, and that — when PASSED — it observes
+  // exactly the chunks that compose the persisted reply (no extra, no drop).
+
+  it('[regression] submitPlatformMessage WITHOUT onTextDelta persists/returns IDENTICALLY to WITH it', async () => {
+    const replyText = '已收到，正在评估层级上下文的截断策略。';
+    const content = '@claude-opus 评估一下截断策略';
+
+    const without = injectApp({ 'claude-opus': [replyScript(CLAUDE, replyText)] });
+    const withDelta = injectApp({ 'claude-opus': [replyScript(CLAUDE, replyText)] });
+
+    const r1 = await without.submitPlatformMessage(wechatIncoming(content));
+    const seen: string[] = [];
+    const r2 = await withDelta.submitPlatformMessage(wechatIncoming(content), {
+      onTextDelta: (_agentId, text) => seen.push(text),
+    });
+
+    // Same returned replies (agent, content) in both calls — the option is inert to output.
+    const project = (rs: StoredMessage[]): ReadonlyArray<readonly [AgentId | null, string]> =>
+      rs.map((r) => [r.agentId, r.content] as const);
+    expect(project(r2.replies)).toEqual(project(r1.replies));
+    expect(r2.replies[0]?.content).toBe(replyText);
+
+    // Same persisted transcript shape (origin, agentId, content) on each thread.
+    const projectStored = (m: StoredMessage): readonly [string, AgentId | null, string] => [
+      m.origin ?? 'user',
+      m.agentId,
+      m.content,
+    ];
+    const h1 = (await without.stores.messageStore.getByThread(r1.threadId)).map(projectStored);
+    const h2 = (await withDelta.stores.messageStore.getByThread(r2.threadId)).map(projectStored);
+    expect(h2).toEqual(h1);
+
+    // And the sink observed exactly the chunk(s) that compose the reply (replyScript
+    // emits the whole reply as ONE text event → the concatenation equals the reply).
+    expect(seen.join('')).toBe(replyText);
+    expect(seen.length).toBeGreaterThan(0);
+  });
+
+  it('[regression] the HTTP POST route still works (it never passes onTextDelta) — proves the seam is opt-in', async () => {
+    const replyText = '路由层不传 onTextDelta，行为不变。';
+    const app = injectApp({ 'claude-opus': [replyScript(CLAUDE, replyText)] });
+
+    const res = await app.api.inject({
+      method: 'POST',
+      url: '/api/threads/thread_http_seam/messages',
+      payload: { content: '@claude-opus 这条走 HTTP' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const hist = await app.stores.messageStore.getByThread('thread_http_seam');
+    const reply = hist.find((m) => m.origin === 'stream');
+    expect(reply?.agentId).toBe(CLAUDE);
+    expect(reply?.content).toBe(replyText);
+  });
+
+  it('[edge] onTextDelta is invoked PER streamed agent with that agent’s own chunks (multi-agent fan-out)', async () => {
+    const app = injectApp({
+      'claude-opus': [replyScript(CLAUDE, 'Claude 的部分。')],
+      'codex-gpt': [replyScript(CODEX, 'Codex 的部分。')],
+    });
+
+    const byAgent = new Map<AgentId, string>();
+    await app.submitPlatformMessage(wechatIncoming('@claude @codex 一起看下'), {
+      onTextDelta: (agentId, text) => {
+        byAgent.set(agentId, (byAgent.get(agentId) ?? '') + text);
+      },
+    });
+
+    // Each agent's accumulated deltas equal its own reply — never cross-attributed.
+    expect(byAgent.get(CLAUDE)).toBe('Claude 的部分。');
+    expect(byAgent.get(CODEX)).toBe('Codex 的部分。');
+  });
+});

@@ -12,6 +12,9 @@ import type { FeishuManager } from '@choco/api/runtime/feishu-manager';
 const ConfigBodySchema = z.object({
   appId: z.string().max(120).optional(),
   enabled: z.boolean().optional(),
+  // 飞书 China (open.feishu.cn) vs Lark International (open.larksuite.com) — picks
+  // the long-connection gateway. Wrong region → WS error 1000040351.
+  domain: z.enum(['feishu', 'lark']).optional(),
   // Empty string CLEARS the stored secret; omitted leaves it unchanged.
   appSecret: z.string().max(512).optional(),
 });

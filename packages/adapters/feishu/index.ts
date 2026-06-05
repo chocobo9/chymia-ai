@@ -3,16 +3,19 @@
 export {
   createFeishuAdapter,
   FeishuAdapter,
+  contentForIngress,
   type FeishuAdapterDeps,
   type SubmitPlatformMessage,
   type IngressResult,
   type AdapterLogger,
+  type LarkChannelLike,
+  type ChannelFactory,
+  type FetchFn,
 } from './feishu-adapter.js';
 
 export {
-  FeishuTokenCache,
-  sendFeishuText,
-  parseFeishuEvent,
-  type FetchFn,
-  type FeishuInbound,
-} from './feishu-client.js';
+  FEISHU_RECEIPT_LINES,
+  pickReceiptLine,
+} from './feishu-receipt-lines.js';
+
+export { AsyncChunkQueue } from './async-chunk-queue.js';

@@ -11,16 +11,27 @@ import { globalConfigPath } from '@choco/api/config/global-config';
 const FEISHU_FILE = 'feishu.json';
 const SECRET_FILE_MODE = 0o600;
 
+/**
+ * Which open-platform region the app lives on — picks the long-connection gateway
+ * domain. 'feishu' = 飞书 China (open.feishu.cn); 'lark' = Lark International
+ * (open.larksuite.com). A wrong choice fails the WS handshake with Feishu error
+ * `1000040351 Incorrect domain name` at pullConnectConfig. Default 'feishu'.
+ */
+export type FeishuDomain = 'feishu' | 'lark';
+const DEFAULT_DOMAIN: FeishuDomain = 'feishu';
+
 interface StoredFeishuConfig {
   readonly appId?: string;
   readonly appSecret?: string;
   readonly enabled?: boolean;
+  readonly domain?: FeishuDomain;
 }
 
-/** The full creds the manager wires (both present). */
+/** The full creds the manager wires (both present, + resolved domain). */
 export interface FeishuCreds {
   readonly appId: string;
   readonly appSecret: string;
+  readonly domain: FeishuDomain;
 }
 
 /** The MASKED view the GET route returns (no secret). */
@@ -28,6 +39,7 @@ export interface FeishuConfigView {
   readonly appId: string;
   readonly enabled: boolean;
   readonly hasAppSecret: boolean;
+  readonly domain: FeishuDomain;
   /** enabled && appId && appSecret present → would connect. */
   readonly ready: boolean;
 }
@@ -37,10 +49,15 @@ export interface FeishuConfigPatch {
   readonly appId?: string;
   readonly appSecret?: string;
   readonly enabled?: boolean;
+  readonly domain?: FeishuDomain;
 }
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
+}
+
+function domainOf(v: unknown): FeishuDomain | undefined {
+  return v === 'feishu' || v === 'lark' ? v : undefined;
 }
 
 /** File-backed Feishu config. */
@@ -58,6 +75,7 @@ export class FeishuConfigStore {
         ...(str(parsed.appId) !== undefined ? { appId: str(parsed.appId) } : {}),
         ...(str(parsed.appSecret) !== undefined ? { appSecret: str(parsed.appSecret) } : {}),
         ...(typeof parsed.enabled === 'boolean' ? { enabled: parsed.enabled } : {}),
+        ...(domainOf(parsed.domain) !== undefined ? { domain: domainOf(parsed.domain) } : {}),
       };
     } catch {
       return {};
@@ -80,6 +98,7 @@ export class FeishuConfigStore {
       appId,
       enabled: cfg.enabled === true,
       hasAppSecret,
+      domain: cfg.domain ?? DEFAULT_DOMAIN,
       ready: cfg.enabled === true && appId.length > 0 && hasAppSecret,
     };
   }
@@ -90,7 +109,7 @@ export class FeishuConfigStore {
     if (cfg.enabled !== true) return null;
     if (cfg.appId === undefined || cfg.appId.length === 0) return null;
     if (cfg.appSecret === undefined || cfg.appSecret.length === 0) return null;
-    return { appId: cfg.appId, appSecret: cfg.appSecret };
+    return { appId: cfg.appId, appSecret: cfg.appSecret, domain: cfg.domain ?? DEFAULT_DOMAIN };
   }
 
   set(patch: FeishuConfigPatch): FeishuConfigView {
@@ -99,6 +118,7 @@ export class FeishuConfigStore {
       ...cur,
       ...(patch.appId !== undefined ? { appId: patch.appId } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.domain !== undefined ? { domain: patch.domain } : {}),
       ...(patch.appSecret !== undefined
         ? patch.appSecret.length > 0
           ? { appSecret: patch.appSecret }

@@ -17,7 +17,7 @@
 
 import { useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import type { AgentMessage, AgentState, Thread } from '@choco/shared';
+import type { AgentMessage, AgentState, StoredMessage, Thread } from '@choco/shared';
 import { webConfig } from '../lib/config.js';
 import { useChatStore } from '../stores/chat-store.js';
 import { useAgentStore } from '../stores/agent-store.js';
@@ -35,6 +35,8 @@ export const SERVER_EVENTS = {
   threadUpdate: 'thread_update',
   agentStatus: 'agent_status',
   error: 'error',
+  /** An off-web platform (飞书/etc.) USER message to mirror into the transcript. */
+  threadMessage: 'thread_message',
 } as const;
 
 /** Minimal socket surface the hook depends on (eases mocking). */
@@ -131,6 +133,17 @@ export function registerSocketListeners(
     }
   };
 
+  // An off-web platform user message (飞书/等) → render it into the transcript.
+  // addMessage dedupes by id, so a re-delivered frame is a no-op. The message
+  // carries its own threadId; we still scope to the active room (the broadcast
+  // only reaches the joined thread anyway).
+  const onThreadMessage = (...args: unknown[]): void => {
+    const message = args[0] as StoredMessage;
+    if (message !== null && typeof message === 'object' && 'id' in message && 'threadId' in message) {
+      useChatStore.getState().addMessage(message);
+    }
+  };
+
   const onAgentStatus = (...args: unknown[]): void => {
     const state = args[0] as AgentState;
     if (state !== null && typeof state === 'object' && 'id' in state) {
@@ -145,12 +158,14 @@ export function registerSocketListeners(
 
   socket.on(SERVER_EVENTS.agentEvent, onAgentEvent);
   socket.on(SERVER_EVENTS.threadUpdate, onThreadUpdate);
+  socket.on(SERVER_EVENTS.threadMessage, onThreadMessage);
   socket.on(SERVER_EVENTS.agentStatus, onAgentStatus);
   socket.on(SERVER_EVENTS.error, onErrorEvent);
 
   return () => {
     socket.off(SERVER_EVENTS.agentEvent, onAgentEvent);
     socket.off(SERVER_EVENTS.threadUpdate, onThreadUpdate);
+    socket.off(SERVER_EVENTS.threadMessage, onThreadMessage);
     socket.off(SERVER_EVENTS.agentStatus, onAgentStatus);
     socket.off(SERVER_EVENTS.error, onErrorEvent);
   };

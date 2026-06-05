@@ -1,114 +1,114 @@
-// tests/api/feishu-wiring.test.ts — M-FEISHU 飞书 dev happy-path.
+// tests/api/feishu-wiring.test.ts — M-FEISHU 飞书 dev happy-path (LarkChannel).
 //
-// Covers the Feishu HTTP surface (token / send / event parse), the OPERABILITY
-// chain (an im.message.receive_v1 event → ingress pipeline → reply via the Feishu
-// API), and the config-route flow (a fake adapter factory drives connect/disconnect
-// WITHOUT a real WebSocket). Edge (zod-400, secret-mask, group/non-text) → QA.
+// Covers the OPERABILITY chain on the new high-level LarkChannel adapter: a
+// normalized inbound p2p text → the REAL ingress pipeline (buildApp →
+// submitPlatformMessage → handleThreadMessage) → the agent reply STREAMS into a
+// 飞书 card via channel.stream (Phase 2; the streamed card is the authoritative
+// reply, not also re-sent). Plus the config-route flow (a fake adapter factory
+// drives connect/disconnect WITHOUT a real WebSocket).
+//
+// Edge/adversarial (group @-reply opts, non-text placeholder, throwing send,
+// zod-400, secret-mask, onTextDelta backward-compat) → independent QA (dev≠QA §0.5.3).
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
+import type { NormalizedMessage, SendInput, SendOptions } from '@larksuiteoapi/node-sdk';
 import { buildApp, type BuiltApp } from '@choco/api/app-factory';
 import { FeishuConfigStore } from '@choco/api/config/feishu-config-store';
-import {
-  FeishuAdapter,
-  parseFeishuEvent,
-  FeishuTokenCache,
-  sendFeishuText,
-} from '@choco/adapters/feishu';
+import { createFeishuAdapter, type LarkChannelLike } from '@choco/adapters/feishu';
 import { replyScript, CLAUDE } from './helpers.js';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
 
-function jsonResponse(obj: unknown): Response {
-  return new Response(JSON.stringify(obj), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  });
-}
-
-function p2pTextEvent(text: string): unknown {
+/** A normalized p2p text message (what LarkChannel hands the 'message' handler). */
+function p2pTextMessage(text: string): NormalizedMessage {
   return {
-    header: { event_type: 'im.message.receive_v1' },
-    event: {
-      message: {
-        chat_type: 'p2p',
-        message_type: 'text',
-        chat_id: 'oc_chat_1',
-        message_id: 'om_msg_1',
-        content: JSON.stringify({ text }),
-      },
-      sender: { sender_id: { open_id: 'ou_user_1' } },
-    },
+    messageId: 'om_msg_1',
+    chatId: 'oc_chat_1',
+    chatType: 'p2p',
+    senderId: 'ou_user_1',
+    content: text,
+    rawContentType: 'text',
+    resources: [],
+    mentions: [],
+    mentionAll: false,
+    mentionedBot: false,
+    createTime: 1_700_000_000_000,
   };
 }
 
-describe('Feishu HTTP surface (dev happy path)', () => {
-  it('parseFeishuEvent extracts a p2p text message; ignores group / non-text', () => {
-    const ok = parseFeishuEvent(p2pTextEvent('你好飞书'));
-    expect(ok).toEqual({ chatId: 'oc_chat_1', text: '你好飞书', messageId: 'om_msg_1', senderId: 'ou_user_1' });
-
-    const group = parseFeishuEvent({
-      header: { event_type: 'im.message.receive_v1' },
-      event: { message: { chat_type: 'group', message_type: 'text', chat_id: 'g', message_id: 'm', content: '{"text":"x"}' } },
-    });
-    expect(group).toBeNull();
-    expect(parseFeishuEvent({ header: { event_type: 'other' } })).toBeNull();
-  });
-
-  it('FeishuTokenCache + sendFeishuText hit the right endpoints with the right body', async () => {
-    const calls: Array<{ url: string; body: unknown }> = [];
-    const fetchFn = (async (input: string | URL, init?: RequestInit) => {
-      const url = String(input);
-      calls.push({ url, body: init?.body !== undefined ? JSON.parse(String(init.body)) : undefined });
-      if (url.includes('tenant_access_token')) {
-        return jsonResponse({ code: 0, tenant_access_token: 'TT', expire: 7200 });
+/** A fake LarkChannel: captures sends + reactions and DRIVES the markdown stream producer. */
+function makeFakeChannel(): {
+  channel: LarkChannelLike;
+  sends: Array<{ to: string; input: SendInput; opts: SendOptions | undefined }>;
+  streamedCards: string[];
+  reactedMessageIds: string[];
+} {
+  const sends: Array<{ to: string; input: SendInput; opts: SendOptions | undefined }> = [];
+  const streamedCards: string[] = [];
+  const reactedMessageIds: string[] = [];
+  const channel: LarkChannelLike = {
+    connect: async () => {},
+    disconnect: async () => {},
+    on: (() => () => {}) as LarkChannelLike['on'],
+    send: async (to, input, opts) => {
+      sends.push({ to, input, opts });
+      return { messageId: 'om_send' };
+    },
+    stream: async (_to, input) => {
+      if ('markdown' in input) {
+        let acc = '';
+        await input.markdown({
+          messageId: 'om_stream',
+          setContent: async (full: string) => {
+            acc = full;
+          },
+          append: async (chunk: string) => {
+            acc += chunk;
+          },
+        });
+        streamedCards.push(acc);
       }
-      return jsonResponse({ code: 0 });
-    }) as typeof globalThis.fetch;
+      return { messageId: 'om_stream' };
+    },
+    addReaction: async (messageId: string) => {
+      reactedMessageIds.push(messageId);
+      return 'reaction_1';
+    },
+    getConnectionStatus: () => ({ state: 'connected' }),
+  };
+  return { channel, sends, streamedCards, reactedMessageIds };
+}
 
-    const cache = new FeishuTokenCache('cli_app', 'sec', fetchFn);
-    expect(await cache.get()).toBe('TT');
-    await sendFeishuText(fetchFn, 'TT', 'oc_chat_1', '回复内容');
-
-    const send = calls.find((c) => c.url.includes('im/v1/messages'));
-    expect(send?.body).toMatchObject({ receive_id: 'oc_chat_1', msg_type: 'text', content: JSON.stringify({ text: '回复内容' }) });
-  });
-});
-
-describe('Feishu OPERABILITY: event → pipeline → reply (dev happy path)', () => {
-  it('an inbound p2p text is routed and the agent reply is sent back to the chat', async () => {
+describe('Feishu OPERABILITY: inbound → pipeline → streaming card (dev happy path)', () => {
+  it('a p2p text routes through the REAL ingress pipeline and the agent reply streams into a 飞书 card', async () => {
     const db = new Database(':memory:');
     const app = buildApp({
       db,
       agentServices: { 'claude-opus': new FakeAgentService([replyScript(CLAUDE, '已收到，飞书。')]) },
     });
+    const { channel, sends, streamedCards, reactedMessageIds } = makeFakeChannel();
 
-    const sends: Array<{ receive_id: string; text: string }> = [];
-    const fetchFn = (async (input: string | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('tenant_access_token')) {
-        return jsonResponse({ code: 0, tenant_access_token: 'TT', expire: 7200 });
-      }
-      if (url.includes('im/v1/messages')) {
-        const body = JSON.parse(String(init?.body)) as { receive_id: string; content: string };
-        sends.push({ receive_id: body.receive_id, text: (JSON.parse(body.content) as { text: string }).text });
-        return jsonResponse({ code: 0 });
-      }
-      return jsonResponse({ code: 0 });
-    }) as typeof globalThis.fetch;
-
-    // Drive the testable inbound core directly (no live WebSocket).
-    const adapter = new FeishuAdapter({
+    const adapter = createFeishuAdapter({
       submitPlatformMessage: app.submitPlatformMessage,
       appId: 'cli_app',
       appSecret: 'sec',
-      fetchFn,
+      channelFactory: () => channel,
     });
-    await adapter.handleEvent(p2pTextEvent('@claude-opus 看下这个'));
+    await adapter.start();
+    await adapter.handleMessage(p2pTextMessage('@claude-opus 看下这个'));
 
-    expect(sends).toEqual([{ receive_id: 'oc_chat_1', text: '已收到，飞书。' }]);
+    // L1: instant ❤️ receipt reaction on the user's inbound message.
+    expect(reactedMessageIds).toEqual(['om_msg_1']);
+    // The agent reply is delivered AS the streaming card (authoritative): the
+    // card's accumulated content carries the agent text, and it is NOT also
+    // re-sent as a separate markdown message.
+    expect(streamedCards.length).toBe(1);
+    expect(streamedCards[0]).toContain('已收到，飞书。');
+    expect(sends).toEqual([]);
+
     await app.close();
   });
 });

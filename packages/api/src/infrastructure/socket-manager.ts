@@ -13,7 +13,7 @@
 // (supplement D) — the Server + helpers are injected, nothing global.
 
 import type { Server as SocketIoServer, Socket } from 'socket.io';
-import type { AgentMessage, AgentState, SopViolationPayload, Thread } from '@choco/shared';
+import type { AgentMessage, AgentState, SopViolationPayload, StoredMessage, Thread } from '@choco/shared';
 import { ThreadSequencer } from './thread-sequencer.js';
 import { BroadcastRateMonitor } from './broadcast-rate-monitor.js';
 
@@ -32,6 +32,14 @@ export const SERVER_EVENTS = {
   error: 'error',
   /** M12 SOP-Cycle-2 advisory: a thread left a stage with open SOP violations. */
   sopViolation: 'sop_violation',
+  /**
+   * A persisted message that did NOT originate from a web client — currently an
+   * inbound platform (飞书/Telegram/微信) USER message. Web clients render their
+   * own sends optimistically, so this is broadcast ONLY for platform ingress, to
+   * mirror the off-web user's message into the live transcript (the agent replies
+   * already arrive via agent_event).
+   */
+  threadMessage: 'thread_message',
 } as const;
 
 /**
@@ -160,6 +168,17 @@ export class SocketManager {
   broadcastThreadUpdate(threadId: string, thread: Thread): Promise<void> {
     return this.sequencer.enqueue(threadId, () => {
       this.io.to(threadId).emit(SERVER_EVENTS.threadUpdate, thread);
+    });
+  }
+
+  /**
+   * Broadcast a persisted message (an off-web platform USER message) into the
+   * thread room so live web clients render it — they never sent it, so it would
+   * otherwise only appear on reload. Ordered with the thread's other frames.
+   */
+  broadcastThreadMessage(threadId: string, message: StoredMessage): Promise<void> {
+    return this.sequencer.enqueue(threadId, () => {
+      this.io.to(threadId).emit(SERVER_EVENTS.threadMessage, message);
     });
   }
 

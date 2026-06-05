@@ -90,6 +90,7 @@ export class FeishuManager {
       submitPlatformMessage: this.submit,
       appId: creds.appId,
       appSecret: creds.appSecret,
+      domain: creds.domain,
       fetchFn: this.fetchFn,
       logger: this.logger,
     });

@@ -39,6 +39,21 @@ export interface HandleThreadMessageInput {
   readonly threadId: string;
   readonly userId: string;
   readonly content: string;
+  /**
+   * Optional per-agent text-delta sink. When supplied, it is invoked for EVERY
+   * streamed `text` event as the route runs (agentId + the delta chunk) — letting
+   * a platform adapter drive a live surface (e.g. a 飞书 streaming card) without
+   * waiting for the collected replies. Omitted by the HTTP route and the other
+   * adapters → behavior is byte-for-byte unchanged (pure increment).
+   */
+  readonly onTextDelta?: (agentId: AgentId, text: string) => void;
+  /**
+   * When true, broadcast the inbound USER message over the socket so live web
+   * clients render it. Set by the platform ingress (飞书/Telegram/微信) — those
+   * users are off-web and no client renders their message otherwise. The HTTP
+   * route leaves it false: the web client already shows its own send optimistically.
+   */
+  readonly broadcastInbound?: boolean;
 }
 
 /** Result of {@link handleThreadMessage}: the persisted user message + replies. */
@@ -98,7 +113,7 @@ export async function handleThreadMessage(
 ): Promise<HandleThreadMessageResult> {
   const { router, registry, messageStore, threadStore, toolEventLog, socket, logger, now } =
     services;
-  const { threadId, userId, content } = input;
+  const { threadId, userId, content, onTextDelta, broadcastInbound } = input;
   const { defaultWorkspace } = services;
 
   // 1. Auto-create the thread on first message (ported ensureThread idiom).
@@ -115,6 +130,14 @@ export async function handleThreadMessage(
     origin: 'user',
     timestamp: now(),
   });
+
+  // Mirror an off-web platform (飞书/Telegram/微信) user message into the live
+  // transcript: web clients never sent it, so without this it appears only on
+  // reload. The HTTP route omits broadcastInbound (the web shows its own send
+  // optimistically). Best-effort ordering with the thread's other frames.
+  if (broadcastInbound === true) {
+    await socket.broadcastThreadMessage(threadId, userMessage);
+  }
 
   // 2b. §C: if the user explicitly @mentioned an UNAVAILABLE agent (its provider
   // CLI is not installed on this system), surface a VISIBLE notice with the
@@ -166,6 +189,12 @@ export async function handleThreadMessage(
       // io.to(threadId).emit('agent_status', state: AgentState).
       await emitWorkingIfNew(socket, working, threadId, event, now);
       accumulate(accumulators, participants, event);
+      // Phase 2 (飞书 streaming): forward each text delta to the optional sink as
+      // it streams. Same predicate as the accumulator's text branch so the adapter
+      // sees exactly the chunks that compose the final reply. No-op when unset.
+      if (onTextDelta !== undefined && event.type === 'text' && event.content !== undefined) {
+        onTextDelta(event.agentId, event.content);
+      }
       if (event.type === 'done') {
         await emitIdle(socket, working, threadId, event.agentId, now);
       }

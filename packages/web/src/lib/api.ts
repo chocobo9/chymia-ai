@@ -72,11 +72,20 @@ export interface CreateAccountBody {
   readonly apiKey?: string;
 }
 
+/**
+ * 飞书 region/gateway domain — 'feishu' = 飞书 China (open.feishu.cn),
+ * 'lark' = Lark International (open.larksuite.com). Mirrors the backend union
+ * (config/feishu-config-store.ts); the web layer keeps its own DTO copy, as it
+ * does for the other Feishu view/patch types here.
+ */
+export type FeishuDomain = 'feishu' | 'lark';
+
 /** GET /api/adapters/feishu/config payload — masked (no app_secret). */
 export interface FeishuConfigView {
   readonly appId: string;
   readonly enabled: boolean;
   readonly hasAppSecret: boolean;
+  readonly domain: FeishuDomain;
   readonly ready: boolean;
 }
 
@@ -91,6 +100,7 @@ export interface FeishuConfigPatch {
   readonly appId?: string;
   readonly appSecret?: string;
   readonly enabled?: boolean;
+  readonly domain?: FeishuDomain;
 }
 
 /** POST /api/adapters/weixin/login/start payload — the QR to render + poll. */

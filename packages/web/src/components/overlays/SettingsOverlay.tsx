@@ -33,6 +33,7 @@ import type {
   McpToolEntry,
   NewMemberInput,
   FeishuConfigView,
+  FeishuDomain,
   SkillListEntry,
 } from '../../lib/api.js';
 import type { HealthInfo } from '../../hooks/useHealth.js';
@@ -832,12 +833,19 @@ function ProviderAuthSection({ client }: { readonly client: ApiClient }): ReactE
   const [providers, setProviders] = useState<readonly ProviderAuthStatus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<ClientId | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = (): void => {
-    void client.getAuthStatus().then(
-      (p) => setProviders(p),
-      (e) => setError(e instanceof Error ? e.message : '加载失败'),
-    );
+    // NB: do NOT clear `error` here — `act()` (login/logout) calls load() in its
+    // finally, and clearing would wipe the failure it just surfaced.
+    setRefreshing(true);
+    void client
+      .getAuthStatus()
+      .then(
+        (p) => setProviders(p),
+        (e) => setError(e instanceof Error ? e.message : '加载失败'),
+      )
+      .finally(() => setRefreshing(false));
   };
   useEffect(() => {
     let cancelled = false;
@@ -916,9 +924,10 @@ function ProviderAuthSection({ client }: { readonly client: ApiClient }): ReactE
         className="acct-btn"
         data-testid="provider-auth-refresh"
         onClick={load}
+        disabled={refreshing}
         style={{ marginTop: '8px' }}
       >
-        ↻ 刷新状态
+        {refreshing ? '↻ 刷新中…' : '↻ 刷新状态'}
       </button>
     </div>
   );
@@ -1212,6 +1221,7 @@ function FeishuSection({ client }: { readonly client: ApiClient }): ReactElement
   const [appId, setAppId] = useState('');
   const [appSecret, setAppSecret] = useState('');
   const [enabled, setEnabled] = useState(false);
+  const [domain, setDomain] = useState<FeishuDomain>('feishu');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1223,6 +1233,7 @@ function FeishuSection({ client }: { readonly client: ApiClient }): ReactElement
         setCfg(c);
         setAppId(c.appId);
         setEnabled(c.enabled);
+        setDomain(c.domain);
         setConnected(s.connected);
       },
       (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
@@ -1239,6 +1250,7 @@ function FeishuSection({ client }: { readonly client: ApiClient }): ReactElement
       const { config, status } = await client.setFeishuConfig({
         appId: appId.trim(),
         enabled,
+        domain,
         ...(appSecret.length > 0 ? { appSecret: appSecret.trim() } : {}),
       });
       setCfg(config);
@@ -1275,7 +1287,8 @@ function FeishuSection({ client }: { readonly client: ApiClient }): ReactElement
       </div>
       <div className="set-row-s">
         飞书<b>自建应用</b>，事件订阅选「<b>长连接</b>」模式 → <b>无需公网地址</b>。给机器人开
-        im 消息权限 + 订阅 <code className="set-mono">im.message.receive_v1</code>，填下面的 App ID / App Secret。
+        im 消息权限 + 订阅 <code className="set-mono">im.message.receive_v1</code>，选对<b>区域</b>后填 App ID / App Secret。
+        区域选错会连不上（网关报 <code className="set-mono">1000040351</code>）。
       </div>
       {error !== null && <div className="member-edit-error">{error}</div>}
       <div className="acct-form">
@@ -1283,6 +1296,15 @@ function FeishuSection({ client }: { readonly client: ApiClient }): ReactElement
           <input type="checkbox" data-testid="feishu-enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <span>启用（保存即连接）</span>
         </label>
+        <select
+          className="acct-input"
+          data-testid="feishu-domain"
+          value={domain}
+          onChange={(e) => setDomain(e.target.value === 'lark' ? 'lark' : 'feishu')}
+        >
+          <option value="feishu">飞书 中国版（open.feishu.cn）</option>
+          <option value="lark">Lark 国际版（open.larksuite.com）</option>
+        </select>
         <input className="acct-input" placeholder="App ID（cli_xxx）" data-testid="feishu-appid" value={appId} onChange={(e) => setAppId(e.target.value)} />
         <input
           className="acct-input"

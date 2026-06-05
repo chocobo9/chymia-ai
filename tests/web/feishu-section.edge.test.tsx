@@ -44,6 +44,7 @@ const CONFIGURED_VIEW: FeishuConfigView = {
   appId: 'cli_a1b2c3d4e5f60718',
   enabled: true,
   hasAppSecret: true,
+  domain: 'feishu',
   ready: true,
 };
 
@@ -52,6 +53,7 @@ const EMPTY_FEISHU_VIEW: FeishuConfigView = {
   appId: '',
   enabled: false,
   hasAppSecret: false,
+  domain: 'feishu',
   ready: false,
 };
 
