@@ -1,7 +1,9 @@
 // M9 ChatContainer — the message transcript for the active thread, rendered in
 // the .d-choco design: a scrollable `stream` of centered `stream-inner` content.
-// In order: persisted messages (user bubbles + agent replies) then the live
-// streaming messages assembled from agent_event frames (G8 incremental render).
+// Persisted messages (user bubbles + agent replies), live streaming bubbles
+// (assembled from agent_event frames, G8), and notices are MERGED into ONE
+// chronological stream sorted by timestamp — not three sequential blocks (which
+// rendered replies/mirrored messages out of time order on the web).
 //
 // User messages render as `.msg-user` bubbles; agent messages (persisted or
 // streaming) route through <AgentMessage> with a normalized view. Display name,
@@ -186,6 +188,12 @@ function EmptyThread(): ReactElement {
   );
 }
 
+/** One transcript entry tagged with its time + insertion seq, for chronological merge. */
+type OrderedItem =
+  | { readonly kind: 'message'; readonly ts: number; readonly seq: number; readonly message: StoredMessage }
+  | { readonly kind: 'stream'; readonly ts: number; readonly seq: number; readonly stream: StreamingMessage }
+  | { readonly kind: 'notice'; readonly ts: number; readonly seq: number; readonly notice: TranscriptNotice };
+
 export interface ChatContainerProps {
   /** Open/reveal a file an edit wrote (forwarded to each agent message's diffs). */
   readonly onRevealFile?: (path: string, action: 'open' | 'reveal') => void;
@@ -233,6 +241,22 @@ export function ChatContainer({ onRevealFile, onLoadFile }: ChatContainerProps =
     () => liveNotices.filter((n) => !persistedSystemKeys.has(`${n.agentId as string}::${n.text}`)),
     [liveNotices, persistedSystemKeys],
   );
+
+  // Render the transcript in ONE chronological stream — persisted messages, live
+  // streaming bubbles, and notices MERGED + sorted by timestamp. The old code
+  // rendered them as three sequential blocks (all persisted, then all streaming,
+  // then all notices), so a reply / mirrored 飞书 message could show out of time
+  // order on the web while the platform (飞书) showed it correctly. Each kind
+  // carries a time (StoredMessage.timestamp / StreamingMessage.startedAt /
+  // TranscriptNotice.timestamp); ties break by insertion seq for a stable order.
+  const ordered = useMemo<readonly OrderedItem[]>(() => {
+    const items: OrderedItem[] = [];
+    let seq = 0;
+    for (const message of messages) items.push({ kind: 'message', ts: message.timestamp, seq: seq++, message });
+    for (const stream of streaming) items.push({ kind: 'stream', ts: stream.startedAt, seq: seq++, stream });
+    for (const notice of visibleNotices) items.push({ kind: 'notice', ts: notice.timestamp, seq: seq++, notice });
+    return items.sort((a, b) => a.ts - b.ts || a.seq - b.seq);
+  }, [messages, streaming, visibleNotices]);
 
   // ── Auto-scroll: follow the bottom as messages + streaming tokens arrive, so the
   // live output stays in view (the missing piece that made streaming feel janky).
@@ -289,44 +313,51 @@ export function ChatContainer({ onRevealFile, onLoadFile }: ChatContainerProps =
     >
       <div className="stream-inner">
         {isEmpty && <EmptyThread />}
-        {messages.map((message) =>
-          message.agentId === null ? (
-            <UserBubble key={message.id} message={message} />
-          ) : message.origin === 'system' ? (
+        {ordered.map((item) => {
+          if (item.kind === 'stream') {
+            return (
+              <AgentMessage
+                key={`stream:${item.stream.key}`}
+                view={streamingToView(item.stream, roster)}
+                onRevealFile={onRevealFile}
+                onLoadFile={onLoadFile}
+              />
+            );
+          }
+          if (item.kind === 'notice') {
+            return <NoticeBubble key={`notice:${item.notice.id}`} roster={roster} notice={item.notice} />;
+          }
+          const message = item.message;
+          if (message.agentId === null) {
+            return <UserBubble key={message.id} message={message} />;
+          }
+          if (message.origin === 'system') {
             // A persisted unavailable-agent / system notice renders as a notice
             // bubble (not a normal agent reply) so the durable copy matches the
             // live one (§D).
-            <NoticeBubble
-              key={message.id}
-              roster={roster}
-              notice={{
-                id: message.id,
-                agentId: message.agentId as AgentId,
-                kind: 'notice',
-                text: message.content,
-                timestamp: message.timestamp,
-              }}
-            />
-          ) : (
+            return (
+              <NoticeBubble
+                key={message.id}
+                roster={roster}
+                notice={{
+                  id: message.id,
+                  agentId: message.agentId as AgentId,
+                  kind: 'notice',
+                  text: message.content,
+                  timestamp: message.timestamp,
+                }}
+              />
+            );
+          }
+          return (
             <AgentMessage
               key={message.id}
               view={storedToView(message, roster)}
               onRevealFile={onRevealFile}
               onLoadFile={onLoadFile}
             />
-          ),
-        )}
-        {streaming.map((stream) => (
-          <AgentMessage
-            key={`stream:${stream.key}`}
-            view={streamingToView(stream, roster)}
-            onRevealFile={onRevealFile}
-            onLoadFile={onLoadFile}
-          />
-        ))}
-        {visibleNotices.map((notice) => (
-          <NoticeBubble key={`notice:${notice.id}`} roster={roster} notice={notice} />
-        ))}
+          );
+        })}
       </div>
     </div>
   );
