@@ -97,7 +97,7 @@ describe('gemini-parser (unit, happy path)', () => {
     expect(messages[0].toolInput).toEqual({ command: 'ls -la' });
   });
 
-  it('skips successful result and maps non-success result to error', () => {
+  it('emits done on a successful result and maps non-success result to error', () => {
     // Arrange
     const ok = JSON.stringify({ type: 'result', status: 'success' });
     const fail = JSON.stringify({ type: 'result', status: 'quota_exceeded', message: 'quota exhausted' });
@@ -106,8 +106,10 @@ describe('gemini-parser (unit, happy path)', () => {
     const okRun = run([ok]);
     const failRun = run([fail]);
 
-    // Assert
-    expect(okRun.messages).toHaveLength(0);
+    // Assert — result/success = logical turn end → done (lets the service finish +
+    // reclaim the process without waiting for the slow CLI exit).
+    expect(okRun.messages).toHaveLength(1);
+    expect(okRun.messages[0]).toMatchObject({ type: 'done', isFinal: true });
     expect(failRun.messages[0]).toMatchObject({ type: 'error', content: 'quota exhausted', errorCode: 'quota_exceeded' });
   });
 
@@ -136,7 +138,7 @@ describe('gemini-parser (unit, happy path)', () => {
     const { messages } = run(lines);
 
     // Assert
-    expect(messages.map((m) => m.type)).toEqual(['session_init', 'thinking', 'text', 'tool_use']);
+    expect(messages.map((m) => m.type)).toEqual(['session_init', 'thinking', 'text', 'tool_use', 'done']);
   });
 
   // ── Doubling-bug audit (#6) — Gemini VERDICT: NOT susceptible. ──

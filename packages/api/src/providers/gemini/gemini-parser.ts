@@ -145,8 +145,10 @@ export function transformGeminiEvent(
     case 'result': {
       const status = asString(e.status);
       if (status === 'success') {
-        // 成功结束不产生用户消息；done 由 service 收尾时发。
-        return { messages: [], state };
+        // 成功结束 = 本轮逻辑回合结束 → emit done，让 service 立即收尾 + 提前回收进程。
+        // gemini 也带 --config MCP（mcpSupport:true），进程收尾同样慢；不发 done 就会
+        // 干等进程退出 → SessionMutex 久不放 → 下一条 @gemini 卡住（「启动很慢」）。同 claude 修复。
+        return { messages: [makeMessage(deps, 'done', { isFinal: true })], state };
       }
       const content = asString(e.message) ?? asString(e.error) ?? 'gemini error';
       return { messages: [makeMessage(deps, 'error', { content, errorCode: status })], state };

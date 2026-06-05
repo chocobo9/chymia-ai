@@ -102,9 +102,10 @@ describe('parseGeminiLine — streaming semantics (edge)', () => {
     expect(messages[0]).toMatchObject({ type: 'error', content: '今日配额已用尽，请稍后再试。', errorCode: 'quota_exceeded' });
   });
 
-  it('a successful result produces no user-visible message', () => {
+  it('a successful result emits done (logical turn completion)', () => {
     const { messages } = run([JSON.stringify({ type: 'result', status: 'success' })]);
-    expect(messages).toEqual([]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ type: 'done', isFinal: true });
   });
 });
 

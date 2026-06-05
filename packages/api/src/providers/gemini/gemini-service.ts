@@ -52,6 +52,8 @@ export interface GeminiServiceDeps {
   readonly defaultModel?: string;
   readonly defaultTimeoutMs?: number;
   readonly now?: () => number;
+  /** 注入 spawn 实现（默认真实 {@link spawnCliLineStream}）——测试用 fake 验 done 时机。 */
+  readonly spawn?: typeof spawnCliLineStream;
 }
 
 function appendContentText(
@@ -100,6 +102,7 @@ export class GeminiAgentService implements AgentService {
   private readonly defaultModel: string;
   private readonly defaultTimeoutMs: number;
   private readonly now: () => number;
+  private readonly spawnStream: typeof spawnCliLineStream;
 
   constructor(deps: GeminiServiceDeps) {
     this.agentId = deps.agentId;
@@ -107,6 +110,7 @@ export class GeminiAgentService implements AgentService {
     this.defaultModel = deps.defaultModel ?? GEMINI_DEFAULT_MODEL;
     this.defaultTimeoutMs = deps.defaultTimeoutMs ?? GEMINI_DEFAULT_TIMEOUT_MS;
     this.now = deps.now ?? Date.now;
+    this.spawnStream = deps.spawn ?? spawnCliLineStream;
   }
 
   /** Gemini CLI 不暴露原生 system prompt 文件注入；由上层拼入 prompt */
@@ -125,7 +129,7 @@ export class GeminiAgentService implements AgentService {
   ): AsyncIterable<AgentMessage> {
     const model = options?.model ?? this.defaultModel;
     const args = buildArgs(prompt, options, this.defaultModel);
-    const { lines, exit } = spawnCliLineStream({
+    const { lines, exit, kill } = this.spawnStream({
       command: this.command,
       args,
       cwd: options?.workingDirectory,
@@ -137,14 +141,31 @@ export class GeminiAgentService implements AgentService {
     let state: GeminiParserState = createGeminiParserState();
     const deps = { agentId: this.agentId, now: this.now, model };
 
+    let sawDone = false;
     for await (const line of lines) {
       const result = parseGeminiLine(line, state, deps);
       state = result.state;
       for (const msg of result.messages) {
         yield msg;
+        if (msg.type === 'done') {
+          sawDone = true;
+        }
+      }
+      if (sawDone) {
+        break;
       }
     }
 
+    if (sawDone) {
+      // 逻辑回合已结束（result/success）。提前回收进程：SIGTERM + 后台收尾，不在关键
+      // 路径 await 进程退出——gemini 带 --config MCP 收尾慢，否则 SessionMutex 久不放、
+      // 下一条 @gemini 卡住（同 claude 修复）。
+      kill();
+      void exit;
+      return;
+    }
+
+    // 无 result/success 的异常流（崩溃/abort/非零退出）→ 用退出信息收尾。
     const info = await exit;
     yield* finalizeStream(info, {
       agentId: this.agentId,
