@@ -12,6 +12,7 @@ import type { InvocationRegistry } from '@choco/api/invocation/invocation-regist
 import type { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
 import type { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
 import type { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
+import type { SqliteEventAuditLog } from '@choco/api/stores/sqlite-event-audit-log';
 import type { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
 import type { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
 import type { SessionStore } from '@choco/api/invocation/session-store';
@@ -38,6 +39,12 @@ export interface AppServices {
   readonly threadStore: SqliteThreadStore;
   /** A6 tool-event log — the second (durable) sink for tool calls (M5 live-wire). */
   readonly toolEventLog: SqliteToolEventLog;
+  /**
+   * 审计事件日志（对齐 Clowder EventAuditLog）——引擎在 invoke 缝 emit
+   * invoked/responded/error，seal 路由 emit session_seal，审计路由 readByThread 读。
+   * 事件日志为空的老 thread 由审计路由回退到派生（不写本日志）。
+   */
+  readonly eventAuditLog: SqliteEventAuditLog;
   readonly evidenceStore: SqliteEvidenceStore;
   /**
    * A10 platform-mapping store — platform channelId/userId ↔ internal thread/user

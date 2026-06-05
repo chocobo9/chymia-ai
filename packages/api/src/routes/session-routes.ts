@@ -21,7 +21,7 @@ const SessionParamsSchema = z.object({ sessionId: z.string().min(1) });
  *   POST /api/sessions/:sessionId/seal        → seal a LIVE session (force-close)
  */
 export function registerSessionRoutes(app: FastifyInstance, services: AppServices): void {
-  const { sessionStore } = services;
+  const { sessionStore, eventAuditLog, logger } = services;
 
   app.get('/api/threads/:threadId/sessions', async (request, reply) => {
     const params = ThreadParamsSchema.safeParse(request.params);
@@ -61,6 +61,25 @@ export function registerSessionRoutes(app: FastifyInstance, services: AppService
       return reply.code(409).send({ error: 'not_active', status: record.status });
     }
     sessionStore.sealActiveSession(record.agentId, record.threadId);
+    // 审计日志：human 在 UI 封存一个 session → emit session_seal（best-effort，
+    // 写失败只记 warn，绝不让 seal 这个操作失败）。对齐 Clowder SEAL_FINALIZED。
+    void eventAuditLog
+      .append({
+        type: 'session_seal',
+        threadId: record.threadId,
+        data: {
+          sessionId: record.sessionId,
+          agentId: record.agentId as string,
+          sequenceNo: record.sequenceNo,
+        },
+      })
+      .catch((err: unknown) => {
+        logger({
+          level: 'warn',
+          message: `audit append failed (session_seal): ${err instanceof Error ? err.message : String(err)}`,
+          threadId: record.threadId,
+        });
+      });
     const sealed = sessionStore.getSession(record.sessionId);
     return reply.send({
       sessionId: record.sessionId,

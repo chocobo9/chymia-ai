@@ -375,9 +375,7 @@
 .sb-audit .audit-row-btn { width: 100%; border: none; background: none; cursor: pointer; font: inherit; text-align: left; }
 .audit-detail { font-size: var(--fs-secondary); color: var(--ink-2); padding: 3px 8px 6px; white-space: pre-wrap; word-break: break-word; }
 .audit-detail.err { color: var(--st-error); }
-.audit-detail-text { margin: 0; }
-.audit-detail-tool { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: var(--fs-mono-tag); }
-.audit-detail-k { color: var(--ink-3); margin-right: 6px; }
+.audit-detail-json { margin: 0; font-family: var(--mono); font-size: var(--fs-mono-tag); color: var(--ink-2); white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow-y: auto; }
 .sb-audit .audit-row { display: flex; align-items: center; gap: 9px; }
 .sb-audit .audit-tag { font-family: var(--mono); font-size: var(--fs-mono-tag); font-weight: var(--fw-semi); color: var(--ink-2); background: var(--soft); padding: 2px 8px; border-radius: 5px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-audit .audit-tag.err { color: var(--st-error); background: color-mix(in oklab, var(--st-error) 12%, transparent); }

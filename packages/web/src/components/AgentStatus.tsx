@@ -16,7 +16,7 @@
 // "agent-status-dot", data-agent, data-status.
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
-import type { AgentStatus as AgentStatusValue, AuditEntry, StoredMessage } from '@choco/shared';
+import type { AgentStatus as AgentStatusValue, AuditEvent, StoredMessage } from '@choco/shared';
 import type { ApiClient, SessionChainEntry } from '../lib/api.js';
 import { SessionTranscriptViewer } from './SessionTranscriptViewer.js';
 import { useAgentStore } from '../stores/agent-store.js';
@@ -71,60 +71,20 @@ function timeAgo(ms: number, now: number): string {
   return `${Math.floor(hr / 24)}d ago`;
 }
 
-/** The snake_case type tag + error flag shown as the row's pill. */
-function auditTag(e: AuditEntry): { readonly label: string; readonly err: boolean } {
-  switch (e.type) {
-    case 'reply':
-      return e.isError === true ? { label: 'error', err: true } : { label: 'replied', err: false };
-    case 'tool':
-      return { label: e.toolName !== undefined ? `tool · ${e.toolName}` : 'tool', err: false };
-    case 'session_start':
-      return { label: 'session_start', err: false };
-    case 'session_seal':
-      return { label: 'session_seal', err: false };
-  }
+/** The event type IS the pill; an `error` event flags red. (Aligned to Clowder's
+ *  AuditEventsTab, where the row label is the raw event type.) */
+function auditTag(e: AuditEvent): { readonly label: string; readonly err: boolean } {
+  return { label: e.type, err: e.type === 'error' };
 }
 
 /**
- * The expanded detail for one audit row — the REAL content behind the summary
- * pill (具体发送了什么): a reply's text, a tool's args + result, or a session
- * boundary's id. Aligned to Clowder's AuditEventsTab, which expands a row to its
- * underlying event data.
+ * The expanded detail for one audit row — the event's `data` payload shown
+ * verbatim (具体发生了什么). Aligned to Clowder's AuditEventsTab, which expands a
+ * row to a <pre> of JSON.stringify(event.data) — the same shape for real emitted
+ * events and for the old-thread派生回退 (which carries `derived: true` in data).
  */
-function auditDetail(e: AuditEntry): ReactElement {
-  if (e.type === 'reply') {
-    const text = e.text !== undefined && e.text.length > 0 ? e.text : '（本回合无文本，仅工具活动）';
-    return <p className="audit-detail-text">{text}</p>;
-  }
-  if (e.type === 'tool') {
-    return (
-      <div className="audit-detail-tool">
-        <div>
-          <span className="audit-detail-k">工具</span>
-          {e.toolName ?? 'tool'}
-          {e.durationMs !== undefined ? ` · ${e.durationMs}ms` : ''}
-        </div>
-        {e.toolInput !== undefined && (
-          <div>
-            <span className="audit-detail-k">参数</span>
-            {e.toolInput}
-          </div>
-        )}
-        {e.toolResult !== undefined && (
-          <div>
-            <span className="audit-detail-k">结果</span>
-            {e.toolResult}
-          </div>
-        )}
-      </div>
-    );
-  }
-  return (
-    <p className="audit-detail-text">
-      session {e.sessionId ?? ''}
-      {e.sequenceNo !== undefined ? ` · #${e.sequenceNo}` : ''}
-    </p>
-  );
+function auditDetail(e: AuditEvent): ReactElement {
+  return <pre className="audit-detail-json">{JSON.stringify(e.data, null, 2)}</pre>;
 }
 
 interface AgentStatusItemProps {
@@ -173,7 +133,7 @@ export interface AgentStatusProps {
  * did nothing. Aligned to Clowder's AuditEventsTab (row → expand → event detail).
  */
 function AuditRow(props: {
-  readonly entry: AuditEntry;
+  readonly entry: AuditEvent;
   readonly now: number;
   readonly expanded: boolean;
   readonly onToggle: () => void;
@@ -214,7 +174,7 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
   const [expanded, setExpanded] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [sessions, setSessions] = useState<readonly SessionChainEntry[]>([]);
-  const [audit, setAudit] = useState<readonly AuditEntry[]>([]);
+  const [audit, setAudit] = useState<readonly AuditEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   // The session whose transcript is open in the Session tab (null = show the list).
@@ -443,8 +403,8 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
                       <div className="sb-audit-empty">该会话还没有可审计的活动。</div>
                     )}
                     {!loading &&
-                      auditShown.map((e, i) => {
-                        const key = `${e.type}:${e.timestamp}:${i}`;
+                      auditShown.map((e) => {
+                        const key = e.id;
                         return (
                           <AuditRow
                             key={key}
@@ -493,8 +453,8 @@ export function AgentStatus(props: AgentStatusProps = {}): ReactElement {
                     {q.length > 0 && matchedAudit.length === 0 && matchedSessions.length === 0 && (
                       <div className="sb-audit-empty">没有匹配的审计 / session。</div>
                     )}
-                    {matchedAudit.slice(0, PREVIEW_LIMIT).map((e, i) => {
-                      const key = `search:${e.type}:${e.timestamp}:${i}`;
+                    {matchedAudit.slice(0, PREVIEW_LIMIT).map((e) => {
+                      const key = e.id;
                       return (
                         <AuditRow
                           key={key}

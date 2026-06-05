@@ -1,135 +1,169 @@
-// audit-routes — GET /api/audit/thread/:id merges the tool-event log + agent
-// replies + session boundaries into one time-ordered timeline. Seeded directly
-// through the SAME stores the engine uses (BuiltApp exposes them) — real audit
-// data, not mocks.
+// audit-routes — GET /api/audit/thread/:id returns the thread's EMITTED audit
+// events. This is an integration test against the REAL engine: a turn is driven
+// through buildApp (only the CLI is faked), so the invoke seam EMITS invoked +
+// responded events, and the route reads them back from the real EventAuditLog —
+// no hand-seeded audit rows, no mocks of the route.
 
 import Database from 'better-sqlite3';
 import { describe, it, expect, afterEach } from 'vitest';
-import type { AuditEntry } from '@choco/shared';
+import type { AgentMessage, AuditEvent } from '@choco/shared';
 import { buildApp, type BuiltApp } from '@choco/api/app-factory';
-import { CLAUDE, CODEX } from './helpers.js';
+import { CLAUDE } from './helpers.js';
+import { FakeAgentService } from '../invocation/fake-agent-service.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()?.();
 });
 
-function makeApp(): BuiltApp {
+/** A scripted turn: session_init → text → (optional tool) → done. */
+function turn(text: string, withTool: boolean): AgentMessage[] {
+  const ts = 1_700_000_000_000;
+  const events: AgentMessage[] = [
+    { type: 'session_init', agentId: CLAUDE, content: 'cli-sess-audit', timestamp: ts },
+    { type: 'text', agentId: CLAUDE, content: text, timestamp: ts + 1 },
+  ];
+  if (withTool) {
+    events.push({ type: 'tool_use', agentId: CLAUDE, toolName: 'Write', toolUseId: 't1', toolInput: { file_path: 'x.html' }, timestamp: ts + 2 });
+    events.push({ type: 'tool_result', agentId: CLAUDE, toolUseId: 't1', content: 'ok', timestamp: ts + 3 });
+  }
+  events.push({ type: 'done', agentId: CLAUDE, isFinal: true, timestamp: ts + 4 });
+  return events;
+}
+
+function makeApp(scripts: AgentMessage[][]): BuiltApp {
   const db = new Database(':memory:');
-  const app = buildApp({ db, agentServices: {} });
+  const app = buildApp({ db, agentServices: { 'claude-opus': new FakeAgentService(scripts) } });
   cleanups.push(app.close);
   return app;
 }
 
-const THREAD = 'thread_audit';
-
-/** Seed a thread with 1 tool call, 2 agent replies (1 normal + 1 system notice), 1 sealed session. */
-async function seed(app: BuiltApp): Promise<void> {
-  await app.stores.threadStore.ensureThread(THREAD, '审计测试');
-  await app.stores.toolEventLog.append({
-    invocationId: 'inv-1',
-    threadId: THREAD,
-    agentId: CLAUDE,
-    toolName: 'Write',
-    toolInput: '{"file_path":"two-sum-viz.html"}',
-    toolResult: 'wrote 1.2KB',
-    timestamp: 1_700_000_010_000,
-    durationMs: 42,
-    sessionId: 'sess-1',
+/** Drive one real turn on a platform channel and return its threadId. */
+async function driveTurn(app: BuiltApp, channelId: string, text: string): Promise<string> {
+  const r = await app.submitPlatformMessage({
+    adapterName: 'wechat', channelId, platformUserId: 'u', platformMessageId: `m_${channelId}`,
+    text: `@claude-opus ${text}`, receivedAt: 1_700_000_000_000,
   });
-  await app.stores.messageStore.append({
-    threadId: THREAD,
-    userId: 'user',
-    agentId: CLAUDE,
-    content: '写好了 two-sum-viz.html，包含步骤演示。',
-    mentions: [],
-    origin: 'stream',
-    timestamp: 1_700_000_020_000,
-    sessionId: 'sess-1',
-    extra: { toolEvents: [{ type: 'tool_use' }, { type: 'tool_use' }] },
-  });
-  await app.stores.messageStore.append({
-    threadId: THREAD,
-    userId: 'user',
-    agentId: CODEX,
-    content: '@codex 当前未启用（CLI 未检测到）。',
-    mentions: [],
-    origin: 'system',
-    timestamp: 1_700_000_030_000,
-  });
-  app.sessionStore.startSession(CLAUDE, THREAD, 'sess-1');
-  app.sessionStore.sealActiveSession(CLAUDE, THREAD);
+  return r.threadId;
 }
 
-async function getAudit(app: BuiltApp, threadId: string): Promise<{ status: number; entries: AuditEntry[] }> {
+async function getAudit(app: BuiltApp, threadId: string): Promise<{ status: number; events: AuditEvent[] }> {
   const res = await app.api.inject({ method: 'GET', url: `/api/audit/thread/${threadId}` });
-  const body = res.json<{ entries: AuditEntry[] }>();
-  return { status: res.statusCode, entries: body.entries };
+  return { status: res.statusCode, events: res.json<{ events: AuditEvent[] }>().events };
 }
 
-describe('GET /api/audit/thread/:id — merged timeline (happy)', () => {
-  it('merges tool calls + replies + session boundaries, ascending by timestamp', async () => {
-    const app = makeApp();
-    await seed(app);
-    const { status, entries } = await getAudit(app, THREAD);
+describe('GET /api/audit/thread/:id — emitted audit events (happy)', () => {
+  it('a real turn emits invoked + responded, carrying the turn summary in data', async () => {
+    const app = makeApp([turn('已写好可视化。', true)]);
+    const threadId = await driveTurn(app, 'gh_a', '写个可视化');
+
+    const { status, events } = await getAudit(app, threadId);
     expect(status).toBe(200);
 
-    // One of each kind seeded: 1 tool, 2 replies, session start + seal.
-    const byType = (t: AuditEntry['type']): AuditEntry[] => entries.filter((e) => e.type === t);
-    expect(byType('tool')).toHaveLength(1);
-    expect(byType('reply')).toHaveLength(2);
-    expect(byType('session_start')).toHaveLength(1);
-    expect(byType('session_seal')).toHaveLength(1);
+    const types = events.map((e) => e.type);
+    expect(types).toContain('invoked');
+    expect(types).toContain('responded');
 
-    // Sorted ascending by timestamp (the route sorts — holds for any values).
-    for (let i = 1; i < entries.length; i += 1) {
-      expect(entries[i]!.timestamp).toBeGreaterThanOrEqual(entries[i - 1]!.timestamp);
-    }
+    const invoked = events.find((e) => e.type === 'invoked');
+    expect(invoked?.data).toMatchObject({ agentId: 'claude-opus', mode: 'serial' });
+    expect(typeof invoked?.data.invocationId).toBe('string');
+
+    const responded = events.find((e) => e.type === 'responded');
+    expect(responded?.data).toMatchObject({ agentId: 'claude-opus', toolCalls: 1 });
+    expect(typeof responded?.data.durationMs).toBe('number');
+    expect(responded?.data.textChars as number).toBeGreaterThan(0);
+    // invoked + responded share the same invocationId (one turn).
+    expect(responded?.data.invocationId).toBe(invoked?.data.invocationId);
   });
 
-  it('attributes each entry to its agent + carries the type-specific fields', async () => {
-    const app = makeApp();
-    await seed(app);
-    const { entries } = await getAudit(app, THREAD);
-
-    const tool = entries.find((e) => e.type === 'tool');
-    expect(tool).toMatchObject({ agentId: 'claude-opus', toolName: 'Write', durationMs: 42, invocationId: 'inv-1' });
-    // The tool's real args + result ride along so an expanded row shows what it did.
-    expect(tool).toMatchObject({ toolInput: '{"file_path":"two-sum-viz.html"}', toolResult: 'wrote 1.2KB' });
-
-    const normalReply = entries.find((e) => e.type === 'reply' && e.isError !== true);
-    expect(normalReply).toMatchObject({ agentId: 'claude-opus', toolCount: 2 });
-    expect(normalReply?.textChars).toBeGreaterThan(0);
-    // The actual reply text rides along (具体发送了什么), not just the char count.
-    expect(normalReply?.text).toContain('two-sum-viz.html');
-
-    // The system/notice reply is flagged isError and attributed to codex.
-    const notice = entries.find((e) => e.type === 'reply' && e.isError === true);
-    expect(notice).toMatchObject({ agentId: 'codex-gpt', isError: true });
+  it('events are returned newest-first', async () => {
+    const app = makeApp([turn('一', false)]);
+    const threadId = await driveTurn(app, 'gh_b', '一');
+    const { events } = await getAudit(app, threadId);
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    for (let i = 1; i < events.length; i += 1) {
+      expect(events[i - 1]!.timestamp).toBeGreaterThanOrEqual(events[i]!.timestamp);
+    }
   });
 });
 
-describe('GET /api/audit/thread/:id — edge', () => {
-  it('a thread with no activity returns an empty timeline (not an error)', async () => {
-    const app = makeApp();
-    const { status, entries } = await getAudit(app, 'thread_nothing');
+describe('GET /api/audit/thread/:id — edge / adversarial', () => {
+  it('[edge] a thread with no activity returns an empty event list (not an error)', async () => {
+    const app = makeApp([]);
+    const { status, events } = await getAudit(app, 'thread_nothing');
     expect(status).toBe(200);
-    expect(entries).toEqual([]);
+    expect(events).toEqual([]);
   });
 
-  it('user messages are NOT audited (only agent activity)', async () => {
-    const app = makeApp();
-    await app.stores.threadStore.ensureThread(THREAD, 'u');
+  it('[fallback] 老 thread (history but no emitted events) falls back to 派生 — non-empty, every event derived', async () => {
+    // A thread whose history was persisted DIRECTLY through the stores (the
+    // 9df7fb4-之前 shape) — never driven through the invoke seam, so NO audit event
+    // was ever emitted for it. The route MUST fall back to deriving from
+    // messages/tools/sessions so the old thread's audit is NOT empty. 上次重建炸掉
+    // 的正是这一点：派生被删 → 老 thread 全空。这条测试钉住「老 thread 不变空」。
+    const app = makeApp([]);
+    const LEGACY = 'thread_legacy_pre_eventlog';
+    await app.stores.threadStore.ensureThread(LEGACY, '两数之和可视化');
     await app.stores.messageStore.append({
-      threadId: THREAD,
+      threadId: LEGACY,
       userId: 'user',
-      agentId: null,
-      content: '帮我写个 two-sum 可视化',
+      agentId: CLAUDE,
+      content: '写好了 two-sum-viz.html，含哈希解法的逐步动画。',
       mentions: [],
-      origin: 'user',
-      timestamp: 1_700_000_005_000,
+      origin: 'stream',
+      timestamp: 1_700_000_020_000,
+      sessionId: 'sess-legacy',
+      extra: { toolEvents: [{ type: 'tool_use' }] },
     });
-    const { entries } = await getAudit(app, THREAD);
-    expect(entries).toEqual([]);
+    await app.stores.toolEventLog.append({
+      invocationId: 'inv-legacy',
+      threadId: LEGACY,
+      agentId: CLAUDE,
+      toolName: 'Write',
+      toolInput: '{"file_path":"two-sum-viz.html"}',
+      toolResult: 'wrote 1.2KB',
+      timestamp: 1_700_000_010_000,
+      durationMs: 42,
+      sessionId: 'sess-legacy',
+    });
+    app.sessionStore.startSession(CLAUDE, LEGACY, 'sess-legacy');
+    app.sessionStore.sealActiveSession(CLAUDE, LEGACY);
+
+    const { status, events } = await getAudit(app, LEGACY);
+    expect(status).toBe(200);
+    // NOT empty — the old thread still has an audit (the regression was it going empty).
+    expect(events.length).toBeGreaterThan(0);
+    // Every derived event is flagged, so the source is honest about the fallback.
+    expect(events.every((e) => e.data.derived === true)).toBe(true);
+    // The persisted history surfaces as derived events of the right kinds.
+    const types = events.map((e) => e.type);
+    expect(types).toContain('responded'); // the agent reply
+    expect(types).toContain('session_seal'); // the sealed session boundary
+  });
+
+  it('[edge] sealing a session over HTTP emits a session_seal audit event', async () => {
+    const app = makeApp([turn('开工', false)]);
+    const threadId = await driveTurn(app, 'gh_seal', '开工');
+    // The turn opened session cli-sess-audit (active) — seal it via the real route.
+    const sealed = await app.api.inject({ method: 'POST', url: '/api/sessions/cli-sess-audit/seal' });
+    expect(sealed.statusCode).toBe(200);
+
+    const { events } = await getAudit(app, threadId);
+    const seal = events.find((e) => e.type === 'session_seal');
+    expect(seal?.data).toMatchObject({ sessionId: 'cli-sess-audit', agentId: 'claude-opus' });
+  });
+
+  it('[adversarial] audit events are thread-isolated (one thread never leaks another\'s)', async () => {
+    const app = makeApp([turn('A', false), turn('B', false)]);
+    const threadA = await driveTurn(app, 'gh_iso_a', 'A');
+    const threadB = await driveTurn(app, 'gh_iso_b', 'B');
+    expect(threadA).not.toBe(threadB);
+
+    const a = await getAudit(app, threadA);
+    const b = await getAudit(app, threadB);
+    expect(a.events.length).toBeGreaterThan(0);
+    expect(b.events.length).toBeGreaterThan(0);
+    expect(a.events.every((e) => e.threadId === threadA)).toBe(true);
+    expect(b.events.every((e) => e.threadId === threadB)).toBe(true);
   });
 });

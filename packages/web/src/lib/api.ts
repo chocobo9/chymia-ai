@@ -27,7 +27,7 @@ import type {
   SessionRecord,
   SessionDigest,
   SessionEvent,
-  AuditEntry,
+  AuditEvent,
   SkillDefinition,
   SopDefinition,
   AccountSummary,
@@ -547,11 +547,12 @@ export class ApiClient {
     return parseJson<FeishuConnStatus>(res);
   }
 
-  /** GET /api/audit/thread/:id — the per-thread audit timeline (replies/tools/seals). */
-  async getAudit(threadId: string): Promise<readonly AuditEntry[]> {
+  /** GET /api/audit/thread/:id — the thread's emitted audit events (新 thread 真实事件，
+   *  老 thread 由路由回退到派生，data.derived=true)。 */
+  async getAudit(threadId: string): Promise<readonly AuditEvent[]> {
     const res = await this.fetchFn(this.url(`/api/audit/thread/${threadId}`));
-    const data = await parseJson<{ entries: AuditEntry[] }>(res);
-    return data.entries;
+    const data = await parseJson<{ events: AuditEvent[] }>(res);
+    return data.events;
   }
 
   /** GET /api/skills — the skill catalog with each skill's on/off state (M11). */

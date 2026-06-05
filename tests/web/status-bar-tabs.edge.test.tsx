@@ -11,7 +11,7 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AuditEntry, SessionEvent } from '@choco/shared';
+import type { AuditEvent, SessionEvent } from '@choco/shared';
 import { AgentStatus } from '../../packages/web/src/components/AgentStatus.js';
 import { ApiClient, type SessionChainEntry } from '../../packages/web/src/lib/api.js';
 import { useChatStore } from '../../packages/web/src/stores/chat-store.js';
@@ -24,10 +24,13 @@ const CHAIN: readonly SessionChainEntry[] = [
   { sessionId: 'sess-3f2a9c11', threadId: THREAD, agentId: CLAUDE, sequenceNo: 1, status: 'sealed', createdAt: 1_700_000_100_000, sealedAt: 1_700_000_200_000, digest: null },
   { sessionId: 'sess-9c1b0400', threadId: THREAD, agentId: CLAUDE, sequenceNo: 2, status: 'active', createdAt: 1_700_000_300_000, digest: null },
 ];
-const AUDIT: readonly AuditEntry[] = [
-  { type: 'reply', agentId: CLAUDE, timestamp: 1_700_000_110_000, textChars: 128, toolCount: 2, text: '已写好 two-sum 哈希解法并加了可视化。' },
-  { type: 'tool', agentId: CLAUDE, timestamp: 1_700_000_120_000, toolName: 'Write', durationMs: 42, toolInput: '{"file_path":"two-sum.html"}', toolResult: 'wrote 1.2KB' },
-  { type: 'session_seal', agentId: CLAUDE, timestamp: 1_700_000_200_000, sequenceNo: 1 },
+// Real audit-event shape (matches what the engine emits + GET /api/audit/thread/:id
+// returns in tests/api/audit-routes.test.ts): typed lifecycle events, newest-first,
+// each with a `data` payload the row expands to.
+const AUDIT: readonly AuditEvent[] = [
+  { id: 'a3', type: 'session_seal', threadId: THREAD, timestamp: 1_700_000_200_000, data: { sessionId: 'sess-9c1b0400', agentId: CLAUDE, sequenceNo: 1 } },
+  { id: 'a2', type: 'responded', threadId: THREAD, timestamp: 1_700_000_120_000, data: { agentId: CLAUDE, invocationId: 'inv-1', durationMs: 1234, textChars: 128, toolCalls: 2 } },
+  { id: 'a1', type: 'invoked', threadId: THREAD, timestamp: 1_700_000_110_000, data: { agentId: CLAUDE, invocationId: 'inv-1', mode: 'serial' } },
 ];
 // Real merged-transcript shape (matches what GET /api/sessions/:id/transcript returns
 // in tests/api/session-routes.test.ts): a `message` event carrying the agent's reply
@@ -38,7 +41,7 @@ const TRANSCRIPT: readonly SessionEvent[] = [
 ];
 
 function fakeClient(
-  over: { sessions?: readonly SessionChainEntry[]; audit?: readonly AuditEntry[]; transcript?: readonly SessionEvent[] } = {},
+  over: { sessions?: readonly SessionChainEntry[]; audit?: readonly AuditEvent[]; transcript?: readonly SessionEvent[] } = {},
 ): ApiClient {
   const client = new ApiClient({ baseUrl: 'http://test', fetchFn: () => Promise.reject(new Error('no net')) });
   vi.spyOn(client, 'getSessions').mockResolvedValue(over.sessions ?? CHAIN);
@@ -68,8 +71,10 @@ describe('审计 & Session panel — original Choco design, real data', () => {
     expect(screen.getByTestId('sb-audit-tab-搜索')).toBeInTheDocument();
     const events = await screen.findAllByTestId('sb-audit-event');
     expect(events).toHaveLength(3);
-    expect(within(events[0]).getByText('replied')).toBeInTheDocument(); // reply → type pill
-    expect(within(events[1]).getByText('tool · Write')).toBeInTheDocument();
+    // Newest-first: session_seal, responded, invoked — the type IS the pill.
+    expect(within(events[0]).getByText('session_seal')).toBeInTheDocument();
+    expect(within(events[1]).getByText('responded')).toBeInTheDocument();
+    expect(within(events[2]).getByText('invoked')).toBeInTheDocument();
     expect(within(events[0]).getByText(/ago$/)).toBeInTheDocument(); // relative time
   });
 
@@ -105,14 +110,14 @@ describe('审计 & Session panel — original Choco design, real data', () => {
     expect(client.reopenSession).toHaveBeenCalledWith('sess-3f2a9c11');
   });
 
-  it('[edge] the 搜索 tab filters the audit rows live (by type)', async () => {
+  it('[edge] the 搜索 tab filters the audit rows live (by event type)', async () => {
     render(<AgentStatus client={fakeClient()} />);
     await screen.findAllByTestId('sb-audit-event');
     await userEvent.click(screen.getByTestId('sb-audit-tab-搜索'));
-    await userEvent.type(screen.getByTestId('sb-audit-search'), 'tool');
+    await userEvent.type(screen.getByTestId('sb-audit-search'), 'invoked');
     const events = screen.getAllByTestId('sb-audit-event');
     expect(events).toHaveLength(1);
-    expect(within(events[0]).getByText('tool · Write')).toBeInTheDocument();
+    expect(within(events[0]).getByText('invoked')).toBeInTheDocument();
   });
 
   it('[edge] the panel is collapsible — toggling hides the tab body', async () => {
@@ -132,25 +137,26 @@ describe('审计 & Session panel — original Choco design, real data', () => {
     expect(screen.queryByTestId('sb-open-sessions')).not.toBeInTheDocument();
   });
 
-  it('[happy] clicking an 审计事件 row expands to its REAL detail (the reply text), not just a count', async () => {
+  it('[happy] clicking an 审计事件 row expands its data payload (具体发生了什么)', async () => {
     render(<AgentStatus client={fakeClient()} />);
     const rows = await screen.findAllByTestId('sb-audit-event');
     expect(screen.queryByTestId('sb-audit-detail')).not.toBeInTheDocument(); // collapsed by default
-    await userEvent.click(within(rows[0]).getByTestId('sb-audit-event-toggle')); // the reply row
+    await userEvent.click(within(rows[1]).getByTestId('sb-audit-event-toggle')); // the 'responded' row
     const detail = await screen.findByTestId('sb-audit-detail');
-    expect(within(detail).getByText(/哈希解法/)).toBeInTheDocument(); // 具体发送了什么
+    // The event's data is shown verbatim (durationMs / textChars / toolCalls / invocationId).
+    expect(within(detail).getByText(/toolCalls/)).toBeInTheDocument();
+    expect(within(detail).getByText(/inv-1/)).toBeInTheDocument();
   });
 
-  it('[edge] expanding a tool row shows its args + result; clicking again collapses', async () => {
+  it('[edge] a row expands on click and collapses on a second click', async () => {
     render(<AgentStatus client={fakeClient()} />);
-    const rows = await screen.findAllByTestId('sb-audit-event');
-    const toolToggle = within(rows[1]).getByTestId('sb-audit-event-toggle');
-    await userEvent.click(toolToggle);
-    const detail = await screen.findByTestId('sb-audit-detail');
-    expect(within(detail).getByText(/two-sum\.html/)).toBeInTheDocument(); // toolInput
-    expect(within(detail).getByText(/wrote 1\.2KB/)).toBeInTheDocument(); // toolResult
-    await userEvent.click(toolToggle);
-    expect(screen.queryByTestId('sb-audit-detail')).not.toBeInTheDocument(); // toggles closed
+    await screen.findAllByTestId('sb-audit-event');
+    const toggle = (): HTMLElement =>
+      within(screen.getAllByTestId('sb-audit-event')[1]).getByTestId('sb-audit-event-toggle');
+    await userEvent.click(toggle());
+    expect(await screen.findByTestId('sb-audit-detail')).toBeInTheDocument();
+    await userEvent.click(toggle());
+    expect(screen.queryByTestId('sb-audit-detail')).not.toBeInTheDocument();
   });
 
   it('[adversarial] with NO client the panel is inert (no crash); the live readout still renders', async () => {

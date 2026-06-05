@@ -41,6 +41,7 @@ import type { InvokeSingleAgentParams } from '@choco/api/invocation/invoke-singl
 import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
 import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
 import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
+import { SqliteEventAuditLog } from '@choco/api/stores/sqlite-event-audit-log';
 import { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
 import { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
 import { buildSystemPrompt } from '@choco/api/context/system-prompt-builder';
@@ -303,6 +304,8 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   const messageStore = new SqliteMessageStore(db);
   const threadStore = new SqliteThreadStore(db, { now });
   const toolEventLog = new SqliteToolEventLog(db);
+  // 审计事件日志（对齐 Clowder EventAuditLog）— DI Database + clock; 幂等迁移 005 在 ctor 跑。
+  const eventAuditLog = new SqliteEventAuditLog(db, { now });
   const evidenceStore = new SqliteEvidenceStore(db);
   // A10 platform-mapping store (idempotent migration 004 runs in its ctor). Shared
   // by M13/M14 adapters via submitPlatformMessage below.
@@ -387,6 +390,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     sessionStore,
     sessionMutex,
     invocations,
+    eventAuditLog,
     resolveConfig,
     apiBaseUrl,
     now,
@@ -415,6 +419,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     messageStore,
     threadStore,
     toolEventLog,
+    eventAuditLog,
     evidenceStore,
     platformMappingStore,
     sessionStore,
@@ -536,6 +541,8 @@ interface InvokeDeps {
   readonly sessionStore: SessionStore;
   readonly sessionMutex: SessionMutex;
   readonly invocations: InvocationRegistry;
+  /** 审计事件日志——invoke 缝 emit invoked/responded/error（best-effort，绝不打断回合）。 */
+  readonly eventAuditLog: SqliteEventAuditLog;
   readonly resolveConfig: ResolveAgentConfig;
   readonly apiBaseUrl: string;
   readonly now: () => number;
@@ -727,10 +734,31 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       agentId,
     });
 
+    // 审计日志：emit 最佳努力，绝不能让 audit 写失败打断一个回合（Clowder 也隔离它）。
+    const emitAudit = (type: string, data: Record<string, unknown>): void => {
+      void deps.eventAuditLog.append({ type, threadId, data }).catch((err: unknown) => {
+        deps.logger({
+          level: 'warn',
+          message: `audit append failed (${type}): ${err instanceof Error ? err.message : String(err)}`,
+          threadId,
+          agentId,
+        });
+      });
+    };
+    emitAudit('invoked', {
+      agentId,
+      invocationId: record.invocationId,
+      mode: context.mode,
+      ...(context.chainIndex !== undefined ? { chainIndex: context.chainIndex } : {}),
+      ...(context.chainTotal !== undefined ? { chainTotal: context.chainTotal } : {}),
+    });
+
     // Tally this turn's output for invariant 4 (productive-invocation probe).
     let textLength = 0;
     let toolCallCount = 0;
     let errorCount = 0;
+    // The last error frame's message, carried into the `error` audit event (if any).
+    let lastErrorMessage: string | undefined;
 
     // Stamp this turn's invocationId (§4.2) AND session_id (补充 E) onto every
     // emitted event so downstream sinks — the M5 ToolEventLog live-feed + the
@@ -746,6 +774,7 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
           toolCallCount += 1;
         } else if (event.type === 'error') {
           errorCount += 1;
+          if (event.content !== undefined) lastErrorMessage = event.content;
         }
 
         const withInvocation =
@@ -768,6 +797,26 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
         threadId,
         agentId,
       });
+      // 审计日志：回合收尾 emit responded（正常产出）或 error（有错误帧）。与上面
+      // 的 to-log 不同——这条进的是可查询的审计事件日志，审计 tab 读它。
+      const durationMs = deps.now() - startedAt;
+      if (errorCount > 0) {
+        emitAudit('error', {
+          agentId,
+          invocationId: record.invocationId,
+          durationMs,
+          errorCount,
+          ...(lastErrorMessage !== undefined ? { error: lastErrorMessage } : {}),
+        });
+      } else {
+        emitAudit('responded', {
+          agentId,
+          invocationId: record.invocationId,
+          durationMs,
+          textChars: textLength,
+          toolCalls: toolCallCount,
+        });
+      }
       // Operability invariant 4: flag a silent dead turn (no output, no error) or
       // an error spike. Runs in `finally` so an aborted/short-circuited stream is
       // still judged. Silent in tests (NOOP_LOGGER) unless a logger is injected.
