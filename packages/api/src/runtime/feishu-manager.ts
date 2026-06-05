@@ -25,6 +25,12 @@ export interface FeishuAdapterLike {
   start(): Promise<void>;
   stop(): Promise<void>;
   readonly isConnected: boolean;
+  /**
+   * Send a markdown text to a 飞书 channel out-of-band (NOT a reply to an inbound
+   * message) — the web→飞书 bridge for a turn that originated off-platform.
+   * Optional so existing fakes need not implement it; the manager no-ops when absent.
+   */
+  sendToChannel?(channelId: string, text: string): Promise<void>;
 }
 
 export interface FeishuManagerDeps {
@@ -80,6 +86,22 @@ export class FeishuManager {
   /** Connect if a persisted config is complete + enabled (boot). */
   async autoStart(): Promise<void> {
     await this.reconcile();
+  }
+
+  /**
+   * web→飞书 bridge: send `text` to a 飞书 channel out-of-band. No-op when not
+   * connected or the live adapter can't send (best-effort; never throws to caller).
+   */
+  async sendToChannel(channelId: string, text: string): Promise<void> {
+    const adapter = this.adapter;
+    if (adapter === null || !adapter.isConnected || adapter.sendToChannel === undefined) {
+      return;
+    }
+    try {
+      await adapter.sendToChannel(channelId, text);
+    } catch (err) {
+      this.logger.error({ err: String(err), channelId }, 'feishu: outbound sendToChannel failed');
+    }
   }
 
   private async reconcile(): Promise<void> {

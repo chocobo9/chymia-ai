@@ -54,6 +54,13 @@ export interface HandleThreadMessageInput {
    * route leaves it false: the web client already shows its own send optimistically.
    */
   readonly broadcastInbound?: boolean;
+  /**
+   * The platform this turn ORIGINATED from (e.g. 'feishu'), or undefined for a
+   * web/HTTP turn. Used by the web→平台 outbound bridge for echo prevention: the
+   * turn is mirrored to every OTHER linked platform channel but NOT back to its
+   * origin (that platform's adapter already delivered it inbound).
+   */
+  readonly originAdapter?: string;
 }
 
 /** Result of {@link handleThreadMessage}: the persisted user message + replies. */
@@ -113,7 +120,7 @@ export async function handleThreadMessage(
 ): Promise<HandleThreadMessageResult> {
   const { router, registry, messageStore, threadStore, toolEventLog, socket, logger, now } =
     services;
-  const { threadId, userId, content, onTextDelta, broadcastInbound } = input;
+  const { threadId, userId, content, onTextDelta, broadcastInbound, originAdapter } = input;
   const { defaultWorkspace } = services;
 
   // 1. Auto-create the thread on first message (ported ensureThread idiom).
@@ -249,7 +256,48 @@ export async function handleThreadMessage(
   // what was skipped) — the persisted timestamps already place it first.
   const replies = noticeReply !== null ? [noticeReply, ...persisted] : persisted;
 
+  // web→平台 出站桥 (Issue B): mirror this turn (user message + agent replies) to any
+  // platform channel this thread is linked to, EXCEPT the platform it came from
+  // (originAdapter → echo prevention; that adapter already delivered it inbound).
+  // No-op for a web-only thread. Best-effort (failures logged inside, never thrown).
+  await deliverTurnToLinkedPlatforms(services, threadId, originAdapter, userMessage, replies);
+
   return { userMessage, replies };
+}
+
+/**
+ * Build the human-readable mirror lines for a turn (user message + each reply,
+ * attributed by agent display name) and hand them to the {@link PlatformOutbound}
+ * seam, which pushes them to the thread's linked platform channels (skipping the
+ * origin). Pure formatting + delegation; the seam owns the per-platform delivery.
+ */
+async function deliverTurnToLinkedPlatforms(
+  services: AppServices,
+  threadId: string,
+  originAdapter: string | undefined,
+  userMessage: StoredMessage,
+  replies: readonly StoredMessage[],
+): Promise<void> {
+  const { platformOutbound, registry } = services;
+  const lines: string[] = [];
+  if (userMessage.content.trim().length > 0) {
+    lines.push(`🧑 ${userMessage.content}`);
+  }
+  for (const reply of replies) {
+    if (reply.content.trim().length === 0) continue;
+    if (reply.agentId === null) {
+      lines.push(reply.content);
+      continue;
+    }
+    const name = registry.get(reply.agentId)?.displayName ?? (reply.agentId as string);
+    lines.push(`**${name}**：${reply.content}`);
+  }
+  if (lines.length === 0) return;
+  await platformOutbound.deliverToLinkedChannels({
+    threadId,
+    ...(originAdapter !== undefined ? { originAdapter } : {}),
+    lines,
+  });
 }
 
 /**

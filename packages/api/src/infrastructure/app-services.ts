@@ -28,6 +28,24 @@ import type { WeChatConfigStore } from '@choco/api/config/wechat-config-store';
 import type { SkillService } from '@choco/api/skills/skill-service';
 
 /**
+ * PlatformOutbound — the web→平台 bridge seam. After a turn runs in a thread that
+ * is linked to a platform channel (飞书/…), the message pipeline pushes the turn
+ * (user message + agent replies) OUT to that channel — EXCEPT the platform the turn
+ * came from (echo prevention). No-op for a web-only thread (no platform mapping).
+ * The composition root wires the live adapter managers behind it; tests inject a
+ * recording fake.
+ */
+export interface PlatformOutbound {
+  deliverToLinkedChannels(input: {
+    readonly threadId: string;
+    /** The platform the turn originated from (skip it); undefined = web/HTTP. */
+    readonly originAdapter?: string;
+    /** The texts to mirror, in order (user message first, then each reply). */
+    readonly lines: readonly string[];
+  }): Promise<void>;
+}
+
+/**
  * The wired service bundle shared by all routes. Immutable references — routes
  * read these; they never reassign them.
  */
@@ -110,6 +128,11 @@ export interface AppServices {
    */
   readonly wechatConfigStore: WeChatConfigStore;
   readonly socket: SocketManager;
+  /**
+   * web→平台 出站桥：回合收尾时把（用户消息 + agent 回复）推到本 thread 关联的平台
+   * 频道（飞书），来源平台除外（防回环）。web-only thread 无映射 → no-op。
+   */
+  readonly platformOutbound: PlatformOutbound;
   /**
    * Structured logger for non-fatal route notes (the same {@link RouteLogger}
    * seam M4's AgentRouter uses). Routes log best-effort failures through this

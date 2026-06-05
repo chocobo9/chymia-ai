@@ -60,7 +60,7 @@ import {
   type RuntimeRosterStore,
 } from '@choco/api/config/runtime-roster';
 import { SocketManager } from '@choco/api/infrastructure/socket-manager';
-import type { AppServices } from '@choco/api/infrastructure/app-services';
+import type { AppServices, PlatformOutbound } from '@choco/api/infrastructure/app-services';
 import { registerThreadRoutes } from '@choco/api/routes/thread-routes';
 import { registerMessageRoutes } from '@choco/api/routes/message-routes';
 import { handleThreadMessage } from '@choco/api/routes/message-handler';
@@ -413,6 +413,32 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   });
   const socket = new SocketManager(io);
 
+  // web→平台 出站桥 (Issue B). Late-bound: feishuManager is built AFTER appServices
+  // (it needs submitPlatformMessage, which needs appServices), so the closure reads
+  // it from a holder populated below. Only feishu has outbound today; new platforms
+  // plug in here. Echo prevention: skip the adapter the turn originated from.
+  const platformOutboundRef: { feishu?: FeishuManager } = {};
+  const platformOutbound: PlatformOutbound = {
+    deliverToLinkedChannels: async ({ threadId, originAdapter, lines }) => {
+      const texts = lines.filter((l) => l.trim().length > 0);
+      if (texts.length === 0) return;
+      if (originAdapter !== 'feishu' && platformOutboundRef.feishu !== undefined) {
+        try {
+          const channelId = await platformMappingStore.getChannelId('feishu', threadId);
+          if (channelId !== null) {
+            for (const text of texts) await platformOutboundRef.feishu.sendToChannel(channelId, text);
+          }
+        } catch (err) {
+          logger({
+            level: 'warn',
+            message: `platform outbound (feishu) failed: ${err instanceof Error ? err.message : String(err)}`,
+            threadId,
+          });
+        }
+      }
+    },
+  };
+
   const appServices: AppServices = {
     router,
     registry,
@@ -425,6 +451,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     platformMappingStore,
     sessionStore,
     socket,
+    platformOutbound,
     logger,
     now,
     sopService,
@@ -488,6 +515,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
       userId,
       content: incoming.text,
       broadcastInbound: true,
+      // Echo prevention: this turn came from `incoming.adapterName`; the web→平台
+      // bridge must NOT push it back to that same platform (already delivered inbound).
+      originAdapter: incoming.adapterName,
       ...(opts?.onTextDelta !== undefined ? { onTextDelta: opts.onTextDelta } : {}),
     });
     return { threadId, userId, replies };
@@ -515,6 +545,8 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
       : {}),
   });
   registerFeishuRoutes(api, feishuManager);
+  // Wire the live feishu manager into the web→飞书 outbound bridge (late bind — see above).
+  platformOutboundRef.feishu = feishuManager;
 
   const close = async (): Promise<void> => {
     io.close();

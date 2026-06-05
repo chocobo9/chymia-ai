@@ -232,6 +232,18 @@ export class FeishuAdapter {
     }
   }
 
+  /**
+   * web→飞书 bridge: send a markdown text to a channel OUT-OF-BAND (not a reply to
+   * an inbound 飞书 message). Used by FeishuManager.sendToChannel to mirror a turn
+   * that originated off-platform (web/HTTP) into the linked 飞书 chat. No-op when
+   * the long connection isn't open.
+   */
+  async sendToChannel(channelId: string, text: string): Promise<void> {
+    const channel = this.channel;
+    if (channel === null) return;
+    await this.sendMarkdown(channel, channelId, text, undefined);
+  }
+
   /** Send one markdown reply, isolating send failures (log, never throw). */
   private async sendMarkdown(
     channel: LarkChannelLike,
