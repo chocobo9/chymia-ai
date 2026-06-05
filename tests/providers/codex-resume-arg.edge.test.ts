@@ -122,13 +122,16 @@ describe('codex buildArgs — systemPrompt prepend into the single trailing posi
     expect(args.lastIndexOf(last)).toBe(args.length - 1);
   });
 
-  it('edge: with systemPrompt in RESUME mode the combined prompt is still the single last positional, id untouched at idx 2', () => {
+  it('edge: in RESUME mode the systemPrompt is NOT re-prepended (session already carries identity) — the bare prompt is the last positional, id at idx 2', () => {
     const args = buildArgs(RESUME_PROMPT, { sessionId: SESSION_ID, systemPrompt: SYSTEM }, '');
     expect(args[1]).toBe('resume');
     expect(args[2]).toBe(SESSION_ID);
     const last = args[args.length - 1];
-    expect(last.startsWith(SYSTEM)).toBe(true);
-    expect(last.includes(RESUME_PROMPT)).toBe(true);
+    // Resume no longer re-injects the identity system prompt (it was the gemini/codex
+    // identity-loop cause: re-prepending the persona as user text every resumed turn).
+    // The trailing positional is the BARE user prompt; the session already carries identity.
+    expect(last).toBe(RESUME_PROMPT);
+    expect(args).not.toContain(SYSTEM);
     expect(countOf(args, SESSION_ID)).toBe(1);
   });
 });

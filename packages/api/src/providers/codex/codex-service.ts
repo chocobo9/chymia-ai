@@ -82,10 +82,14 @@ export function buildArgs(
   if (mcpConfig) {
     args.push(CODEX_CONFIG_FLAG, mcpConfig);
   }
-  // Codex 无原生 system prompt 注入（injectsL0Natively=false）：前置拼入 prompt。
-  const withSystem = options?.systemPrompt
-    ? `${options.systemPrompt}\n\n${prompt}`
-    : prompt;
+  // Codex 无原生 system prompt 注入（injectsL0Natively=false）：仅「会话首轮」（无
+  // sessionId / 未 resume）才把身份 system prompt 前置拼入。RESUME 时会话已带身份，再每轮
+  // 前置会让模型把人设当成用户反复发的同一句话 → 重复计数 / 身份死循环（gemini 上真机实测，
+  // codex 同构，预防性同修）。
+  const withSystem =
+    options?.systemPrompt && options?.sessionId === undefined
+      ? `${options.systemPrompt}\n\n${prompt}`
+      : prompt;
   const effectivePrompt = appendContentText(withSystem, options?.contentBlocks);
   // Codex `exec` 接受 prompt 作为末位位置参数。
   args.push(effectivePrompt);

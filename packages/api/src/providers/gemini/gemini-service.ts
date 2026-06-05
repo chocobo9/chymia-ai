@@ -69,7 +69,7 @@ function appendContentText(
   return textParts.length > 0 ? `${prompt}\n${textParts.join('\n')}` : prompt;
 }
 
-function buildArgs(
+export function buildArgs(
   prompt: string,
   options: InvokeOptions | undefined,
   defaultModel: string,
@@ -87,10 +87,14 @@ function buildArgs(
   if (mcpConfig) {
     args.push(GEMINI_CONFIG_FLAG, mcpConfig);
   }
-  // Gemini 无原生 system prompt 注入（injectsL0Natively=false）：前置拼入 prompt。
-  const withSystem = options?.systemPrompt
-    ? `${options.systemPrompt}\n\n${prompt}`
-    : prompt;
+  // Gemini 无原生 system prompt 注入（injectsL0Natively=false）：仅「会话首轮」（无
+  // sessionId / 未 resume）才把身份 system prompt 前置拼入 prompt。RESUME 时该会话已携带
+  // 身份上下文；再每轮前置，gemini 会把自己的人设当成「用户反复发来的同一句话」→ 计数
+  // 重复、索要验证码、进入"循环中断"死锁（用户 2026-06-05 真机实测）。故 resume 不重复注入。
+  const withSystem =
+    options?.systemPrompt && options?.sessionId === undefined
+      ? `${options.systemPrompt}\n\n${prompt}`
+      : prompt;
   const effectivePrompt = appendContentText(withSystem, options?.contentBlocks);
   args.push(GEMINI_PROMPT_FLAG, effectivePrompt);
   return args;
