@@ -35,7 +35,7 @@ const MAX_API_RESTARTS = 5;
 
 // Default workspace: a clearly-logged safe dir under the repo, so an unset
 // CHOCO_WORKSPACE never silently points real agents at an unexpected directory.
-const DEFAULT_WORKSPACE = resolve(ROOT, '.workspace');
+const DEFAULT_WORKSPACE = ROOT;
 
 const workspace = process.env.CHOCO_WORKSPACE ?? DEFAULT_WORKSPACE;
 if (process.env.CHOCO_WORKSPACE === undefined) {

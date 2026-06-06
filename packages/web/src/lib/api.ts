@@ -52,6 +52,35 @@ export interface WorkspaceTreeEntry {
   readonly path: string;
 }
 
+export interface WorkspaceInfo {
+  readonly root: string;
+  readonly trusted: boolean;
+  readonly rootSource: string;
+  readonly gitAvailable: boolean;
+  readonly branch: string;
+}
+
+export interface WorkspaceFilePreview {
+  readonly path: string;
+  readonly content: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly mime: string;
+  readonly truncated: boolean;
+  readonly binary: boolean;
+}
+
+export interface WorkspaceSearchResult {
+  readonly path: string;
+  readonly line: number;
+  readonly content: string;
+  readonly contextBefore: readonly string[];
+  readonly contextAfter: readonly string[];
+  readonly matchType: 'filename' | 'content';
+}
+
+export type WorkspaceSearchType = 'filename' | 'content' | 'all';
+
 /** A commit row (GET /api/workspace/git-log). */
 export interface GitCommitEntry {
   readonly hash: string;
@@ -433,10 +462,19 @@ export class ApiClient {
    * preview (e.g. an agent-written HTML viz). Sandboxed + size-capped server-side.
    * Returns the content string; throws ApiError on non-2xx (403/404/413).
    */
-  async getWorkspaceFile(path: string): Promise<string> {
+  async getWorkspaceFile(path: string): Promise<WorkspaceFilePreview> {
     const res = await this.fetchFn(this.url(`/api/workspace/file?path=${encodeURIComponent(path)}`));
-    const data = await parseJson<{ path: string; content: string }>(res);
-    return data.content;
+    return parseJson<WorkspaceFilePreview>(res);
+  }
+
+  async uploadWorkspaceFile(input: {
+    readonly directory?: string;
+    readonly filename: string;
+    readonly contentBase64: string;
+    readonly overwrite?: boolean;
+  }): Promise<{ readonly ok: boolean; readonly path: string; readonly size: number; readonly sha256: string }> {
+    const res = await this.fetchFn(this.url('/api/workspace/upload'), this.jsonInit('POST', input));
+    return parseJson<{ ok: boolean; path: string; size: number; sha256: string }>(res);
   }
 
   /** GET /api/threads/:id/sessions — the thread's session chain (each with a digest). */
@@ -678,6 +716,23 @@ export class ApiClient {
     const res = await this.fetchFn(this.url(`/api/workspace/tree${q}`));
     const data = await parseJson<{ entries: WorkspaceTreeEntry[] }>(res);
     return data.entries;
+  }
+
+  async getWorkspaceInfo(): Promise<WorkspaceInfo> {
+    const res = await this.fetchFn(this.url('/api/workspace/info'));
+    return parseJson<WorkspaceInfo>(res);
+  }
+
+  async searchWorkspace(
+    query: string,
+    type: WorkspaceSearchType = 'all',
+  ): Promise<readonly WorkspaceSearchResult[]> {
+    const res = await this.fetchFn(
+      this.url('/api/workspace/search'),
+      this.jsonInit('POST', { query, type }),
+    );
+    const data = await parseJson<{ results: WorkspaceSearchResult[] }>(res);
+    return data.results;
   }
 
   /** GET /api/workspace/git-log — recent commits (开发 tab Git view). */

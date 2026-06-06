@@ -37,7 +37,39 @@ function fakeClient(): ApiClient {
       );
     }
     if (p === '/api/workspace/file') {
-      return Promise.resolve(json({ path, content: 'export const x = 2;\n' }));
+      return Promise.resolve(
+        json({
+          path,
+          content: 'export const x = 2;\n',
+          sha256: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+          size: 20,
+          mime: 'text/typescript',
+          truncated: false,
+          binary: false,
+        }),
+      );
+    }
+    if (p === '/api/workspace/info') {
+      return Promise.resolve(json({ root: 'D:\\proj\\choco-ai', trusted: true, rootSource: 'fileRoot', gitAvailable: true, branch: 'main' }));
+    }
+    if (p === '/api/workspace/search') {
+      return Promise.resolve(
+        json({
+          results: [
+            {
+              path: 'src/index.ts',
+              line: 1,
+              content: 'export const x = 2;',
+              contextBefore: [],
+              contextAfter: [],
+              matchType: 'content',
+            },
+          ],
+        }),
+      );
+    }
+    if (p === '/api/workspace/upload') {
+      return Promise.resolve(json({ ok: true, path: 'src/upload.txt', size: 5, sha256: 'abc' }));
     }
     if (p === '/api/workspace/git-status') {
       return Promise.resolve(
@@ -82,6 +114,7 @@ describe('WorkspaceDev — operable 开发 tab', () => {
     // Root entries load.
     expect(await screen.findByText('src')).toBeInTheDocument();
     expect(screen.getByText('README.md')).toBeInTheDocument();
+    expect(await screen.findByTestId('workspace-root')).toHaveTextContent('D:\\proj\\choco-ai');
 
     // Expand src/ → its child appears (lazy-loaded).
     await userEvent.click(screen.getByText('src'));
@@ -91,6 +124,17 @@ describe('WorkspaceDev — operable 开发 tab', () => {
     await userEvent.click(screen.getByText('README.md'));
     const preview = await screen.findByTestId('dev-file-preview');
     expect(preview).toHaveTextContent('export const x = 2;');
+    expect(preview).toHaveTextContent('abcdef01');
+  });
+
+  it('[files] searches workspace content and opens a search result', async () => {
+    render(<WorkspaceDev client={fakeClient()} />);
+    await userEvent.type(await screen.findByLabelText('Search workspace'), 'export');
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const results = await screen.findByTestId('workspace-search-results');
+    expect(results).toHaveTextContent('src/index.ts:1');
+    await userEvent.click(screen.getByText('export const x = 2;'));
+    expect(await screen.findByTestId('dev-file-preview')).toHaveTextContent('src/index.ts');
   });
 
   it('[changes] shows changed files and the colored unified diff', async () => {

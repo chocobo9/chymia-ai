@@ -289,7 +289,10 @@ export function App(props: AppProps = {}): ReactElement {
   );
 
   // Stable loader for the inline HTML preview (sandboxed iframe in the diff block).
-  const handleLoadFile = useCallback((path: string) => client.getWorkspaceFile(path), [client]);
+  const handleLoadFile = useCallback(
+    async (path: string) => (await client.getWorkspaceFile(path)).content,
+    [client],
+  );
 
   // 停止 button: when exactly ONE agent is working, stop just that one (targeted —
   // no collateral cancel of siblings); when 2+ are working, stop them all.

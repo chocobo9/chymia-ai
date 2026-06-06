@@ -11,13 +11,21 @@
 // host file. The OS launch itself is an injected seam (OsOpener) using execFile
 // with array args (no shell), and is only reachable on the local single-user API.
 
-import { resolve } from 'node:path';
-import { readFile, stat } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppServices } from '@choco/api/infrastructure/app-services';
 import { resolvePathInRoot } from '@choco/api/infrastructure/path-sandbox';
 import { defaultOsOpener, type OsOpener } from '@choco/api/infrastructure/os-open';
+import {
+  isSafeWorkspaceFile,
+  looksBinary,
+  mimeForPath,
+  safeUploadFilename,
+  sha256Hex,
+  toWorkspaceRelative,
+} from '@choco/api/infrastructure/workspace-security';
 
 /** Default cap on a previewed file's size — HTML viz files are small; guards huge reads. */
 const DEFAULT_MAX_PREVIEW_BYTES = 2 * 1024 * 1024; // 2 MiB
@@ -40,6 +48,12 @@ const RevealBodySchema = z.object({
 
 /** Query of GET /api/workspace/file. */
 const FileQuerySchema = z.object({ path: z.string().min(1) });
+const UploadBodySchema = z.object({
+  directory: z.string().optional(),
+  filename: z.string().min(1).max(255),
+  contentBase64: z.string().min(1),
+  overwrite: z.boolean().optional(),
+});
 
 /**
  * Register the workspace file routes on `app`. Currently one route:
@@ -104,13 +118,68 @@ export function registerWorkspaceRoutes(
     }
 
     try {
+      if (!isSafeWorkspaceFile(fileRoot, resolved)) return reply.code(403).send({ error: 'sensitive_path' });
       const buffer = await readFile(resolved);
-      if (buffer.byteLength > maxPreviewBytes) {
+      const binary = looksBinary(buffer);
+      if (buffer.byteLength > maxPreviewBytes && !binary) {
         return reply.code(413).send({ error: 'file_too_large', maxBytes: maxPreviewBytes });
       }
-      return reply.send({ path: query.data.path, content: buffer.toString('utf8') });
+      const content = binary ? '' : buffer.toString('utf8');
+      return reply.send({
+        path: toWorkspaceRelative(fileRoot, resolved),
+        content,
+        sha256: sha256Hex(buffer),
+        size: buffer.byteLength,
+        mime: mimeForPath(resolved, binary),
+        truncated: false,
+        binary,
+      });
     } catch {
       return reply.code(404).send({ error: 'file_not_found' });
+    }
+  });
+
+  // POST /api/workspace/upload - JSON/base64 upload for the browser Workspace panel.
+  app.post('/api/workspace/upload', async (request, reply) => {
+    const body = UploadBodySchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
+    }
+
+    const filename = safeUploadFilename(body.data.filename);
+    if (filename === null) return reply.code(400).send({ error: 'invalid_filename' });
+
+    const directory = body.data.directory ?? '';
+    const dir = directory.length > 0 ? resolvePathInRoot(fileRoot, directory) : fileRoot;
+    if (dir === null) return reply.code(403).send({ error: 'path_outside_root' });
+
+    const target = resolve(dir, filename);
+    if (!isSafeWorkspaceFile(fileRoot, target)) return reply.code(403).send({ error: 'sensitive_path' });
+
+    let content: Buffer;
+    try {
+      content = Buffer.from(body.data.contentBase64, 'base64');
+    } catch {
+      return reply.code(400).send({ error: 'invalid_base64' });
+    }
+    if (content.byteLength === 0) return reply.code(400).send({ error: 'empty_upload' });
+    if (content.byteLength > maxPreviewBytes) {
+      return reply.code(413).send({ error: 'file_too_large', maxBytes: maxPreviewBytes });
+    }
+
+    try {
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, content, { flag: body.data.overwrite === true ? 'w' : 'wx' });
+      return reply.send({
+        ok: true,
+        path: toWorkspaceRelative(fileRoot, target),
+        size: content.byteLength,
+        sha256: sha256Hex(content),
+      });
+    } catch (err) {
+      const code = err instanceof Error && 'code' in err ? (err as NodeJS.ErrnoException).code : undefined;
+      if (code === 'EEXIST') return reply.code(409).send({ error: 'file_exists' });
+      return reply.code(500).send({ error: 'upload_failed' });
     }
   });
 }

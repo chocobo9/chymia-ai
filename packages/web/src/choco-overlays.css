@@ -128,6 +128,22 @@ button.ft-row:hover { background: var(--soft); }
 .chg-n.mod { color: #b5862a; }
 .dev-preview { margin-top: 14px; }
 .dev-preview .wsp-term { min-height: 0; max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.dev-search { margin: 10px 0 12px; }
+.dev-search-modes { display: inline-flex; gap: 2px; border: 1px solid var(--line); border-radius: var(--r-xs); padding: 2px; background: var(--panel); }
+.dev-search-modes button { border: none; background: none; border-radius: 5px; padding: 3px 7px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); cursor: pointer; }
+.dev-search-modes button.on { background: var(--brand-soft); color: var(--brand); }
+.dev-upload-input { display: none; }
+.dev-search-results { border: 1px solid var(--line); border-radius: var(--r-sm); margin-bottom: 12px; overflow: hidden; }
+.dev-search-result { display: grid; grid-template-columns: minmax(120px, 42%) 1fr; gap: 10px; width: 100%; border: none; border-top: 1px solid var(--line); background: var(--panel); padding: 7px 9px; text-align: left; cursor: pointer; }
+.dev-search-result:first-child { border-top: none; }
+.dev-search-result:hover { background: var(--soft); }
+.dev-search-result code { font-family: var(--mono); font-size: 11px; color: var(--brand); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-search-result span { font-family: var(--mono); font-size: 11px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.dev-file-meta { margin-top: -6px; margin-bottom: 9px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+.dev-file-actions { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+.dev-file-actions button { border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); border-radius: var(--r-xs); padding: 4px 7px; font-family: var(--font); font-size: 11px; font-weight: 600; cursor: pointer; }
+.dev-file-actions button:disabled { opacity: .45; cursor: not-allowed; }
 .dev-diff { margin-top: 12px; }
 .dev-diff-body { font-family: var(--mono); font-size: 11.5px; line-height: 1.55; margin: 0; padding: 8px 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r-sm); overflow-x: auto; }
 .diffl { white-space: pre; padding: 0 10px; }

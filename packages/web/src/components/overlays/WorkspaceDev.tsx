@@ -10,11 +10,15 @@
 // sheet). When the workspace is not a git repo, the git views say so honestly
 // (gitAvailable=false) — never a fabricated branch/history.
 
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type {
   ApiClient,
   GitCommitEntry,
   GitStatusView,
+  WorkspaceFilePreview,
+  WorkspaceInfo,
+  WorkspaceSearchResult,
+  WorkspaceSearchType,
   WorkspaceDiffView,
   WorkspaceTreeEntry,
 } from '../../lib/api.js';
@@ -30,10 +34,44 @@ const SUBTABS: readonly { readonly id: DevView; readonly label: string }[] = [
 
 /** Root key for the tree's children map (the workspace root itself). */
 const ROOT_KEY = '';
+const SEARCH_TYPES: readonly { readonly id: WorkspaceSearchType; readonly label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'filename', label: 'File' },
+  { id: 'content', label: 'Aa' },
+];
+
+function dirname(path: string): string {
+  const i = path.lastIndexOf('/');
+  return i <= 0 ? '' : path.slice(0, i);
+}
+
+function absolutePath(root: string, rel: string): string {
+  if (rel.length === 0) return root;
+  const slash = root.includes('\\') || /^[A-Za-z]:/.test(root) ? '\\' : '/';
+  return `${root.replace(/[\\/]+$/, '')}${slash}${rel.split('/').join(slash)}`;
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function lineCount(content: string): number {
+  if (content.length === 0) return 0;
+  return content.split(/\r?\n/).length;
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
 
 /* ── 文件: lazy file tree + preview ─────────────────────────────────── */
 
-function DevFiles({ client }: { client: ApiClient }): ReactElement {
+export function DevFiles({ client }: { client: ApiClient }): ReactElement {
   const [childrenByPath, setChildrenByPath] = useState<Record<string, readonly WorkspaceTreeEntry[]>>({});
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
@@ -74,7 +112,7 @@ function DevFiles({ client }: { client: ApiClient }): ReactElement {
     setPreview(null);
     client
       .getWorkspaceFile(path)
-      .then((content) => setPreview(content))
+      .then((file) => setPreview(file.content))
       .catch(() => setPreview('（无法预览此文件）'));
   };
 
@@ -117,6 +155,221 @@ function DevFiles({ client }: { client: ApiClient }): ReactElement {
 }
 
 /* ── 变更: changed files + unified diff ─────────────────────────────── */
+
+function DevFilesAligned({ client }: { client: ApiClient }): ReactElement {
+  const [childrenByPath, setChildrenByPath] = useState<Record<string, readonly WorkspaceTreeEntry[]>>({});
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [selected, setSelected] = useState<string | null>(null);
+  const [preview, setPreview] = useState<WorkspaceFilePreview | null>(null);
+  const [info, setInfo] = useState<WorkspaceInfo | null>(null);
+  const [query, setQuery] = useState('');
+  const [searchType, setSearchType] = useState<WorkspaceSearchType>('all');
+  const [results, setResults] = useState<readonly WorkspaceSearchResult[]>([]);
+  const [error, setError] = useState('');
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+
+  const loadDir = useCallback(
+    async (path: string): Promise<void> => {
+      try {
+        const entries = await client.getWorkspaceTree(path);
+        setChildrenByPath((prev) => ({ ...prev, [path]: entries }));
+      } catch {
+        setError('读取目录失败');
+      }
+    },
+    [client],
+  );
+
+  useEffect(() => {
+    void loadDir(ROOT_KEY);
+    if (typeof client.getWorkspaceInfo === 'function') {
+      client.getWorkspaceInfo().then(setInfo).catch(() => setInfo(null));
+    }
+  }, [client, loadDir]);
+
+  const toggleDir = (path: string): void => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+        if (childrenByPath[path] === undefined) void loadDir(path);
+      }
+      return next;
+    });
+  };
+
+  const openFile = (path: string): void => {
+    setSelected(path);
+    setPreview(null);
+    client
+      .getWorkspaceFile(path)
+      .then(setPreview)
+      .catch(() =>
+        setPreview({
+          path,
+          content: '(unable to preview this file)',
+          sha256: '',
+          size: 0,
+          mime: 'text/plain',
+          truncated: false,
+          binary: false,
+        }),
+      );
+  };
+
+  const runSearch = (): void => {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      setResults([]);
+      return;
+    }
+    client.searchWorkspace(trimmed, searchType).then(setResults).catch(() => setError('搜索失败'));
+  };
+
+  const uploadSelectedFile = (file: File): void => {
+    const targetDir = selected === null ? ROOT_KEY : dirname(selected);
+    fileToBase64(file)
+      .then((contentBase64) =>
+        client.uploadWorkspaceFile({ directory: targetDir, filename: file.name, contentBase64 }),
+      )
+      .then((uploaded) => {
+        void loadDir(targetDir);
+        openFile(uploaded.path);
+      })
+      .catch(() => setError('上传失败'));
+  };
+
+  const root = info?.root ?? '';
+  const selectedAbs = selected !== null && root.length > 0 ? absolutePath(root, selected) : '';
+
+  const renderLevel = (parentPath: string, depth: number): ReactElement[] => {
+    const entries = childrenByPath[parentPath] ?? [];
+    const rows: ReactElement[] = [];
+    for (const entry of entries) {
+      const isDir = entry.type === 'directory';
+      const isOpen = expanded.has(entry.path);
+      rows.push(
+        <button
+          key={entry.path}
+          type="button"
+          className={`ft-row ${isDir ? 'dir' : ''}`}
+          style={{ paddingLeft: `${depth * 14}px` }}
+          data-testid={isDir ? 'ft-dir' : 'ft-file'}
+          title={entry.path}
+          onClick={() => (isDir ? toggleDir(entry.path) : openFile(entry.path))}
+        >
+          <span className="ft-ic">{isDir ? (isOpen ? 'v' : '>') : '-'}</span>
+          <span className="ft-name">{entry.name}</span>
+        </button>,
+      );
+      if (isDir && isOpen) rows.push(...renderLevel(entry.path, depth + 1));
+    }
+    return rows;
+  };
+
+  return (
+    <div className="wsp-pad" data-testid="dev-files">
+      <div className="ft-worktree" data-testid="workspace-root">
+        Root <b>{root.length > 0 ? root : 'loading...'}</b>
+        {info !== null && !info.trusted && <span className="mem-degraded">untrusted</span>}
+      </div>
+      {root.endsWith('.workspace') && (
+        <div className="wsp-preview-note" role="note">
+          当前 agent 只能操作 .workspace，不能直接修改父级源码目录。
+        </div>
+      )}
+      <form
+        className="wsp-search dev-search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          runSearch();
+        }}
+      >
+        <input
+          value={query}
+          aria-label="Search workspace"
+          placeholder="Search files"
+          onChange={(event) => setQuery(event.currentTarget.value)}
+        />
+        <div className="dev-search-modes" role="group" aria-label="Search mode">
+          {SEARCH_TYPES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={searchType === t.id ? 'on' : ''}
+              onClick={() => setSearchType(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button type="submit" className="tsk-btn">Search</button>
+        <button type="button" className="tsk-btn ghost" onClick={() => uploadInputRef.current?.click()}>
+          Upload
+        </button>
+        <input
+          ref={uploadInputRef}
+          type="file"
+          className="dev-upload-input"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = '';
+            if (file !== undefined) uploadSelectedFile(file);
+          }}
+        />
+      </form>
+      {error.length > 0 && <div className="mem-empty" role="alert">{error}</div>}
+      {results.length > 0 && (
+        <div className="dev-search-results" data-testid="workspace-search-results">
+          {results.map((r, index) => (
+            <button
+              key={`${r.path}:${r.line}:${index}`}
+              type="button"
+              className="dev-search-result"
+              onClick={() => openFile(r.path)}
+            >
+              <code>{r.path}{r.line > 0 ? `:${r.line}` : ''}</code>
+              <span>{r.content}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="ft-tree">{renderLevel(ROOT_KEY, 0)}</div>
+      {selected !== null && (
+        <div className="dev-preview" data-testid="dev-file-preview">
+          <div className="dev-preview-head">
+            <div>
+              <div className="wsp-sec-t">{selected}</div>
+              {preview !== null && (
+                <div className="dev-file-meta">
+                  {formatBytes(preview.size)} · {lineCount(preview.content)} lines · {preview.sha256.slice(0, 8)}
+                </div>
+              )}
+            </div>
+            <div className="dev-file-actions">
+              <button type="button" onClick={() => void navigator.clipboard?.writeText(selected)}>
+                复制相对路径
+              </button>
+              <button
+                type="button"
+                disabled={selectedAbs.length === 0}
+                onClick={() => void navigator.clipboard?.writeText(selectedAbs)}
+              >
+                复制绝对路径
+              </button>
+              <button type="button" onClick={() => void client.revealFile(selected, 'reveal')}>
+                在文件夹中显示
+              </button>
+            </div>
+          </div>
+          <pre className="wsp-term">{preview?.binary === true ? '(binary file)' : preview?.content ?? '加载中...'}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function statusClass(status: string): string {
   if (status.startsWith('A') || status === '??') return 'add';
@@ -283,7 +536,7 @@ export function WorkspaceDev(props: WorkspaceDevProps): ReactElement {
           </button>
         ))}
       </div>
-      {view === 'files' && <DevFiles client={client} />}
+      {view === 'files' && <DevFilesAligned client={client} />}
       {view === 'changes' && <DevChanges client={client} />}
       {view === 'git' && <DevGit client={client} />}
     </div>
