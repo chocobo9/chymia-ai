@@ -73,8 +73,8 @@ describe('WorkspacePanel global search (top 搜索全部)', () => {
 
     expect(search).not.toHaveBeenCalled();
     expect(screen.getByTestId('wsp-tab-dev')).toHaveAttribute('aria-selected', 'true');
-    // still on the 开发 placeholder, not switched to 记忆.
-    expect(screen.getByTestId('wsp-soon')).toBeInTheDocument();
+    // still on the 开发 (dev) surface, not switched to 记忆.
+    expect(screen.getByTestId('wsp-dev')).toBeInTheDocument();
   });
 
   it('[edge] opening the 记忆 tab WITHOUT a global query stays idle (no phantom auto-search)', () => {

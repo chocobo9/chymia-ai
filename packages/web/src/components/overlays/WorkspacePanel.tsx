@@ -27,6 +27,8 @@ import {
   IconCommunity,
 } from '../choco/icons.js';
 import { WorkspaceMemory } from './WorkspaceMemory.js';
+import { WorkspaceTasks } from './WorkspaceTasks.js';
+import { WorkspaceDev } from './WorkspaceDev.js';
 
 /** The five workspace tabs. */
 export type WorkspaceTab = 'dev' | 'mem' | 'sched' | 'tasks' | 'comm';
@@ -61,12 +63,7 @@ function tabBody(tab: WorkspaceTab, client: ApiClient, searchQuery: string): Rea
     case 'mem':
       return <WorkspaceMemory client={client} initialQuery={searchQuery} />;
     case 'dev':
-      return (
-        <SoonPane
-          title="开发视图即将上线"
-          note="文件树 / 变更 / Git / 终端尚未接入后端的工作区 API，接通后这里会显示当前 worktree 的真实状态。"
-        />
-      );
+      return <WorkspaceDev client={client} />;
     case 'sched':
       return (
         <SoonPane
@@ -75,12 +72,7 @@ function tabBody(tab: WorkspaceTab, client: ApiClient, searchQuery: string): Rea
         />
       );
     case 'tasks':
-      return (
-        <SoonPane
-          title="任务线即将上线"
-          note="跨多轮对话跟踪的长期事项会挂在这里，而不是埋回聊天里。任务后端接通后即可创建第一条任务线。"
-        />
-      );
+      return <WorkspaceTasks client={client} />;
     case 'comm':
       return (
         <SoonPane

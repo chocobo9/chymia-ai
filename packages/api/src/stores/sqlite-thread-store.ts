@@ -18,6 +18,7 @@ import { createAgentId } from '@choco/shared';
 import { THREADS_TABLE, createThreadsTable } from './migrations/002-threads.js';
 import { MESSAGES_TABLE, createMessagesTable } from './migrations/001-messages.js';
 import { TOOL_EVENTS_TABLE, createToolEventsTable } from './migrations/003-tool-events.js';
+import { TASKS_TABLE, createTasksTable } from './migrations/006-tasks.js';
 
 /**
  * Default thinking mode for newly created threads.
@@ -141,6 +142,7 @@ export class SqliteThreadStore {
   private readonly deleteStmt;
   private readonly deleteMessagesStmt;
   private readonly deleteToolEventsStmt;
+  private readonly deleteTasksStmt;
   private readonly deleteCascadeTxn: (threadId: string) => boolean;
   private readonly now: NowFn;
 
@@ -151,6 +153,9 @@ export class SqliteThreadStore {
     // migrations are idempotent (CREATE TABLE IF NOT EXISTS) — re-running is a no-op.
     createMessagesTable(db);
     createToolEventsTable(db);
+    // Task lines are CASCADE-deleted with their thread (same orphan-free idiom);
+    // ensure the table exists even when this store is constructed standalone.
+    createTasksTable(db);
     this.now = options?.now ?? Date.now;
 
     this.insertStmt = db.prepare<InsertParams>(`
@@ -200,14 +205,18 @@ export class SqliteThreadStore {
     this.deleteToolEventsStmt = db.prepare<[string]>(`
       DELETE FROM ${TOOL_EVENTS_TABLE} WHERE thread_id = ?
     `);
+    this.deleteTasksStmt = db.prepare<[string]>(`
+      DELETE FROM ${TASKS_TABLE} WHERE thread_id = ?
+    `);
 
-    // Wrap the three deletes in one atomic transaction so a thread never ends up
+    // Wrap the deletes in one atomic transaction so a thread never ends up
     // half-deleted (its rows gone but the thread row remaining, or vice versa).
     // better-sqlite3's `transaction()` runs the body synchronously and returns
     // its result. Returns whether the thread row itself existed.
     this.deleteCascadeTxn = db.transaction((threadId: string): boolean => {
       this.deleteMessagesStmt.run(threadId);
       this.deleteToolEventsStmt.run(threadId);
+      this.deleteTasksStmt.run(threadId);
       return this.deleteStmt.run(threadId).changes > 0;
     });
   }

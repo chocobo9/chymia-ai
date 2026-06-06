@@ -11,6 +11,7 @@ import type { AgentRegistry } from '@choco/api/routing/agent-registry';
 import type { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
 import type { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
 import type { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
+import type { SqliteTaskStore } from '@choco/api/stores/sqlite-task-store';
 import type { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 import type { SqliteEventAuditLog } from '@choco/api/stores/sqlite-event-audit-log';
 import type { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
@@ -55,6 +56,13 @@ export interface AppServices {
   readonly invocations: InvocationRegistry;
   readonly messageStore: SqliteMessageStore;
   readonly threadStore: SqliteThreadStore;
+  /**
+   * 任务线 (毛线球) store — the per-thread long-running task board. The task
+   * routes CRUD it; the invoke seam reads listByThread → formatTaskSnapshot and
+   * injects the open tasks into the agent's turn context (so the agent is aware
+   * of them). Persisted to SQLite (survives restart, unlike Clowder's in-memory).
+   */
+  readonly taskStore: SqliteTaskStore;
   /** A6 tool-event log — the second (durable) sink for tool calls (M5 live-wire). */
   readonly toolEventLog: SqliteToolEventLog;
   /**

@@ -34,12 +34,54 @@ import type {
   AuthType,
   ProviderAuthStatus,
   WeChatSettingsView,
+  TaskItem,
+  TaskStatus,
 } from '@choco/shared';
 
 /** One MCP tool's catalog entry (GET /api/mcp/tools). */
 export interface McpToolEntry {
   readonly name: string;
   readonly description: string;
+}
+
+/** One entry in a workspace directory listing (GET /api/workspace/tree). */
+export interface WorkspaceTreeEntry {
+  readonly name: string;
+  readonly type: 'directory' | 'file';
+  /** Workspace-root-relative path (forward slashes). */
+  readonly path: string;
+}
+
+/** A commit row (GET /api/workspace/git-log). */
+export interface GitCommitEntry {
+  readonly hash: string;
+  readonly short: string;
+  readonly author: string;
+  readonly date: string;
+  readonly subject: string;
+}
+
+/** A working-tree status entry (status code + path). */
+export interface GitStatusEntry {
+  readonly status: string;
+  readonly path: string;
+}
+
+/** Working-tree status (GET /api/workspace/git-status). */
+export interface GitStatusView {
+  readonly branch: string;
+  readonly staged: readonly GitStatusEntry[];
+  readonly unstaged: readonly GitStatusEntry[];
+  readonly untracked: readonly GitStatusEntry[];
+  /** False when the workspace is not a git repo / git is unavailable (honest, not faked). */
+  readonly gitAvailable: boolean;
+}
+
+/** Changed files + unified diff (GET /api/workspace/diff). */
+export interface WorkspaceDiffView {
+  readonly changedFiles: readonly GitStatusEntry[];
+  readonly diff: string;
+  readonly gitAvailable: boolean;
 }
 
 /** A session-chain row enriched with its digest (sealed → stored; active → live). */
@@ -597,6 +639,66 @@ export class ApiClient {
     const res = await this.fetchFn(this.url('/api/mcp/tools'));
     const data = await parseJson<{ tools: McpToolEntry[] }>(res);
     return data.tools;
+  }
+
+  /** GET /api/tasks?threadId — the thread's task lines (任务线 / 毛线球). */
+  async listTasks(threadId: string): Promise<readonly TaskItem[]> {
+    const res = await this.fetchFn(this.url(`/api/tasks?threadId=${encodeURIComponent(threadId)}`));
+    const data = await parseJson<{ tasks: TaskItem[] }>(res);
+    return data.tasks;
+  }
+
+  /** POST /api/tasks — create a task line on a thread (createdBy 'user'). */
+  async createTask(input: { threadId: string; title: string; why?: string }): Promise<TaskItem> {
+    const res = await this.fetchFn(
+      this.url('/api/tasks'),
+      this.jsonInit('POST', { ...input, createdBy: 'user' }),
+    );
+    return parseJson<TaskItem>(res);
+  }
+
+  /** PATCH /api/tasks/:id — update a task's status/title/why; returns the updated task. */
+  async updateTask(
+    id: string,
+    patch: { status?: TaskStatus; title?: string; why?: string },
+  ): Promise<TaskItem> {
+    const res = await this.fetchFn(this.url(`/api/tasks/${id}`), this.jsonInit('PATCH', patch));
+    return parseJson<TaskItem>(res);
+  }
+
+  /** DELETE /api/tasks/:id — remove a task line (204). */
+  async deleteTask(id: string): Promise<void> {
+    const res = await this.fetchFn(this.url(`/api/tasks/${id}`), this.jsonInit('DELETE'));
+    if (!res.ok) throw new ApiError(res.status, `删除失败 (HTTP ${res.status})`);
+  }
+
+  /** GET /api/workspace/tree?path= — one directory level (开发 tab file tree, lazy-expanded). */
+  async getWorkspaceTree(path?: string): Promise<readonly WorkspaceTreeEntry[]> {
+    const q = path !== undefined && path.length > 0 ? `?path=${encodeURIComponent(path)}` : '';
+    const res = await this.fetchFn(this.url(`/api/workspace/tree${q}`));
+    const data = await parseJson<{ entries: WorkspaceTreeEntry[] }>(res);
+    return data.entries;
+  }
+
+  /** GET /api/workspace/git-log — recent commits (开发 tab Git view). */
+  async getGitLog(limit?: number): Promise<readonly GitCommitEntry[]> {
+    const q = limit !== undefined ? `?limit=${limit}` : '';
+    const res = await this.fetchFn(this.url(`/api/workspace/git-log${q}`));
+    const data = await parseJson<{ commits: GitCommitEntry[] }>(res);
+    return data.commits;
+  }
+
+  /** GET /api/workspace/git-status — working-tree status + branch (开发 tab Git view). */
+  async getGitStatus(): Promise<GitStatusView> {
+    const res = await this.fetchFn(this.url('/api/workspace/git-status'));
+    return parseJson<GitStatusView>(res);
+  }
+
+  /** GET /api/workspace/diff — changed files + unified diff (开发 tab 变更 view). */
+  async getWorkspaceDiff(path?: string): Promise<WorkspaceDiffView> {
+    const q = path !== undefined && path.length > 0 ? `?path=${encodeURIComponent(path)}` : '';
+    const res = await this.fetchFn(this.url(`/api/workspace/diff${q}`));
+    return parseJson<WorkspaceDiffView>(res);
   }
 }
 

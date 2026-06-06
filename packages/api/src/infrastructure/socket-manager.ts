@@ -13,7 +13,7 @@
 // (supplement D) — the Server + helpers are injected, nothing global.
 
 import type { Server as SocketIoServer, Socket } from 'socket.io';
-import type { AgentMessage, AgentState, SopViolationPayload, StoredMessage, Thread } from '@choco/shared';
+import type { AgentMessage, AgentState, SopViolationPayload, StoredMessage, TaskItem, Thread } from '@choco/shared';
 import { ThreadSequencer } from './thread-sequencer.js';
 import { BroadcastRateMonitor } from './broadcast-rate-monitor.js';
 
@@ -40,6 +40,15 @@ export const SERVER_EVENTS = {
    * already arrive via agent_event).
    */
   threadMessage: 'thread_message',
+  /**
+   * Task-line CRUD broadcasts (任务线). A task created/updated/deleted on a thread
+   * is pushed into that thread's room so live web clients sync their task board
+   * without a reload (the off-web platforms don't render the board). Lifecycle
+   * events — not rate-limited.
+   */
+  taskCreated: 'task_created',
+  taskUpdated: 'task_updated',
+  taskDeleted: 'task_deleted',
 } as const;
 
 /**
@@ -179,6 +188,27 @@ export class SocketManager {
   broadcastThreadMessage(threadId: string, message: StoredMessage): Promise<void> {
     return this.sequencer.enqueue(threadId, () => {
       this.io.to(threadId).emit(SERVER_EVENTS.threadMessage, message);
+    });
+  }
+
+  /** Broadcast a created task line to its thread room (live board sync). */
+  broadcastTaskCreated(threadId: string, task: TaskItem): Promise<void> {
+    return this.sequencer.enqueue(threadId, () => {
+      this.io.to(threadId).emit(SERVER_EVENTS.taskCreated, task);
+    });
+  }
+
+  /** Broadcast an updated task line to its thread room (live board sync). */
+  broadcastTaskUpdated(threadId: string, task: TaskItem): Promise<void> {
+    return this.sequencer.enqueue(threadId, () => {
+      this.io.to(threadId).emit(SERVER_EVENTS.taskUpdated, task);
+    });
+  }
+
+  /** Broadcast a deleted task line's id to its thread room (live board sync). */
+  broadcastTaskDeleted(threadId: string, taskId: string): Promise<void> {
+    return this.sequencer.enqueue(threadId, () => {
+      this.io.to(threadId).emit(SERVER_EVENTS.taskDeleted, { id: taskId, threadId });
     });
   }
 

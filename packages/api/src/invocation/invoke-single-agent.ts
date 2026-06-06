@@ -53,6 +53,15 @@ export type Logger = (event: {
  */
 export type OnSessionId = (sessionId: string) => void;
 
+export type InvocationTimingEvent =
+  | { readonly type: 'mutex_acquired'; readonly elapsedMs: number }
+  | { readonly type: 'attempt_start'; readonly elapsedMs: 0; readonly attempt: number }
+  | { readonly type: 'first_provider_event'; readonly elapsedMs: number; readonly attempt: number }
+  | { readonly type: 'first_output'; readonly elapsedMs: number; readonly attempt: number }
+  | { readonly type: 'attempt_end'; readonly elapsedMs: number; readonly attempt: number };
+
+export type OnInvocationTiming = (event: InvocationTimingEvent) => void;
+
 /** Parameters for {@link invokeSingleAgent}. */
 export interface InvokeSingleAgentParams {
   /** Injected M2 provider that actually runs the agent (spawns the CLI). */
@@ -82,6 +91,8 @@ export interface InvokeSingleAgentParams {
   readonly maxRetries?: number;
   /** Notified with the active session id for this turn (resume / session_init). */
   readonly onSessionId?: OnSessionId;
+  /** Emits coarse phase timings for observability; ignored by the invoke logic. */
+  readonly onTiming?: OnInvocationTiming;
 }
 
 /** Event types that count as user-visible output (forbid retry once seen). */
@@ -135,10 +146,15 @@ export async function* invokeSingleAgent(
   const maxRetries = params.maxRetries ?? MAX_RETRIES;
   const key = sessionKey(agentId, threadId);
 
+  const mutexWaitStartedAt = now();
   const release = await sessionMutex.acquire(
     key,
     params.signal !== undefined ? { signal: params.signal } : undefined,
   );
+  params.onTiming?.({
+    type: 'mutex_acquired',
+    elapsedMs: Math.max(0, now() - mutexWaitStartedAt),
+  });
 
   try {
     let attempt = 0;
@@ -178,9 +194,21 @@ export async function* invokeSingleAgent(
       // CLI emits it once at the start of a conversation.
       let sessionPersisted = false;
       let caughtError: AgentMessage | undefined;
+      const attemptStartedAt = now();
+      let sawFirstProviderEvent = false;
+      let sawFirstOutput = false;
+      params.onTiming?.({ type: 'attempt_start', elapsedMs: 0, attempt });
 
       try {
         for await (const event of agentService.invoke(prompt, invokeOptions)) {
+          if (!sawFirstProviderEvent) {
+            sawFirstProviderEvent = true;
+            params.onTiming?.({
+              type: 'first_provider_event',
+              elapsedMs: Math.max(0, now() - attemptStartedAt),
+              attempt,
+            });
+          }
           if (event.type === 'session_init') {
             if (!sessionPersisted && event.content !== undefined && event.content !== '') {
               // Open a new active session (seals the prior active one for this
@@ -198,6 +226,14 @@ export async function* invokeSingleAgent(
           }
           if (OUTPUT_EVENT_TYPES.has(event.type)) {
             producedOutput = true;
+            if (!sawFirstOutput) {
+              sawFirstOutput = true;
+              params.onTiming?.({
+                type: 'first_output',
+                elapsedMs: Math.max(0, now() - attemptStartedAt),
+                attempt,
+              });
+            }
           }
           yield event;
         }
@@ -205,6 +241,12 @@ export async function* invokeSingleAgent(
         // A thrown error (provider crash / abort) becomes an error event so the
         // retry policy can classify it uniformly with yielded error events.
         caughtError = toErrorEvent(err, agentId, now);
+      } finally {
+        params.onTiming?.({
+          type: 'attempt_end',
+          elapsedMs: Math.max(0, now() - attemptStartedAt),
+          attempt,
+        });
       }
 
       if (caughtError === undefined) {

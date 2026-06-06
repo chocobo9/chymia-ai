@@ -127,15 +127,16 @@ describe('NotifInbox (待你处理) — bell', () => {
 });
 
 describe('WorkspacePanel (Workspace) — 5 tabs', () => {
-  it('opens from the header panel button with the five tabs and the 开发 honest placeholder', async () => {
+  it('opens from the header panel button with the five tabs; 开发 is the operable dev surface', async () => {
     await mountApp();
     await userEvent.click(screen.getByTestId('workspace-button'));
     expect(screen.getByTestId('workspace-panel')).toBeInTheDocument();
     for (const id of ['dev', 'mem', 'sched', 'tasks', 'comm']) {
       expect(screen.getByTestId(`wsp-tab-${id}`)).toBeInTheDocument();
     }
-    // 开发 is honest-placeholder (no file/git backend).
-    expect(screen.getByTestId('wsp-soon')).toBeInTheDocument();
+    // 开发 (default) is now LIVE — the file tree / changes / git surface, not a placeholder.
+    expect(screen.getByTestId('wsp-dev')).toBeInTheDocument();
+    expect(screen.queryByTestId('wsp-soon')).not.toBeInTheDocument();
   });
 
   it('switches to 记忆 and wires evidence search to the api (live results)', async () => {
@@ -170,14 +171,20 @@ describe('WorkspacePanel (Workspace) — 5 tabs', () => {
     expect(await screen.findByTestId('mem-empty')).toBeInTheDocument();
   });
 
-  it('调度 / 任务 / 社区 render clearly-marked honest placeholders (not fabricated data)', async () => {
+  it('调度 / 社区 render honest placeholders; 任务 is the operable board (no fabricated data)', async () => {
     await mountApp();
     await userEvent.click(screen.getByTestId('workspace-button'));
-    for (const id of ['sched', 'tasks', 'comm']) {
+    for (const id of ['sched', 'comm']) {
       await userEvent.click(screen.getByTestId(`wsp-tab-${id}`));
       const soon = screen.getByTestId('wsp-soon');
       expect(soon).toHaveTextContent('未接入');
     }
+    // 任务 is now LIVE (operable task board), not a placeholder — and shows no
+    // fabricated task cards.
+    await userEvent.click(screen.getByTestId('wsp-tab-tasks'));
+    expect(screen.getByTestId('wsp-tasks')).toBeInTheDocument();
+    expect(screen.queryByTestId('wsp-soon')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tsk-card')).not.toBeInTheDocument();
   });
 });
 

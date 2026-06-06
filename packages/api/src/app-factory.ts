@@ -37,14 +37,19 @@ import { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
 import { SessionStore } from '@choco/api/invocation/session-store';
 import { SessionMutex } from '@choco/api/invocation/session-mutex';
 import { invokeSingleAgent } from '@choco/api/invocation/invoke-single-agent';
-import type { InvokeSingleAgentParams } from '@choco/api/invocation/invoke-single-agent';
+import type {
+  InvocationTimingEvent,
+  InvokeSingleAgentParams,
+} from '@choco/api/invocation/invoke-single-agent';
 import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
 import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
+import { SqliteTaskStore } from '@choco/api/stores/sqlite-task-store';
 import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 import { SqliteEventAuditLog } from '@choco/api/stores/sqlite-event-audit-log';
 import { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
 import { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
 import { buildSystemPrompt } from '@choco/api/context/system-prompt-builder';
+import { formatTaskSnapshot } from '@choco/api/context/format-task-snapshot';
 import { buildHierarchicalContext } from '@choco/api/context/hierarchical-context';
 import { SopServiceImpl, type SopService } from '@choco/api/sop/sop-service';
 import type { EvidenceRecaller } from '@choco/api/context/evidence-recall';
@@ -88,7 +93,10 @@ import { registerAuditRoutes } from '@choco/api/routes/audit-routes';
 import { registerCatalogRoutes } from '@choco/api/routes/catalog-routes';
 import { registerCallbackRoutes } from '@choco/api/routes/callback-routes';
 import { registerWorkspaceRoutes } from '@choco/api/routes/workspace-routes';
+import { registerWorkspaceDevRoutes } from '@choco/api/routes/workspace-dev-routes';
+import { registerTaskRoutes } from '@choco/api/routes/task-routes';
 import type { OsOpener } from '@choco/api/infrastructure/os-open';
+import { defaultGitRunner, type GitRunner } from '@choco/api/infrastructure/git-cli';
 import { registerHealthRoutes } from '@choco/api/routes/health-routes';
 import {
   checkWorkspaceMatch,
@@ -178,6 +186,12 @@ export interface BuildAppOverrides {
   readonly osOpener?: OsOpener;
   /** Max bytes the workspace file-preview route returns. OMITTED ⇒ the route default. */
   readonly maxPreviewBytes?: number;
+  /**
+   * 开发-tab git runner seam (file diff / git log+status). OMITTED ⇒ the real
+   * execFile-based runner. Tests inject a fake returning canned git output so the
+   * dev routes are exercised WITHOUT a real git repo / spawning git.
+   */
+  readonly gitRunner?: GitRunner;
   /**
    * Default local workspace directory agents operate in (their CLI `cwd`) when a
    * thread has no `projectPath`. Externalized via `CHOCO_WORKSPACE` by the
@@ -312,6 +326,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   // --- Stores (DI Database; idempotent migrations run in each store ctor) ----
   const messageStore = new SqliteMessageStore(db);
   const threadStore = new SqliteThreadStore(db, { now });
+  // 任务线 store (idempotent migration 006 runs in its ctor). CRUD'd by the task
+  // routes; read by the invoke seam to inject the open-task snapshot.
+  const taskStore = new SqliteTaskStore(db, { now });
   const toolEventLog = new SqliteToolEventLog(db);
   // 审计事件日志（对齐 Clowder EventAuditLog）— DI Database + clock; 幂等迁移 005 在 ctor 跑。
   const eventAuditLog = new SqliteEventAuditLog(db, { now });
@@ -395,6 +412,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     registry,
     messageStore,
     threadStore,
+    taskStore,
     evidenceStore,
     sessionStore,
     sessionMutex,
@@ -453,6 +471,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     invocations,
     messageStore,
     threadStore,
+    taskStore,
     toolEventLog,
     eventAuditLog,
     evidenceStore,
@@ -486,6 +505,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   registerAuthRoutes(api, appServices);
   registerWeChatRoutes(api, appServices);
   registerAuditRoutes(api, appServices);
+  registerTaskRoutes(api, appServices);
   registerMessageRoutes(api, appServices);
   registerAgentRoutes(api, appServices);
   registerCatalogRoutes(api, appServices);
@@ -498,6 +518,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     ...(overrides.osOpener !== undefined ? { opener: overrides.osOpener } : {}),
     ...(overrides.maxPreviewBytes !== undefined ? { maxPreviewBytes: overrides.maxPreviewBytes } : {}),
   });
+  // 开发 tab (read-only): file tree + git diff/log/status over the same fileRoot
+  // sandbox, git through the injectable runner. Terminal is a separate follow-up.
+  registerWorkspaceDevRoutes(api, { fileRoot, gitRunner: overrides.gitRunner ?? defaultGitRunner });
   // Operability: liveness probe. Harmless to tests (pure in-memory read).
   registerHealthRoutes(api, { now });
 
@@ -584,6 +607,8 @@ interface InvokeDeps {
   readonly registry: AgentRegistryImpl;
   readonly messageStore: SqliteMessageStore;
   readonly threadStore: SqliteThreadStore;
+  /** 任务线 store — read for the open-task snapshot injected into the turn context. */
+  readonly taskStore: SqliteTaskStore;
   readonly evidenceStore: SqliteEvidenceStore;
   readonly sessionStore: SessionStore;
   readonly sessionMutex: SessionMutex;
@@ -620,6 +645,64 @@ interface InvokeDeps {
   readonly defaultWorkspace?: string;
 }
 
+interface InvocationTimingState {
+  mutexWaitMs?: number;
+  providerMs?: number;
+  firstProviderEventMs?: number;
+  firstOutputMs?: number;
+}
+
+interface InvocationTimingBreakdown {
+  prepareMs: number;
+  invokeMs: number;
+  totalMs: number;
+  mutexWaitMs: number;
+  providerMs: number;
+  firstProviderEventMs?: number;
+  firstOutputMs?: number;
+}
+
+function recordInvocationTiming(
+  state: InvocationTimingState,
+  event: InvocationTimingEvent,
+): void {
+  switch (event.type) {
+    case 'mutex_acquired':
+      state.mutexWaitMs = event.elapsedMs;
+      return;
+    case 'first_provider_event':
+      state.firstProviderEventMs ??= event.elapsedMs;
+      return;
+    case 'first_output':
+      state.firstOutputMs ??= event.elapsedMs;
+      return;
+    case 'attempt_end':
+      state.providerMs = (state.providerMs ?? 0) + event.elapsedMs;
+      return;
+    case 'attempt_start':
+      return;
+  }
+}
+
+function buildInvocationTimings(input: {
+  readonly prepareMs: number;
+  readonly invokeMs: number;
+  readonly totalMs: number;
+  readonly state: InvocationTimingState;
+}): InvocationTimingBreakdown {
+  return {
+    prepareMs: input.prepareMs,
+    invokeMs: input.invokeMs,
+    totalMs: input.totalMs,
+    mutexWaitMs: input.state.mutexWaitMs ?? 0,
+    providerMs: input.state.providerMs ?? 0,
+    ...(input.state.firstProviderEventMs !== undefined
+      ? { firstProviderEventMs: input.state.firstProviderEventMs }
+      : {}),
+    ...(input.state.firstOutputMs !== undefined ? { firstOutputMs: input.state.firstOutputMs } : {}),
+  };
+}
+
 /**
  * Build the InvokeAgentFn that M4's AgentRouter calls for one agent turn:
  *   1. build the system prompt from args.context (M7 buildSystemPrompt)
@@ -635,6 +718,7 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
 
   return async function* invoke(args: InvokeAgentArgs): AsyncIterable<AgentMessage> {
     const { agentId, threadId, prompt, context } = args;
+    const routeStartedAt = deps.now();
 
     // History context (smart window engages past the cold-mention thresholds).
     const history = await deps.messageStore.getByThread(threadId);
@@ -677,10 +761,27 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       resolveConfig: deps.resolveConfig,
     });
 
+    // 任务线快照 (consumer): inject this thread's OPEN task lines so the agent is
+    // aware of the long-running work, not just the current message. Best-effort:
+    // a task-read failure is logged and skipped — the task board must never break
+    // a turn (same discipline as the SOP hint). Empty (no tasks) → injects nothing.
+    let taskSnapshot = '';
+    try {
+      taskSnapshot = formatTaskSnapshot(await deps.taskStore.listByThread(threadId), deps.now());
+    } catch (err) {
+      deps.logger({
+        level: 'warn',
+        message: `task snapshot injection failed: ${err instanceof Error ? err.message : String(err)}`,
+        threadId,
+        agentId,
+      });
+    }
+
+    // Compose the turn context: open-task snapshot, then the hierarchical history,
+    // then a separator before the user message. Each part is omitted when empty.
+    const contextText = [taskSnapshot, hierarchical.contextText].filter((s) => s.length > 0).join('\n\n');
     const effectivePrompt =
-      hierarchical.contextText.length > 0
-        ? `${hierarchical.contextText}\n\n---\n\n${prompt}`
-        : prompt;
+      contextText.length > 0 ? `${contextText}\n\n---\n\n${prompt}` : prompt;
 
     // Mint the invocation record so MCP callbacks for this turn authenticate.
     const record = deps.invocations.create({
@@ -733,6 +834,7 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
     // transcript. `onSessionId` fires on resume and/or session_init; latest wins.
     // Declared before invokeOptions so its onSessionId closure can bind it.
     let activeSessionId: string | undefined;
+    const timingState: InvocationTimingState = {};
 
     // Build the InvokeOptions handed to invokeSingleAgent. The cwd field is
     // OMITTED (left undefined) when there's no workspace — matching the prior
@@ -751,6 +853,9 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       now: deps.now,
       onSessionId: (sessionId) => {
         activeSessionId = sessionId;
+      },
+      onTiming: (event) => {
+        recordInvocationTiming(timingState, event);
       },
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
     };
@@ -774,6 +879,7 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
     // Audit-to-log: invocation start. Logs the agent + thread + invocationId so
     // a turn is traceable in the structured log (info; silent in tests).
     const startedAt = deps.now();
+    const prepareMs = Math.max(0, startedAt - routeStartedAt);
     deps.logger({
       level: 'info',
       message: `invocation start (invocationId=${record.invocationId})`,
@@ -853,12 +959,20 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       });
       // 审计日志：回合收尾 emit responded（正常产出）或 error（有错误帧）。与上面
       // 的 to-log 不同——这条进的是可查询的审计事件日志，审计 tab 读它。
-      const durationMs = deps.now() - startedAt;
+      const endedAt = deps.now();
+      const durationMs = Math.max(0, endedAt - startedAt);
+      const timings = buildInvocationTimings({
+        prepareMs,
+        invokeMs: durationMs,
+        totalMs: Math.max(0, endedAt - routeStartedAt),
+        state: timingState,
+      });
       if (errorCount > 0) {
         emitAudit('error', {
           agentId,
           invocationId: record.invocationId,
           durationMs,
+          timings,
           errorCount,
           ...(lastErrorMessage !== undefined ? { error: lastErrorMessage } : {}),
         });
@@ -867,6 +981,7 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
           agentId,
           invocationId: record.invocationId,
           durationMs,
+          timings,
           textChars: textLength,
           toolCalls: toolCallCount,
         });

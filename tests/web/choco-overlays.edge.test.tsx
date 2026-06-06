@@ -266,8 +266,8 @@ describe('WorkspacePanel — 5 tabs', () => {
     for (const id of ['dev', 'mem', 'sched', 'tasks', 'comm'] as const) {
       expect(screen.getByTestId(`wsp-tab-${id}`)).toBeInTheDocument();
     }
-    // 开发 (default) is an honest placeholder.
-    expect(screen.getByTestId('wsp-soon')).toHaveTextContent('未接入');
+    // 开发 (default) is now the operable dev surface (file tree / changes / git).
+    expect(screen.getByTestId('wsp-dev')).toBeInTheDocument();
     // 记忆 → live evidence search surface (idle state).
     await userEvent.click(screen.getByTestId('wsp-tab-mem'));
     expect(screen.getByTestId('wsp-memory')).toBeInTheDocument();
@@ -582,14 +582,22 @@ describe('SettingsOverlay (设置)', () => {
  * 9. Adversarial — no design-mock data leaks across the workspace overlays.
  * ========================================================================== */
 describe('no fabricated data leaks (adversarial)', () => {
-  it('[adv] WorkspacePanel 调度/任务/社区 show 未接入, never the design SCHED/issues rows', async () => {
+  it('[adv] WorkspacePanel 调度/社区 show 未接入; 任务 is operable but never shows mock rows', async () => {
     await mountApp();
     await userEvent.click(screen.getByTestId('workspace-button'));
-    for (const id of ['sched', 'tasks', 'comm'] as const) {
+    // 调度/社区 are still honest placeholders (no backend yet).
+    for (const id of ['sched', 'comm'] as const) {
       await userEvent.click(screen.getByTestId(`wsp-tab-${id}`));
       const soon = screen.getByTestId('wsp-soon');
       expect(soon).toHaveTextContent('未接入');
     }
+    // 任务 is now LIVE (operable board), NOT a placeholder. With no active thread
+    // it honestly prompts to open a conversation — and shows ZERO fabricated task
+    // cards (no design mock rows leak).
+    await userEvent.click(screen.getByTestId('wsp-tab-tasks'));
+    expect(screen.getByTestId('wsp-tasks')).toHaveTextContent('先开一个对话');
+    expect(screen.queryByTestId('wsp-soon')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tsk-card')).not.toBeInTheDocument();
     // The 记忆 命中 stat must be 0 before any search (never the design "267 文档").
     await userEvent.click(screen.getByTestId('wsp-tab-mem'));
     const panel = screen.getByTestId('workspace-panel');

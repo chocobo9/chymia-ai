@@ -40,6 +40,49 @@ async function drain(gen: AsyncGenerator<AgentMessage>): Promise<AgentMessage[]>
 }
 
 describe('invokeSingleAgent — happy path (unit)', () => {
+  test('reports timing milestones for mutex wait, provider first event, first output, and attempt end', async () => {
+    const agentId = createAgentId('claude-opus');
+    const fake = new FakeAgentService([
+      [
+        sessionInit(agentId, 'sess-timing', 10),
+        textEvent(agentId, 'timed output', 20),
+        doneEvent(agentId, 30),
+      ],
+    ]);
+    const db = new Database(':memory:');
+    const sessionStore = makeSessionStore(db);
+    const sessionMutex = new SessionMutex();
+    let tick = 0;
+    const now = (): number => {
+      tick += 5;
+      return tick;
+    };
+    const timings: Array<{ type: string; elapsedMs: number }> = [];
+
+    await drain(
+      invokeSingleAgent({
+        agentService: fake,
+        sessionStore,
+        sessionMutex,
+        agentId,
+        threadId: 'thread-timing',
+        prompt: 'measure this turn',
+        now,
+        onTiming: (event) => timings.push(event),
+      }),
+    );
+
+    expect(timings.map((event) => event.type)).toEqual([
+      'mutex_acquired',
+      'attempt_start',
+      'first_provider_event',
+      'first_output',
+      'attempt_end',
+    ]);
+    expect(timings.every((event) => typeof event.elapsedMs === 'number')).toBe(true);
+    db.close();
+  });
+
   test('drains a successful stream and forwards text + done (session_init suppressed)', async () => {
     // Arrange
     const agentId = createAgentId('claude-opus');

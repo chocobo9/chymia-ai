@@ -17,10 +17,11 @@
 
 import { useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import type { AgentMessage, AgentState, StoredMessage, Thread } from '@choco/shared';
+import type { AgentMessage, AgentState, StoredMessage, TaskItem, Thread } from '@choco/shared';
 import { webConfig } from '../lib/config.js';
 import { useChatStore } from '../stores/chat-store.js';
 import { useAgentStore } from '../stores/agent-store.js';
+import { useTaskStore } from '../stores/task-store.js';
 
 /** Client→server event names (must match M8 SocketManager CLIENT_EVENTS). */
 export const CLIENT_EVENTS = {
@@ -37,6 +38,10 @@ export const SERVER_EVENTS = {
   error: 'error',
   /** An off-web platform (飞书/etc.) USER message to mirror into the transcript. */
   threadMessage: 'thread_message',
+  /** Task-line CRUD broadcasts (任务线) → keep the WorkspaceTasks board live. */
+  taskCreated: 'task_created',
+  taskUpdated: 'task_updated',
+  taskDeleted: 'task_deleted',
 } as const;
 
 /** Minimal socket surface the hook depends on (eases mocking). */
@@ -156,11 +161,30 @@ export function registerSocketListeners(
     onError?.(payload?.message ?? 'socket error');
   };
 
+  // Task-line CRUD: the payload carries its own threadId, so a board for ANY
+  // thread updates the right bucket (the broadcast only reaches a joined room
+  // anyway). upsert/remove dedupe by id, so a self-originated echo is a no-op.
+  const onTaskUpsert = (...args: unknown[]): void => {
+    const task = args[0] as TaskItem;
+    if (task !== null && typeof task === 'object' && 'id' in task && 'threadId' in task) {
+      useTaskStore.getState().upsertTask(task);
+    }
+  };
+  const onTaskDeleted = (...args: unknown[]): void => {
+    const payload = args[0] as { id?: string; threadId?: string };
+    if (typeof payload?.id === 'string' && typeof payload?.threadId === 'string') {
+      useTaskStore.getState().removeTask(payload.threadId, payload.id);
+    }
+  };
+
   socket.on(SERVER_EVENTS.agentEvent, onAgentEvent);
   socket.on(SERVER_EVENTS.threadUpdate, onThreadUpdate);
   socket.on(SERVER_EVENTS.threadMessage, onThreadMessage);
   socket.on(SERVER_EVENTS.agentStatus, onAgentStatus);
   socket.on(SERVER_EVENTS.error, onErrorEvent);
+  socket.on(SERVER_EVENTS.taskCreated, onTaskUpsert);
+  socket.on(SERVER_EVENTS.taskUpdated, onTaskUpsert);
+  socket.on(SERVER_EVENTS.taskDeleted, onTaskDeleted);
 
   return () => {
     socket.off(SERVER_EVENTS.agentEvent, onAgentEvent);
@@ -168,6 +192,9 @@ export function registerSocketListeners(
     socket.off(SERVER_EVENTS.threadMessage, onThreadMessage);
     socket.off(SERVER_EVENTS.agentStatus, onAgentStatus);
     socket.off(SERVER_EVENTS.error, onErrorEvent);
+    socket.off(SERVER_EVENTS.taskCreated, onTaskUpsert);
+    socket.off(SERVER_EVENTS.taskUpdated, onTaskUpsert);
+    socket.off(SERVER_EVENTS.taskDeleted, onTaskDeleted);
   };
 }
 

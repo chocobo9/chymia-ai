@@ -75,6 +75,15 @@ describe('GET /api/audit/thread/:id — emitted audit events (happy)', () => {
     const responded = events.find((e) => e.type === 'responded');
     expect(responded?.data).toMatchObject({ agentId: 'claude-opus', toolCalls: 1 });
     expect(typeof responded?.data.durationMs).toBe('number');
+    expect(responded?.data.timings).toMatchObject({
+      prepareMs: expect.any(Number),
+      invokeMs: expect.any(Number),
+      totalMs: expect.any(Number),
+      mutexWaitMs: expect.any(Number),
+      providerMs: expect.any(Number),
+      firstProviderEventMs: expect.any(Number),
+      firstOutputMs: expect.any(Number),
+    });
     expect(responded?.data.textChars as number).toBeGreaterThan(0);
     // invoked + responded share the same invocationId (one turn).
     expect(responded?.data.invocationId).toBe(invoked?.data.invocationId);
