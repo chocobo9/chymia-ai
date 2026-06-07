@@ -24,7 +24,7 @@ import type { MessageContent } from '@choco/api/providers/base';
 import type { AgentRegistry } from '@choco/api/routing/agent-registry';
 import { parseUserMentions, hasBroadcastMention } from '@choco/api/routing/mention-parser';
 import { parseIntent, stripIntentTags } from '@choco/api/routing/intent-parser';
-import { routeSerial, DEFAULT_MAX_A2A_DEPTH } from '@choco/api/routing/route-serial';
+import { routeSerial, DEFAULT_MAX_A2A_DEPTH, RELAY_AGENT_ID } from '@choco/api/routing/route-serial';
 import { routeParallel } from '@choco/api/routing/route-parallel';
 
 /** Arguments passed to the injected invocation seam for one agent turn. */
@@ -539,12 +539,19 @@ export class AgentRouter {
       return;
     }
 
+    // F215 AC-C3: inject the relay target only when it is registered AND available,
+    // so route-serial can push it on malformed (form A) exhaustion.
+    const relayAgentId =
+      this.registry.get(RELAY_AGENT_ID) !== undefined && this.registry.isAvailable(RELAY_AGENT_ID)
+        ? RELAY_AGENT_ID
+        : undefined;
     yield* routeSerial({
       ...common,
       targets,
       mentionEntries: this.registry.getMentionEntries(),
       maxA2ADepth: this.maxA2ADepth,
       now: this.now,
+      ...(relayAgentId !== undefined ? { relayAgentId } : {}),
     });
   }
 
