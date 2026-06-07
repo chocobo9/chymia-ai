@@ -13,7 +13,7 @@
 // backend). Constructor injection only (supplement D, no global singleton).
 
 import type { Database } from 'better-sqlite3';
-import type { AgentId, Thread, ThreadThinkingMode } from '@choco/shared';
+import type { AgentId, Thread, ThreadRoutingPolicyV1, ThreadThinkingMode } from '@choco/shared';
 import { createAgentId } from '@choco/shared';
 import { THREADS_TABLE, createThreadsTable } from './migrations/002-threads.js';
 import { MESSAGES_TABLE, createMessagesTable } from './migrations/001-messages.js';
@@ -47,6 +47,7 @@ interface ThreadRow {
   readonly participants: string;
   readonly sop_stage_id: string | null;
   readonly thinking_mode: string;
+  readonly routing_policy: string | null;
 }
 
 /** Bind-parameter object for INSERT. Keys match the `@name` placeholders. */
@@ -59,6 +60,7 @@ interface InsertParams {
   readonly participants: string;
   readonly sop_stage_id: string | null;
   readonly thinking_mode: string;
+  readonly routing_policy: string | null;
 }
 
 /** Clock injected for deterministic timestamps in tests; defaults to Date.now. */
@@ -127,7 +129,26 @@ function parseParticipants(raw: string): AgentId[] {
   return result;
 }
 
+/**
+ * Parse a persisted routing policy (JSON or null). Defensive: corrupt JSON or a
+ * non-v1 shape from external persistence is treated as "no policy" (returns
+ * undefined) rather than throwing inside a get().
+ */
+function parseRoutingPolicy(raw: string | null): ThreadRoutingPolicyV1 | undefined {
+  if (raw === null) return undefined;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (value !== null && typeof value === 'object' && (value as { v?: unknown }).v === 1) {
+      return value as ThreadRoutingPolicyV1;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function rowToThread(row: ThreadRow): Thread {
+  const routingPolicy = parseRoutingPolicy(row.routing_policy);
   return {
     id: row.id,
     ...(row.title !== null ? { title: row.title } : {}),
@@ -139,6 +160,7 @@ function rowToThread(row: ThreadRow): Thread {
     thinkingMode: isThinkingMode(row.thinking_mode)
       ? row.thinking_mode
       : DEFAULT_THINKING_MODE,
+    ...(routingPolicy !== undefined ? { routingPolicy } : {}),
   };
 }
 
@@ -155,6 +177,7 @@ export class SqliteThreadStore {
   private readonly updateSopStageStmt;
   private readonly updateTitleStmt;
   private readonly updateParticipantsStmt;
+  private readonly updateRoutingPolicyStmt;
   private readonly countAgentMessagesStmt;
   private readonly deleteStmt;
   private readonly deleteMessagesStmt;
@@ -177,9 +200,9 @@ export class SqliteThreadStore {
 
     this.insertStmt = db.prepare<InsertParams>(`
       INSERT INTO ${THREADS_TABLE}
-        (id, title, project_path, created_at, last_active_at, participants, sop_stage_id, thinking_mode)
+        (id, title, project_path, created_at, last_active_at, participants, sop_stage_id, thinking_mode, routing_policy)
       VALUES
-        (@id, @title, @project_path, @created_at, @last_active_at, @participants, @sop_stage_id, @thinking_mode)
+        (@id, @title, @project_path, @created_at, @last_active_at, @participants, @sop_stage_id, @thinking_mode, @routing_policy)
     `);
 
     this.getStmt = db.prepare<[string], ThreadRow>(`
@@ -208,6 +231,10 @@ export class SqliteThreadStore {
 
     this.updateParticipantsStmt = db.prepare<[string, string]>(`
       UPDATE ${THREADS_TABLE} SET participants = ? WHERE id = ?
+    `);
+
+    this.updateRoutingPolicyStmt = db.prepare<[string | null, string]>(`
+      UPDATE ${THREADS_TABLE} SET routing_policy = ? WHERE id = ?
     `);
 
     // Per-participant activity: how many messages an agent authored in a thread.
@@ -300,6 +327,21 @@ export class SqliteThreadStore {
   }
 
   /**
+   * Set or clear a thread's routing policy (Clowder updateRoutingPolicy, F042).
+   * A null / non-v1 / empty-scopes policy CLEARS it (stored NULL). No-op if the
+   * thread is unknown (UPDATE matches no row).
+   */
+  async updateRoutingPolicy(
+    threadId: string,
+    policy: ThreadRoutingPolicyV1 | null,
+  ): Promise<void> {
+    const scopes = policy?.scopes;
+    const hasScopes = scopes !== undefined && Object.keys(scopes).length > 0;
+    const value = !policy || policy.v !== 1 || !hasScopes ? null : JSON.stringify(policy);
+    this.updateRoutingPolicyStmt.run(value, threadId);
+  }
+
+  /**
    * Add agent ids to a thread's participant set (dedup'd). No-op if unknown.
    * Used after routing so the thread tracks which agents have participated.
    */
@@ -380,6 +422,7 @@ export class SqliteThreadStore {
       participants: JSON.stringify(thread.participants),
       sop_stage_id: thread.sopStageId ?? null,
       thinking_mode: thread.thinkingMode,
+      routing_policy: thread.routingPolicy ? JSON.stringify(thread.routingPolicy) : null,
     };
     this.insertStmt.run(params);
   }

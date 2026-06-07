@@ -34,7 +34,8 @@ export function createThreadsTable(db: Database): void {
       last_active_at INTEGER NOT NULL,
       participants TEXT NOT NULL DEFAULT '[]',
       sop_stage_id TEXT,
-      thinking_mode TEXT NOT NULL DEFAULT 'debug'
+      thinking_mode TEXT NOT NULL DEFAULT 'debug',
+      routing_policy TEXT
     );
   `);
 
@@ -42,4 +43,23 @@ export function createThreadsTable(db: Database): void {
     CREATE INDEX IF NOT EXISTS ${THREADS_ACTIVE_INDEX}
       ON ${THREADS_TABLE} (last_active_at DESC);
   `);
+
+  // F042: routing_policy added post-hoc; a guarded ALTER lets a pre-F042 db gain
+  // it on next open without dropping data (SQLite has no ADD COLUMN IF NOT EXISTS).
+  addColumnIfMissing(db, THREADS_TABLE, 'routing_policy', 'TEXT');
+}
+
+/** Raw row shape for a `PRAGMA table_info` lookup (typed; no `any`). */
+interface ColumnInfoRow {
+  readonly name: string;
+}
+
+/**
+ * Add `column` to `table` if it is not already present. Idempotent: a no-op when
+ * the column exists (so the migration is safe to re-run on an existing DB).
+ */
+function addColumnIfMissing(db: Database, table: string, column: string, type: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as ColumnInfoRow[];
+  if (cols.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type};`);
 }

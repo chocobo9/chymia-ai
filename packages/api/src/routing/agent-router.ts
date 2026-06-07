@@ -17,6 +17,8 @@ import type {
   AgentMessage,
   InvocationContext,
   StoredMessage,
+  ThreadRoutingPolicyV1,
+  ThreadRoutingScope,
 } from '@choco/shared';
 import type { MessageContent } from '@choco/api/providers/base';
 import type { AgentRegistry } from '@choco/api/routing/agent-registry';
@@ -86,6 +88,42 @@ export interface ParticipantThreadStore {
   getParticipantsWithActivity(
     threadId: string,
   ): Promise<readonly ParticipantActivity[]>;
+  /** Read the thread's routing policy (F042) for fallback shaping. */
+  get(threadId: string): Promise<{ readonly routingPolicy?: ThreadRoutingPolicyV1 } | null>;
+}
+
+/**
+ * Infer the routing scope of a message (Clowder inferRoutingScope, F042 v1).
+ * Deterministic + conservative: review cues → 'review', architecture cues →
+ * 'architecture', else null (no policy applies).
+ */
+function inferRoutingScope(message: string): ThreadRoutingScope | null {
+  const lower = message.toLowerCase();
+  const hasPrToken = /\bpr\b/i.test(lower);
+  if (
+    lower.includes('review') ||
+    lower.includes('lgtm') ||
+    lower.includes('merge') ||
+    hasPrToken ||
+    message.includes('合入') ||
+    message.includes('开 PR') ||
+    message.includes('云端 review') ||
+    message.includes('帮我看看') ||
+    message.includes('请 reviewer 看看') ||
+    message.includes('请 review')
+  ) {
+    return 'review';
+  }
+  if (
+    lower.includes('architecture') ||
+    lower.includes('tradeoff') ||
+    message.includes('架构') ||
+    message.includes('设计') ||
+    message.includes('方案')
+  ) {
+    return 'architecture';
+  }
+  return null;
 }
 
 /** Resolve the per-agent abort signal for a target — the targeted-cancel seam. */
@@ -260,20 +298,40 @@ export class AgentRouter {
     //   1. recent USER @mention history,
     //   2. else a thread PARTICIPANT (getParticipantsWithActivity),
     //   3. else the default available agent.
-    // None of these persist participants — Clowder writes back only on the
-    // explicit-mention branch above (so `mentioned` stays empty here).
+    // Each fallback result is shaped by the thread routing policy (Clowder
+    // applyThreadRoutingPolicy — FALLBACK only). None persist participants —
+    // Clowder writes back only on the explicit-mention branch (so `mentioned`
+    // stays empty here).
+    const routingPolicy =
+      this.threadStore !== undefined
+        ? (await this.threadStore.get(threadId))?.routingPolicy
+        : undefined;
+
     const fallback = await this.fallbackTargets(threadId);
     if (fallback.length > 0) {
-      return { targets: fallback, unavailable: [], mentioned: [] };
+      return {
+        targets: this.applyRoutingPolicy(routingPolicy, message, fallback),
+        unavailable: [],
+        mentioned: [],
+      };
     }
 
     const participants = await this.participantFallback(threadId);
     if (participants.length > 0) {
-      return { targets: participants, unavailable: [], mentioned: [] };
+      return {
+        targets: this.applyRoutingPolicy(routingPolicy, message, participants),
+        unavailable: [],
+        mentioned: [],
+      };
     }
 
     const pick = this.pickFallback();
-    return { targets: pick === undefined ? [] : [pick], unavailable: [], mentioned: [] };
+    const picked = pick === undefined ? [] : [pick];
+    return {
+      targets: this.applyRoutingPolicy(routingPolicy, message, picked),
+      unavailable: [],
+      mentioned: [],
+    };
   }
 
   /**
@@ -282,16 +340,79 @@ export class AgentRouter {
    * Returns undefined only when NO agent is available.
    */
   private pickFallback(): AgentId | undefined {
+    return this.pickFallbackExcluding(new Set());
+  }
+
+  /**
+   * Clowder pickFallbackCat(exclude): the default agent if available AND not
+   * excluded, else the first available non-excluded agent (registry order).
+   * Returns undefined when none qualifies.
+   */
+  private pickFallbackExcluding(exclude: ReadonlySet<string>): AgentId | undefined {
     const def = this.registry.getDefault();
-    if (this.registry.isAvailable(def.id)) {
+    if (!exclude.has(def.id as string) && this.registry.isAvailable(def.id)) {
       return def.id;
     }
     for (const config of this.registry.getAll()) {
-      if (this.registry.isAvailable(config.id)) {
-        return config.id;
-      }
+      if (exclude.has(config.id as string)) continue;
+      if (this.registry.isAvailable(config.id)) return config.id;
     }
     return undefined;
+  }
+
+  /**
+   * Apply a thread routing policy to a FALLBACK candidate list (Clowder
+   * applyThreadRoutingPolicy). Only fallback routing is shaped — an explicit
+   * @mention is never policy-filtered (avoidCats: "unless explicitly @mentioned").
+   * For the inferred scope: preferCats first, avoidCats dropped (and if that
+   * empties the list, a non-avoided fallback agent is chosen). No scope / no rule
+   * / expired rule ⇒ the routable candidates unchanged.
+   */
+  private applyRoutingPolicy(
+    policy: ThreadRoutingPolicyV1 | undefined,
+    message: string,
+    candidates: readonly AgentId[],
+  ): AgentId[] {
+    const routable = candidates.filter((id) => this.registry.isAvailable(id));
+    const passthrough = (): AgentId[] => {
+      if (routable.length > 0) return routable;
+      const fb = this.pickFallbackExcluding(new Set());
+      return fb !== undefined ? [fb] : [];
+    };
+
+    const scope = inferRoutingScope(message);
+    if (scope === null) return passthrough();
+
+    const rule = policy?.v === 1 ? policy.scopes?.[scope] : undefined;
+    if (rule === undefined) return passthrough();
+    if (typeof rule.expiresAt === 'number' && rule.expiresAt > 0 && rule.expiresAt < this.now()) {
+      return passthrough();
+    }
+
+    const avoid = new Set((rule.avoidCats ?? []).map((id) => id as string));
+    const prefer = (rule.preferCats ?? [])
+      .map((id) => id as string)
+      .filter((id) => !avoid.has(id));
+    const filtered = routable.filter((id) => !avoid.has(id as string));
+
+    const out: AgentId[] = [];
+    const seen = new Set<string>();
+    for (const id of prefer) {
+      const aid = id as AgentId;
+      if (!this.registry.isAvailable(aid) || seen.has(id)) continue;
+      seen.add(id);
+      out.push(aid);
+    }
+    for (const id of filtered) {
+      const sid = id as string;
+      if (seen.has(sid)) continue;
+      seen.add(sid);
+      out.push(id);
+    }
+    if (out.length > 0) return out;
+
+    const fb = this.pickFallbackExcluding(avoid);
+    return fb !== undefined ? [fb] : [...routable];
   }
 
   /**

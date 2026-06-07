@@ -12,6 +12,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppServices } from '@choco/api/infrastructure/app-services';
+import type { ThreadRoutingPolicyV1 } from '@choco/shared';
 import { advanceStageWithEval } from '@choco/api/sop/advance-stage.js';
 
 /** Body schema for POST /api/threads (all fields optional). */
@@ -35,8 +36,44 @@ const SetSopStageBodySchema = z
   .object({ stageId: z.string().min(1).nullable() })
   .strict();
 
-/** Body schema for PATCH /api/threads/:id (inline rename): a non-empty title. */
-const RenameThreadBodySchema = z.object({ title: z.string().min(1) }).strict();
+/** F042 routing rule: per-scope prefer/avoid + optional reason/expiry. */
+const RoutingRuleSchema = z
+  .object({
+    preferCats: z.array(z.string().min(1)).max(10).optional(),
+    avoidCats: z.array(z.string().min(1)).max(10).optional(),
+    reason: z.string().min(1).optional(),
+    expiresAt: z.number().int().positive().optional(),
+  })
+  .strict();
+
+/** F042 routing policy v1: per-scope rules. `null` (on the body) clears it. */
+const RoutingPolicySchema = z
+  .object({
+    v: z.literal(1),
+    scopes: z
+      .object({
+        review: RoutingRuleSchema.optional(),
+        architecture: RoutingRuleSchema.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+/**
+ * Body schema for PATCH /api/threads/:id. Inline rename (`title`) and/or the
+ * F042 thread routing policy (`routingPolicy`; `null` clears). At least one
+ * field is required.
+ */
+const PatchThreadBodySchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    routingPolicy: RoutingPolicySchema.nullable().optional(),
+  })
+  .strict()
+  .refine((d) => d.title !== undefined || d.routingPolicy !== undefined, {
+    message: 'at least one of title / routingPolicy is required',
+  });
 
 /**
  * Register Thread CRUD routes on `app` using the wired {@link AppServices}.
@@ -104,16 +141,16 @@ export function registerThreadRoutes(app: FastifyInstance, services: AppServices
     return reply.send(updated);
   });
 
-  // Inline rename: set a thread's title. The body must carry a non-empty title
-  // (empty/whitespace-only → 400). On success the new title is persisted and a
-  // thread_update is broadcast so connected clients refresh, mirroring
-  // create/delete/sop-stage. Distinct from PATCH …/sop-stage above.
+  // Inline rename and/or F042 routing policy. The body carries a non-empty title
+  // and/or a routingPolicy (null clears it); at least one is required. On success
+  // the change is persisted and a thread_update is broadcast so connected clients
+  // refresh, mirroring create/delete/sop-stage. Distinct from PATCH …/sop-stage.
   app.patch('/api/threads/:id', async (request, reply) => {
     const params = ThreadParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.code(400).send({ error: 'invalid_params' });
     }
-    const body = RenameThreadBodySchema.safeParse(request.body);
+    const body = PatchThreadBodySchema.safeParse(request.body);
     if (!body.success) {
       return reply.code(400).send({ error: 'invalid_body', issues: body.error.issues });
     }
@@ -121,7 +158,15 @@ export function registerThreadRoutes(app: FastifyInstance, services: AppServices
     if (existing === null) {
       return reply.code(404).send({ error: 'thread_not_found' });
     }
-    await threadStore.updateTitle(params.data.id, body.data.title);
+    if (body.data.title !== undefined) {
+      await threadStore.updateTitle(params.data.id, body.data.title);
+    }
+    if (body.data.routingPolicy !== undefined) {
+      await threadStore.updateRoutingPolicy(
+        params.data.id,
+        body.data.routingPolicy as ThreadRoutingPolicyV1 | null,
+      );
+    }
     const updated = await threadStore.get(params.data.id);
     if (updated !== null) {
       await socket.broadcastThreadUpdate(updated.id, updated);
