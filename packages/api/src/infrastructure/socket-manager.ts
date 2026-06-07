@@ -261,6 +261,17 @@ export class SocketManager {
   }
 
   /**
+   * Cancel ALL in-flight routes on a thread — batch AND per-agent controllers.
+   * Called by handleThreadMessage before registering a new route so a follow-up
+   * message supersedes the old invocation instead of blocking on the mutex.
+   */
+  cancelExistingRoutes(threadId: string): void {
+    this.cancelThread(threadId);
+    this.cancelControllers.delete(threadId);
+    this.agentCancelControllers.delete(threadId);
+  }
+
+  /**
    * Abort ONE agent's in-flight invocation on a thread (targeted stop) — its
    * siblings keep running. No-op if that agent isn't currently registered.
    */

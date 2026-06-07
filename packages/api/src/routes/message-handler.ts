@@ -157,6 +157,9 @@ export async function handleThreadMessage(
   const noticeReply = await surfaceUnavailableNotice(services, threadId, userId, content, now);
 
   // 3. Drive the router; broadcast + accumulate replies; emit agent_status (G7).
+  // Supersede: cancel any in-flight route on this thread so the old invocation's
+  // mutex is released and this message proceeds immediately.
+  socket.cancelExistingRoutes(threadId);
   // Cancellation is per-agent (the collateral-cancel fix): `controller` is the
   // thread-wide BATCH gate (stop-all + the serial-chain loop guard), and
   // `signalForAgent` hands each agent a signal that aborts on EITHER its own
