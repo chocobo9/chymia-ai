@@ -23,6 +23,7 @@ import {
   isContextWindowOverflowError,
   isTransientCliError,
   isTimeoutError,
+  isMalformedToolCallError,
 } from '@choco/api/providers/error-classifier';
 
 /**
@@ -36,6 +37,7 @@ export const MAX_RETRIES = 2;
  * `unclassified` = matched none of the four classifiers.
  */
 export type ErrorClass =
+  | 'malformed'
   | 'timeout'
   | 'missing_session'
   | 'prompt_limit'
@@ -69,6 +71,13 @@ export type RetryDecision =
  * empty input).
  */
 export function classifyError(message: string | null | undefined): ErrorClass {
+  // F215 AC-C1: form A malformed tool-call (claude thinking-only 炸毛) is an explicit
+  // marker error — classify it first, then clear the session and fresh-context retry
+  // (same recovery as overflow, but kept distinct so the route layer can relay on
+  // exhaustion).
+  if (isMalformedToolCallError(message)) {
+    return 'malformed';
+  }
   // Pattern from invoke-single-cat.ts: timeout & missing-session both clear the
   // session; here they stay distinct error classes but share clearSession=true.
   if (isTimeoutError(message)) {

@@ -95,13 +95,55 @@ export interface InvokeSingleAgentParams {
   readonly onTiming?: OnInvocationTiming;
 }
 
-/** Event types that count as user-visible output (forbid retry once seen). */
-const OUTPUT_EVENT_TYPES: ReadonlySet<AgentMessage['type']> = new Set([
+/**
+ * Event types that count as REAL content output (a retry after these would
+ * duplicate model output, so retry is forbidden). Excludes 'thinking' on purpose
+ * (Clowder attemptHasContentOutput): a thinking-only (form A) turn produced NO
+ * usable content and must stay retryable / relay-able. thinking is still streamed
+ * to the user — it simply does not block recovery.
+ */
+const CONTENT_OUTPUT_TYPES: ReadonlySet<AgentMessage['type']> = new Set([
   'text',
   'tool_use',
   'tool_result',
-  'thinking',
 ]);
+
+/** F215: user-visible card shown when the malformed relay kicks in. */
+const MALFORMED_RELAY_CARD = '主模型多次输出无效（form A），正在切换备用模型重试……';
+
+/** True when an event is the internal form-A detection signal (system_info). */
+function isMalformedDetectedSignal(event: AgentMessage): boolean {
+  if (event.type !== 'system_info' || event.content === undefined) {
+    return false;
+  }
+  try {
+    return (JSON.parse(event.content) as { type?: unknown }).type === 'malformed_toolcall_detected';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * F215 AC-C3/D1: emit the malformed relay sequence after fresh-retry is exhausted —
+ * a user-visible card, then the internal `malformed_toolcall_relay_46` signal
+ * (route-serial pushes the backup model cat), then an explicit final error.
+ */
+function* emitMalformedRelay(agentId: AgentId, now: NowFn): Generator<AgentMessage> {
+  yield { type: 'text', agentId, content: MALFORMED_RELAY_CARD, timestamp: now() };
+  yield {
+    type: 'system_info',
+    agentId,
+    content: JSON.stringify({ type: 'malformed_toolcall_relay_46' }),
+    timestamp: now(),
+  };
+  yield {
+    type: 'error',
+    agentId,
+    content: 'malformed_toolcall: 主模型 fresh-context 重试仍失败，已切换备用模型接力',
+    errorCode: 'malformed_toolcall',
+    timestamp: now(),
+  };
+}
 
 /** Build the per-(agent,thread) mutex/session key. */
 function sessionKey(agentId: AgentId, threadId: string): string {
@@ -297,11 +339,17 @@ export async function* invokeSingleAgent(
             // session_init is an internal lifecycle signal; do not forward it.
             continue;
           }
+          // F215 AC-C1/C2: suppress the internal form-A detection signal — it never
+          // reaches the user; it only tells us a malformed turn is coming so the
+          // error below can drive seal + fresh-retry.
+          if (event.type === 'system_info' && isMalformedDetectedSignal(event)) {
+            continue;
+          }
           if (event.type === 'error') {
             caughtError = event;
             break;
           }
-          if (OUTPUT_EVENT_TYPES.has(event.type)) {
+          if (CONTENT_OUTPUT_TYPES.has(event.type)) {
             producedOutput = true;
             if (!sawFirstOutput) {
               sawFirstOutput = true;
@@ -345,6 +393,13 @@ export async function* invokeSingleAgent(
       });
 
       if (decision.action === 'stop') {
+        // F215 AC-C3/D1: malformed retry exhausted → emit the user-visible relay card,
+        // the internal relay signal (route-serial pushes the backup model cat), then
+        // an explicit final error — NOT a silent give-up nor the raw malformed error.
+        if (decision.errorClass === 'malformed') {
+          yield* emitMalformedRelay(agentId, now);
+          return;
+        }
         yield caughtError;
         return;
       }

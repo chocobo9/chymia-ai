@@ -182,3 +182,13 @@ export function isTimeoutError(message: string | null | undefined): boolean {
     m.includes('request timeout')
   );
 }
+
+/**
+ * 是否为 form A malformed tool-call error（claude thinking-only 炸毛，F215 AC-B1）。
+ * 由 ClaudeAgentService 检测到 form A 时 emit：errorCode='malformed_toolcall' 且 content
+ * 以 'malformed_toolcall:' 开头。invoke 层据此 suppress + 清 session fresh-retry，耗尽后
+ * route 层接力到备用模型。这是 claude extended-thinking 特有失败（codex/gemini 无此形态）。
+ */
+export function isMalformedToolCallError(message: string | null | undefined): boolean {
+  return normalize(message).startsWith('malformed_toolcall:');
+}
