@@ -62,6 +62,32 @@ export interface RecentMessageReader {
   getByThread(threadId: string, limit?: number): Promise<StoredMessage[]>;
 }
 
+/**
+ * A thread participant plus its in-thread activity (Clowder ParticipantActivity).
+ * `lastResponseHealthy` absent ⇒ healthy (Clowder: `lastResponseHealthy !== false`)
+ * — this repo has no reply-health signal yet, so the field is always absent today.
+ */
+export interface ParticipantActivity {
+  readonly agentId: AgentId;
+  readonly messageCount: number;
+  readonly lastResponseHealthy?: boolean;
+}
+
+/**
+ * Narrow thread-participant seam — satisfied structurally by SqliteThreadStore.
+ * The router PERSISTS @mentions as participants at routing time (Clowder
+ * resolveTargets → addParticipants) and READS participant activity for its
+ * no-mention fallback (Clowder getParticipantsWithActivity). Kept as a narrow
+ * port (like {@link RecentMessageReader}) so routing does not depend on the
+ * stores layer.
+ */
+export interface ParticipantThreadStore {
+  addParticipants(threadId: string, agentIds: readonly AgentId[]): Promise<void>;
+  getParticipantsWithActivity(
+    threadId: string,
+  ): Promise<readonly ParticipantActivity[]>;
+}
+
 /** Resolve the per-agent abort signal for a target — the targeted-cancel seam. */
 export type SignalForAgent = (agentId: AgentId) => AbortSignal | undefined;
 
@@ -96,6 +122,13 @@ export interface AgentRouterDeps {
   readonly invoke: InvokeAgentFn;
   /** Optional history reader for @mention fallback (rule 2). */
   readonly history?: RecentMessageReader;
+  /**
+   * Optional participant seam (SqliteThreadStore). When present, route() persists
+   * @mentions as thread participants and the no-mention fallback can continue with
+   * a thread participant (Clowder participant model). Absent → the router stays
+   * read-only (unit tests that wire no store).
+   */
+  readonly threadStore?: ParticipantThreadStore;
   readonly config?: AgentRouterConfig;
   readonly logger?: RouteLogger;
   readonly now?: () => number;
@@ -113,6 +146,13 @@ export interface ResolvedRouting {
   readonly targets: readonly AgentId[];
   /** Explicitly @mentioned agents that are NOT available (for the notice). */
   readonly unavailable: readonly AgentId[];
+  /**
+   * The AVAILABLE agents that were EXPLICITLY @mentioned (or @all-expanded) this
+   * turn — the set {@link AgentRouter.route} writes back as thread participants
+   * (Clowder resolveTargets → addParticipants). Empty on a fallback/default route:
+   * Clowder persists participants only on the explicit-mention branch.
+   */
+  readonly mentioned: readonly AgentId[];
 }
 
 /**
@@ -135,6 +175,7 @@ export class AgentRouter {
   private readonly registry: AgentRegistry;
   private readonly invoke: InvokeAgentFn;
   private readonly history: RecentMessageReader | undefined;
+  private readonly threadStore: ParticipantThreadStore | undefined;
   private readonly logger: RouteLogger | undefined;
   private readonly now: () => number;
   private readonly maxA2ADepth: number;
@@ -146,6 +187,7 @@ export class AgentRouter {
     this.registry = deps.registry;
     this.invoke = deps.invoke;
     this.history = deps.history;
+    this.threadStore = deps.threadStore;
     this.logger = deps.logger;
     this.now = deps.now ?? Date.now;
     this.maxA2ADepth = deps.config?.maxA2ADepth ?? DEFAULT_MAX_A2A_DEPTH;
@@ -191,37 +233,47 @@ export class AgentRouter {
         .map((config) => config.id)
         .filter((id) => this.registry.isAvailable(id));
       if (everyone.length > 0) {
-        return { targets: everyone, unavailable: [] };
+        // @all addresses every available agent → all of them become participants.
+        return { targets: everyone, unavailable: [], mentioned: everyone };
       }
       // Nobody available → the deterministic single fallback (never an empty spawn).
       const pick = this.pickFallback();
-      return { targets: pick === undefined ? [] : [pick], unavailable: [] };
+      return { targets: pick === undefined ? [] : [pick], unavailable: [], mentioned: [] };
     }
 
     const entries = this.registry.getMentionEntries();
-    const mentioned = parseUserMentions(message, entries);
+    const parsed = parseUserMentions(message, entries);
 
-    if (mentioned.length > 0) {
-      const available = mentioned.filter((id) => this.registry.isAvailable(id));
-      const unavailable = mentioned.filter((id) => !this.registry.isAvailable(id));
+    if (parsed.length > 0) {
+      const available = parsed.filter((id) => this.registry.isAvailable(id));
+      const unavailable = parsed.filter((id) => !this.registry.isAvailable(id));
       // If some mentions are available, route to those + still report the
       // unavailable ones for the notice. If ALL mentions were unavailable, route
       // to nothing (targets=[]) — the handler shows only the notice, never a
       // silent spawn-fail (§C). We do NOT silently re-route an explicit @codex to
       // claude (that would be the surprising behavior the user hit).
-      return { targets: available, unavailable };
+      // `mentioned` = the available explicit mentions — the set route() persists.
+      return { targets: available, unavailable, mentioned: available };
     }
 
-    // No explicit mention: recent-mention fallback (available-only), then the
-    // default-available agent. Neither path is a "notice" case — the user did not
-    // explicitly address an unavailable agent this turn.
+    // No explicit mention. Fallback chain (Clowder peekTargets/resolveTargets):
+    //   1. recent USER @mention history,
+    //   2. else a thread PARTICIPANT (getParticipantsWithActivity),
+    //   3. else the default available agent.
+    // None of these persist participants — Clowder writes back only on the
+    // explicit-mention branch above (so `mentioned` stays empty here).
     const fallback = await this.fallbackTargets(threadId);
     if (fallback.length > 0) {
-      return { targets: fallback, unavailable: [] };
+      return { targets: fallback, unavailable: [], mentioned: [] };
+    }
+
+    const participants = await this.participantFallback(threadId);
+    if (participants.length > 0) {
+      return { targets: participants, unavailable: [], mentioned: [] };
     }
 
     const pick = this.pickFallback();
-    return { targets: pick === undefined ? [] : [pick], unavailable: [] };
+    return { targets: pick === undefined ? [] : [pick], unavailable: [], mentioned: [] };
   }
 
   /**
@@ -272,7 +324,12 @@ export class AgentRouter {
     threadId: string,
     options?: RouteOptions,
   ): AsyncGenerator<AgentMessage> {
-    const targets = await this.resolveTargets(message, threadId);
+    const { targets, mentioned } = await this.resolveRouting(message, threadId);
+    // Clowder resolveTargets: persist EXPLICIT @mentions (incl. @all expansion) as
+    // thread participants at routing time. No store wired → a harmless no-op.
+    if (mentioned.length > 0 && this.threadStore !== undefined) {
+      await this.threadStore.addParticipants(threadId, mentioned);
+    }
     yield* this.dispatch(targets, message, threadId, options);
   }
 
@@ -396,5 +453,31 @@ export class AgentRouter {
       }
     }
     return [];
+  }
+
+  /**
+   * No-mention fallback to a thread PARTICIPANT (Clowder getParticipantsWithActivity
+   * three-tier). This repo has no preferredCats, so it collapses to two tiers:
+   *   (1) a healthy participant who has actually replied (messageCount > 0),
+   *   (2) else any healthy participant.
+   * Health is absent-means-healthy (Clowder `lastResponseHealthy !== false`).
+   * Returns [] when no store is wired or no routable participant exists.
+   */
+  private async participantFallback(threadId: string): Promise<AgentId[]> {
+    if (this.threadStore === undefined) {
+      return [];
+    }
+    const activity = await this.threadStore.getParticipantsWithActivity(threadId);
+    const isHealthy = (p: ParticipantActivity): boolean => p.lastResponseHealthy !== false;
+    const isRoutable = (p: ParticipantActivity): boolean =>
+      this.registry.isAvailable(p.agentId);
+    const healthyReplier = activity.find(
+      (p) => p.messageCount > 0 && isHealthy(p) && isRoutable(p),
+    );
+    if (healthyReplier !== undefined) {
+      return [healthyReplier.agentId];
+    }
+    const anyHealthy = activity.find((p) => isHealthy(p) && isRoutable(p));
+    return anyHealthy !== undefined ? [anyHealthy.agentId] : [];
   }
 }

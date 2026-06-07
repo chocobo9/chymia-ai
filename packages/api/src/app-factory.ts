@@ -8,10 +8,12 @@
 // Fake provider + temp db; index.ts only calls buildApp().api.listen().
 //
 // NOTE on the supplement-D listing: it is the IDEALIZED Clowder shape and lists
-// constructors that don't exist as written here (threadStore param of AgentRouter,
-// SkillLoader, FastifyApi). We trust the real frozen constructors instead:
-//   - AgentRouter takes { registry, invoke, history } — agent invocation is the
-//     INJECTED InvokeAgentFn seam, so M2/M3/M7 wiring lives in THIS factory.
+// some constructors that don't exist as written here (SkillLoader, FastifyApi).
+// We trust the real frozen constructors instead:
+//   - AgentRouter takes { registry, invoke, history, threadStore } — agent
+//     invocation is the INJECTED InvokeAgentFn seam, so M2/M3/M7 wiring lives in
+//     THIS factory; threadStore backs the Clowder participant model (route-time
+//     @mention persistence + the participant-based no-mention fallback).
 //   - SqliteThreadStore is M8's approved store (progress.md deviation).
 
 import { fileURLToPath } from 'node:url';
@@ -430,7 +432,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
       : {}),
   });
 
-  const router = new AgentRouter({ registry, invoke, history: messageStore, logger, now });
+  const router = new AgentRouter({ registry, invoke, history: messageStore, threadStore, logger, now });
 
   // --- HTTP + Socket.io ------------------------------------------------------
   const api = Fastify({ logger: false });

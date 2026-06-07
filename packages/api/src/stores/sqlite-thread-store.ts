@@ -64,6 +64,22 @@ interface InsertParams {
 /** Clock injected for deterministic timestamps in tests; defaults to Date.now. */
 export type NowFn = () => number;
 
+/**
+ * A thread participant plus its activity in that thread, used by the router's
+ * participant-based fallback (Clowder getParticipantsWithActivity).
+ * `messageCount` = how many messages this agent authored in the thread.
+ *
+ * NOTE: Clowder also carries `lastResponseHealthy` (a per-reply health flag set
+ * by its vision-guard / error machinery). This repo has NO reply-health mechanism
+ * yet, so the field is intentionally absent — the router treats absent as healthy
+ * (Clowder: `lastResponseHealthy !== false`). When a reply-health signal is added
+ * it should be surfaced here.
+ */
+export interface ParticipantActivity {
+  readonly agentId: AgentId;
+  readonly messageCount: number;
+}
+
 /** Options for creating a thread. All optional — a bare create() is valid. */
 export interface CreateThreadInput {
   /** Pre-chosen id (e.g. for auto-create on a known threadId). Generated if absent. */
@@ -139,6 +155,7 @@ export class SqliteThreadStore {
   private readonly updateSopStageStmt;
   private readonly updateTitleStmt;
   private readonly updateParticipantsStmt;
+  private readonly countAgentMessagesStmt;
   private readonly deleteStmt;
   private readonly deleteMessagesStmt;
   private readonly deleteToolEventsStmt;
@@ -191,6 +208,12 @@ export class SqliteThreadStore {
 
     this.updateParticipantsStmt = db.prepare<[string, string]>(`
       UPDATE ${THREADS_TABLE} SET participants = ? WHERE id = ?
+    `);
+
+    // Per-participant activity: how many messages an agent authored in a thread.
+    // Backs getParticipantsWithActivity (the router's participant-based fallback).
+    this.countAgentMessagesStmt = db.prepare<[string, string], { n: number }>(`
+      SELECT COUNT(*) AS n FROM ${MESSAGES_TABLE} WHERE thread_id = ? AND agent_id = ?
     `);
 
     this.deleteStmt = db.prepare<[string]>(`
@@ -288,6 +311,31 @@ export class SqliteThreadStore {
       if (!merged.includes(id)) merged.push(id);
     }
     this.updateParticipantsStmt.run(JSON.stringify(merged), threadId);
+  }
+
+  /**
+   * Read a thread's participant ids (empty if the thread is unknown). Mirrors
+   * Clowder IThreadStore.getParticipants — the read seam group mentions (@thread)
+   * and the router's participant fallback build on.
+   */
+  async getParticipants(threadId: string): Promise<AgentId[]> {
+    const thread = await this.get(threadId);
+    return thread === null ? [] : thread.participants;
+  }
+
+  /**
+   * Read each participant plus its in-thread activity (messageCount), for the
+   * router's participant-based fallback (Clowder getParticipantsWithActivity).
+   * Returns [] for an unknown thread. `lastResponseHealthy` is omitted — this
+   * repo has no reply-health signal yet (see {@link ParticipantActivity}).
+   */
+  async getParticipantsWithActivity(threadId: string): Promise<ParticipantActivity[]> {
+    const thread = await this.get(threadId);
+    if (thread === null) return [];
+    return thread.participants.map((agentId) => ({
+      agentId,
+      messageCount: this.countAgentMessagesStmt.get(threadId, agentId as string)?.n ?? 0,
+    }));
   }
 
   /**

@@ -173,7 +173,6 @@ export async function handleThreadMessage(
     return AbortSignal.any([perAgent.signal, controller.signal]);
   };
   const accumulators = new Map<AgentId, ReplyAccumulator>();
-  const participants = new Set<AgentId>();
   // Agents currently emitting 'working' so we don't re-emit on every frame and so
   // we can flip every still-working agent to 'idle' once the route ends.
   const working = new Set<AgentId>();
@@ -198,7 +197,7 @@ export async function handleThreadMessage(
       // 'done' event → that agent's stream ended (idle). C2/C6 socket protocol:
       // io.to(threadId).emit('agent_status', state: AgentState).
       await emitWorkingIfNew(socket, working, threadId, event, now);
-      accumulate(accumulators, participants, event);
+      accumulate(accumulators, event);
       // Phase 2 (飞书 streaming): forward each text delta to the optional sink as
       // it streams. Same predicate as the accumulator's text branch so the adapter
       // sees exactly the chunks that compose the final reply. No-op when unset.
@@ -243,10 +242,11 @@ export async function handleThreadMessage(
   const workspace = probedThread?.projectPath ?? defaultWorkspace;
   runReplyAndToolProbes(logger, threadId, accumulators, workspace);
 
-  // 4. Track participants + bump lastActive, then broadcast the thread update.
-  if (participants.size > 0) {
-    await threadStore.addParticipants(threadId, [...participants]);
-  }
+  // 4. Bump lastActive, then broadcast the thread update. Thread participants are
+  // persisted by the router at routing time (Clowder resolveTargets → addParticipants
+  // on the explicit-@mention branch), so the handler no longer registers repliers
+  // post-hoc — that over-broadly logged EVERY speaker (incl. A2A handoffs), a repo
+  // divergence from Clowder's "participant = whoever was @mentioned".
   await threadStore.updateLastActive(threadId);
   const updatedThread = await threadStore.get(threadId);
   if (updatedThread !== null) {
@@ -398,10 +398,8 @@ function buildState(
 /** Fold one streamed event into its agent's accumulator. */
 function accumulate(
   accumulators: Map<AgentId, ReplyAccumulator>,
-  participants: Set<AgentId>,
   event: AgentMessage,
 ): void {
-  participants.add(event.agentId);
   const acc = accumulators.get(event.agentId) ?? {
     text: '',
     thinking: '',
