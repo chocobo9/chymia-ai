@@ -539,12 +539,12 @@ export class AgentRouter {
       return;
     }
 
-    // F215 AC-C3: inject the relay target only when it is registered AND available,
-    // so route-serial can push it on malformed (form A) exhaustion.
+    // F215 AC-C3: inject the relay target by REGISTRATION presence, NOT availability.
+    // The relay cat is forced unavailable (a system backup, not a routable roster
+    // member), so checking isAvailable would wrongly skip it. route-serial pushes it
+    // explicitly on form A exhaustion — that push is not availability-filtered.
     const relayAgentId =
-      this.registry.get(RELAY_AGENT_ID) !== undefined && this.registry.isAvailable(RELAY_AGENT_ID)
-        ? RELAY_AGENT_ID
-        : undefined;
+      this.registry.get(RELAY_AGENT_ID) !== undefined ? RELAY_AGENT_ID : undefined;
     yield* routeSerial({
       ...common,
       targets,

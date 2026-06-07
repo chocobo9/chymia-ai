@@ -35,6 +35,7 @@ import {
   type InvokeAgentFn,
   type RouteLogger,
 } from '@choco/api/routing/agent-router';
+import { RELAY_AGENT_ID } from '@choco/api/routing/route-serial';
 import { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
 import { SessionStore } from '@choco/api/invocation/session-store';
 import { SessionMutex } from '@choco/api/invocation/session-mutex';
@@ -380,9 +381,11 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     ...(overrides.defaultAgentId !== undefined
       ? { defaultAgentId: overrides.defaultAgentId }
       : {}),
-    ...(overrides.agentAvailability !== undefined
-      ? { availability: overrides.agentAvailability }
-      : {}),
+    // F215: the relay cat is a SYSTEM backup, never a routable roster member — force
+    // it unavailable so @all / fallback / @mention never select it. It is only ever
+    // pushed by route-serial on form A exhaustion (an explicit push, not availability-
+    // filtered), so the relay still works while everyday routing never picks it.
+    availability: { ...(overrides.agentAvailability ?? {}), [RELAY_AGENT_ID as string]: false },
   });
 
   // M-MEMBER: the mutable overlay store. Default = no persistence/no overrides,

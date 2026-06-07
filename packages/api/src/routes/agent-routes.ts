@@ -16,6 +16,7 @@ import type { AgentConfig, AgentStatus } from '@choco/shared';
 import type { AppServices } from '@choco/api/infrastructure/app-services';
 import { applyAgentOverride, AgentOverrideSchema } from '@choco/api/config/agent-overrides';
 import { NewMemberSchema, newMemberToConfig } from '@choco/api/config/runtime-roster';
+import { RELAY_AGENT_ID } from '@choco/api/routing/route-serial';
 
 /** Baseline status reported by the REST roster (live updates flow over Socket.io). */
 const BASELINE_STATUS: AgentStatus = 'idle';
@@ -61,6 +62,9 @@ export function registerAgentRoutes(app: FastifyInstance, services: AppServices)
     // roster (member cards + status bar) reflects edits without a restart.
     const agents = registry
       .getAll()
+      // F215: hide the relay cat — it is a system backup (form A 接班 target), not a
+      // user-facing roster member; it must not appear in the member list / scope picker.
+      .filter((c) => c.id !== RELAY_AGENT_ID)
       .map((c) =>
         toListEntry(
           applyAgentOverride(c, agentOverrides.get(c.id as string)),
