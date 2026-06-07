@@ -18,6 +18,7 @@
 // role="listbox"/"option". Enter sends, Shift+Enter inserts a newline.
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -68,6 +69,8 @@ export interface ChatInputProps {
   readonly lockedAgentId?: string | null;
   /** Change the locked target agent (null = 全体). Omit to render a read-only chip. */
   readonly onLockChange?: (agentId: string | null) => void;
+  /** Active thread id — drives per-thread draft preservation. */
+  readonly threadId?: string | null;
 }
 
 /** True when `text` already carries an explicit mention of a KNOWN roster agent. */
@@ -107,8 +110,28 @@ function activeMentionToken(value: string): string | null {
 
 /** Render the composer with @mention autocomplete. */
 export function ChatInput(props: ChatInputProps): ReactElement {
-  const { onSend, disabled = false, busy = false, onCancel, lockedAgentId = null, onLockChange } = props;
+  const { onSend, disabled = false, busy = false, onCancel, lockedAgentId = null, onLockChange, threadId } = props;
   const [value, setValue] = useState('');
+  // Per-thread draft map: saves/restores the textarea content on thread switch.
+  const draftMap = useRef<Record<string, string>>({});
+  const latestValue = useRef(value);
+  latestValue.current = value;
+  const prevThreadId = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (prevThreadId.current != null) {
+      draftMap.current[prevThreadId.current] = latestValue.current;
+    }
+    prevThreadId.current = threadId;
+    setValue(threadId != null ? (draftMap.current[threadId] ?? '') : '');
+  }, [threadId]);
+
+  const clearDraft = useCallback(() => {
+    if (threadId != null) {
+      delete draftMap.current[threadId];
+    }
+  }, [threadId]);
+
   // Index of the highlighted @mention suggestion (keyboard ↑/↓ navigation).
   const [activeIndex, setActiveIndex] = useState(0);
   // True after the user presses Esc to dismiss the dropdown without picking;
@@ -210,6 +233,7 @@ export function ChatInput(props: ChatInputProps): ReactElement {
     }
     onSend(outgoing);
     setValue('');
+    clearDraft();
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {

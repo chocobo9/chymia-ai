@@ -66,9 +66,10 @@ export function App(props: AppProps = {}): ReactElement {
   const activeThreadId = useChatStore((s) => s.activeThreadId);
 
   const [error, setError] = useState<string | null>(null);
-  // Busy/in-flight: true from send until the turn's POST resolves or rejects.
-  // Drives the composer's 停止-vs-send swap (停止 shows ONLY while busy).
-  const [sending, setSending] = useState(false);
+  // Per-thread busy/in-flight: true from send until the turn's POST resolves or
+  // rejects. Drives the composer's 停止-vs-send swap. Per-thread so switching
+  // threads doesn't leak one thread's sending state into another.
+  const [sendingByThread, setSendingByThread] = useState<Record<string, boolean>>({});
   const [overlay, setOverlay] = useState<OverlaySurface>(null);
   const [resolvedNotifs, setResolvedNotifs] = useState<ReadonlySet<string>>(new Set());
   // Workspace-trust gate (VSCode-style). `checked` flips once GET /api/trust
@@ -246,7 +247,7 @@ export function App(props: AppProps = {}): ReactElement {
       // streams in via agent_event; on POST resolve we swap the temp message for
       // the real persisted one (deduped) and reconcile the replies.
       const tempId = addOptimisticUserMessage(threadId, content, Date.now());
-      setSending(true);
+      setSendingByThread((prev) => ({ ...prev, [threadId]: true }));
       try {
         // POST resolves only after the turn completes (G8); the transcript fills
         // from agent_event frames meanwhile. Reconcile final state from result.
@@ -258,7 +259,7 @@ export function App(props: AppProps = {}): ReactElement {
         removeMessage(threadId, tempId);
         setError(err instanceof Error ? err.message : 'send failed');
       } finally {
-        setSending(false);
+        setSendingByThread((prev) => ({ ...prev, [threadId]: false }));
       }
     },
     [
@@ -446,7 +447,8 @@ export function App(props: AppProps = {}): ReactElement {
           <div className="app__composer">
             <ChatInput
               onSend={(content) => void sendMessage(content)}
-              busy={sending}
+              busy={activeThreadId !== null && (sendingByThread[activeThreadId] === true)}
+              threadId={activeThreadId}
               onCancel={handleStop}
               lockedAgentId={lockedAgentId}
               onLockChange={handleLockChange}
