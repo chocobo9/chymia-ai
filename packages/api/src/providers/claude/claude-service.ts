@@ -11,6 +11,7 @@ import { spawnCliLineStream, type CliExitInfo } from '../cli-spawn.js';
 import {
   createClaudeParserState,
   parseClaudeLine,
+  isMalformedFormAState,
   CLAUDE_PROVIDER,
   type ParserState,
 } from './claude-parser.js';
@@ -225,9 +226,17 @@ export class ClaudeAgentService implements AgentService {
       const result = parseClaudeLine(line, state, deps);
       state = result.state;
       for (const msg of result.messages) {
-        yield msg;
         if (msg.type === 'done') {
+          // F215 AC-B1: form A malformed tool-call 检测——在 done 之前 emit detected 信号 +
+          // 显式 error（对齐 Clowder），供 invoke 层 suppress+seal+fresh-retry、route 层接力。
+          if (isMalformedFormAState(state)) {
+            yield this.makeMalformedDetected(state);
+            yield this.makeMalformedError(state);
+          }
+          yield msg;
           sawDone = true;
+        } else {
+          yield msg;
         }
       }
       // result/success → 本轮逻辑回合结束。立即停止消费 stdout，不让 `for await` 在
@@ -255,6 +264,40 @@ export class ClaudeAgentService implements AgentService {
       model,
       now: this.now,
     });
+  }
+
+  /**
+   * F215 AC-B1: form A 检测信号（内部 system_info）。invoke 层 suppress 掉它（不给用户），
+   * 据此触发 seal + fresh-context 重试；耗尽后 route 层接力到备用模型。
+   */
+  private makeMalformedDetected(state: ParserState): AgentMessage {
+    return {
+      type: 'system_info',
+      agentId: this.agentId,
+      content: JSON.stringify({
+        type: 'malformed_toolcall_detected',
+        form: 'A',
+        ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      }),
+      timestamp: this.now(),
+      metadata: { provider: CLAUDE_PROVIDER, model: state.model ?? this.defaultModel },
+    };
+  }
+
+  /**
+   * F215 AC-D1: 显式 malformed error（非静默空返回）。errorCode='malformed_toolcall' 供 invoke
+   * 层识别并 suppress + 进入 fresh-retry / 接力链。
+   */
+  private makeMalformedError(state: ParserState): AgentMessage {
+    return {
+      type: 'error',
+      agentId: this.agentId,
+      content:
+        'malformed_toolcall: Claude 输出无效（仅 thinking，无 text 或工具调用），系统将触发恢复流程',
+      errorCode: 'malformed_toolcall',
+      timestamp: this.now(),
+      metadata: { provider: CLAUDE_PROVIDER, model: state.model ?? this.defaultModel },
+    };
   }
 }
 
