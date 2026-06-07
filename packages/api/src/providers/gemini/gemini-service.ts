@@ -35,8 +35,6 @@ const GEMINI_BASE_ARGS: readonly string[] = ['--yolo', '--output-format', 'strea
 const GEMINI_MODEL_FLAG = '--model';
 /** session resume flag，来源 extraction §2.2（--resume <id>） */
 const GEMINI_RESUME_FLAG = '--resume';
-/** prompt flag（非交互模式以 -p/--prompt 传入），来源 Gemini CLI 非交互约定 */
-const GEMINI_PROMPT_FLAG = '--prompt';
 /** MCP 配置注入 flag，来源 补充 §C3（--config 注入） */
 const GEMINI_CONFIG_FLAG = '--config';
 /** 默认进程超时：10 分钟。来源：coding agent 长任务经验默认，可被 options 覆盖 */
@@ -69,8 +67,26 @@ function appendContentText(
   return textParts.length > 0 ? `${prompt}\n${textParts.join('\n')}` : prompt;
 }
 
-export function buildArgs(
+/**
+ * Build the prompt text that will be piped via stdin (not CLI arg).
+ * System prompt is prepended only on the FIRST turn (no sessionId).
+ */
+export function buildStdinPrompt(
   prompt: string,
+  options: InvokeOptions | undefined,
+): string {
+  const withSystem =
+    options?.systemPrompt && options?.sessionId === undefined
+      ? `${options.systemPrompt}\n\n${prompt}`
+      : prompt;
+  return appendContentText(withSystem, options?.contentBlocks);
+}
+
+/**
+ * Build CLI flags (no prompt — prompt goes via stdin to avoid Windows ~32K
+ * command-line length limit that causes "The command line is too long").
+ */
+export function buildArgs(
   options: InvokeOptions | undefined,
   defaultModel: string,
 ): string[] {
@@ -87,16 +103,6 @@ export function buildArgs(
   if (mcpConfig) {
     args.push(GEMINI_CONFIG_FLAG, mcpConfig);
   }
-  // Gemini 无原生 system prompt 注入（injectsL0Natively=false）：仅「会话首轮」（无
-  // sessionId / 未 resume）才把身份 system prompt 前置拼入 prompt。RESUME 时该会话已携带
-  // 身份上下文；再每轮前置，gemini 会把自己的人设当成「用户反复发来的同一句话」→ 计数
-  // 重复、索要验证码、进入"循环中断"死锁（用户 2026-06-05 真机实测）。故 resume 不重复注入。
-  const withSystem =
-    options?.systemPrompt && options?.sessionId === undefined
-      ? `${options.systemPrompt}\n\n${prompt}`
-      : prompt;
-  const effectivePrompt = appendContentText(withSystem, options?.contentBlocks);
-  args.push(GEMINI_PROMPT_FLAG, effectivePrompt);
   return args;
 }
 
@@ -132,10 +138,12 @@ export class GeminiAgentService implements AgentService {
     options?: InvokeOptions,
   ): AsyncIterable<AgentMessage> {
     const model = options?.model ?? this.defaultModel;
-    const args = buildArgs(prompt, options, this.defaultModel);
+    const args = buildArgs(options, this.defaultModel);
+    const stdinPrompt = buildStdinPrompt(prompt, options);
     const { lines, exit, kill } = this.spawnStream({
       command: this.command,
       args,
+      stdin: stdinPrompt,
       cwd: options?.workingDirectory,
       env: options?.callbackEnv,
       timeoutMs: options?.timeoutMs ?? this.defaultTimeoutMs,

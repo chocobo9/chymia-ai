@@ -12,7 +12,7 @@
 // user channel on resume. Claude is unaffected (native --append-system-prompt).
 
 import { describe, it, expect } from 'vitest';
-import { buildArgs as geminiBuildArgs } from '@choco/api/providers/gemini/gemini-service';
+import { buildStdinPrompt as geminiBuildPrompt } from '@choco/api/providers/gemini/gemini-service';
 import { buildArgs as codexBuildArgs } from '@choco/api/providers/codex/codex-service';
 
 const IDENTITY = '你是 Gemini (Pro)，一只暹罗猫，由 Google 提供的 AI agent。';
@@ -20,17 +20,15 @@ const USER_MSG = '什么是离散数学的永真式';
 
 describe('non-native-L0 providers inject identity only on the first turn (not on resume)', () => {
   it('[gemini] first turn (no sessionId) prepends the identity system prompt', () => {
-    const args = geminiBuildArgs(USER_MSG, { systemPrompt: IDENTITY }, 'gemini-2.5-pro');
-    const joined = args.join('\n');
-    expect(joined).toContain(IDENTITY); // identity injected once, at session start
-    expect(joined).toContain(USER_MSG);
+    const prompt = geminiBuildPrompt(USER_MSG, { systemPrompt: IDENTITY });
+    expect(prompt).toContain(IDENTITY);
+    expect(prompt).toContain(USER_MSG);
   });
 
   it('[gemini][regression] a RESUMED turn (sessionId set) does NOT re-prepend the identity', () => {
-    const args = geminiBuildArgs(USER_MSG, { systemPrompt: IDENTITY, sessionId: 'sess-resume-1' }, 'gemini-2.5-pro');
-    const joined = args.join('\n');
-    expect(joined).not.toContain(IDENTITY); // session already carries it — no repeat → no loop
-    expect(joined).toContain(USER_MSG); // the actual user message still goes through
+    const prompt = geminiBuildPrompt(USER_MSG, { systemPrompt: IDENTITY, sessionId: 'sess-resume-1' });
+    expect(prompt).not.toContain(IDENTITY);
+    expect(prompt).toContain(USER_MSG);
   });
 
   it('[codex] first turn prepends identity; resumed turn does not', () => {

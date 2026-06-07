@@ -34,6 +34,7 @@ import { NotifInbox, deriveNotifItems } from './components/overlays/NotifInbox.j
 import { WorkspacePanel } from './components/overlays/WorkspacePanel.js';
 import { SettingsOverlay } from './components/overlays/SettingsOverlay.js';
 import { TrustGate } from './components/overlays/TrustGate.js';
+import { readScopeLock, writeScopeLock } from './lib/scope-persist.js';
 
 /** Which exclusive overlay surface (if any) is currently open. */
 type OverlaySurface = 'notif' | 'workspace' | 'settings' | null;
@@ -84,7 +85,7 @@ export function App(props: AppProps = {}): ReactElement {
   // Per-thread locked target agent (roster id). Absent = 全体 (broadcast/default
   // route). Persists across messages so a 1:1 conversation needs no re-@ — owned
   // here (not in ChatInput) so switching threads restores that thread's target.
-  const [lockByThread, setLockByThread] = useState<Record<string, string>>({});
+  const [lockByThread, setLockByThread] = useState<Record<string, string>>(readScopeLock);
 
   const onError = useCallback((message: string) => setError(message), []);
   const { cancel } = useSocket({
@@ -327,11 +328,11 @@ export function App(props: AppProps = {}): ReactElement {
     (agentId: string | null) => {
       if (activeThreadId === null) return;
       setLockByThread((prev) => {
-        if (agentId === null) {
-          const { [activeThreadId]: _dropped, ...rest } = prev;
-          return rest;
-        }
-        return { ...prev, [activeThreadId]: agentId };
+        const next = agentId === null
+          ? (() => { const { [activeThreadId]: _dropped, ...rest } = prev; return rest; })()
+          : { ...prev, [activeThreadId]: agentId };
+        writeScopeLock(next);
+        return next;
       });
     },
     [activeThreadId],
