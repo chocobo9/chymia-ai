@@ -7,11 +7,12 @@
 // policy is deterministically unit-testable without spawning a CLI.
 //
 // Policy (§A9):
-//   classification priority: timeout > missing session > prompt limit > transient
-//   missing session → clear session, retry WITHOUT sessionId
-//   prompt limit    → clear session, retry WITHOUT sessionId
-//   timeout         → clear session, retry WITHOUT sessionId
-//   transient       → retry AS-IS (keep sessionId)
+//   classification priority: timeout > missing session > prompt limit > context overflow > transient
+//   missing session  → clear session, retry WITHOUT sessionId
+//   prompt limit     → clear session, retry WITHOUT sessionId
+//   context overflow → clear session, retry WITHOUT sessionId
+//   timeout          → clear session, retry WITHOUT sessionId
+//   transient        → retry AS-IS (keep sessionId)
 //   unclassified    → do NOT retry (yield the error)
 //   output already produced → do NOT retry (avoid duplicate output)
 //   max retries = 2
@@ -19,6 +20,7 @@
 import {
   isMissingSessionError,
   isPromptLimitError,
+  isContextWindowOverflowError,
   isTransientCliError,
   isTimeoutError,
 } from '@choco/api/providers/error-classifier';
@@ -37,6 +39,7 @@ export type ErrorClass =
   | 'timeout'
   | 'missing_session'
   | 'prompt_limit'
+  | 'context_overflow'
   | 'transient'
   | 'unclassified';
 
@@ -76,6 +79,11 @@ export function classifyError(message: string | null | undefined): ErrorClass {
   }
   if (isPromptLimitError(message)) {
     return 'prompt_limit';
+  }
+  // 上下文窗口溢出（多轮累积撑满）：与 prompt_limit 同样清 session 重试，但分开分类
+  // 便于诊断。对齐 Clowder invoke-single-cat（context overflow → 清 session 重试）。
+  if (isContextWindowOverflowError(message)) {
+    return 'context_overflow';
   }
   if (isTransientCliError(message)) {
     return 'transient';

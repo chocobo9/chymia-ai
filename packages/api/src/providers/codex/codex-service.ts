@@ -8,6 +8,8 @@ import type { AgentId, AgentMessage } from '@choco/shared';
 import type { AgentService, InvokeOptions, MessageContent } from '../base.js';
 import { spawnCliLineStream } from '../cli-spawn.js';
 import { finalizeStream } from '../claude/claude-service.js';
+import { existsSync } from 'node:fs';
+import { resolve, join, dirname, parse } from 'node:path';
 import {
   createCodexParserState,
   parseCodexLine,
@@ -61,6 +63,32 @@ function appendContentText(
   return textParts.length > 0 ? `${prompt}\n${textParts.join('\n')}` : prompt;
 }
 
+/**
+ * 判断 workingDirectory 是否落在 git 仓库内（向上遍历找 .git，到根为止）。
+ * 对齐 Clowder CodexAgentService.isGitRepositoryPath。
+ */
+export function isGitRepositoryPath(workingDirectory: string): boolean {
+  let current = resolve(workingDirectory);
+  for (;;) {
+    if (existsSync(join(current, '.git'))) return true;
+    const root = parse(current).root;
+    if (current === root) return false;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+/**
+ * codex 0.137 在非 git / 非受信目录拒跑（exit 1：「Not inside a trusted directory and
+ * --skip-git-repo-check was not specified」）。cwd 非 git 仓时补 --skip-git-repo-check。
+ * 对齐 Clowder CodexAgentService.buildGitRepoArgs（repoCheckDir = workingDirectory ?? cwd）。
+ */
+function buildGitRepoArgs(workingDirectory?: string): string[] {
+  const repoCheckDir = workingDirectory ?? process.cwd();
+  return isGitRepositoryPath(repoCheckDir) ? [] : ['--skip-git-repo-check'];
+}
+
 export function buildArgs(
   prompt: string,
   options: InvokeOptions | undefined,
@@ -74,6 +102,8 @@ export function buildArgs(
     args.push(CODEX_RESUME_SUBCOMMAND, options.sessionId);
   }
   args.push(CODEX_JSON_FLAG);
+  // codex 0.137 受信目录门：非 git 仓 cwd 必须显式 --skip-git-repo-check，否则 exit 1。
+  args.push(...buildGitRepoArgs(options?.workingDirectory));
   const model = options?.model ?? defaultModel;
   if (model) {
     args.push(CODEX_MODEL_FLAG, model);

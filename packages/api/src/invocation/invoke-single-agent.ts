@@ -119,6 +119,49 @@ function toErrorEvent(err: unknown, agentId: AgentId, now: NowFn): AgentMessage 
 }
 
 /**
+ * invocation-level hard timeout 倍数。对齐 Clowder invoke-single-cat
+ * (INVOCATION_TIMEOUT_MULTIPLIER=2)：invocation 超时 = 基准 timeout × 2，确保它晚于
+ * 内层 provider CLI timeout，作为「CLI timeout 也没触发」时的最后兜底，不抢跑。
+ */
+const INVOCATION_TIMEOUT_MULTIPLIER = 2;
+
+/**
+ * params.timeoutMs 未给（或 ≤0）时的 invocation 超时基准（ms）。对齐 Clowder
+ * DEFAULT_CLI_TIMEOUT_MS 兜底语义：即便不传/关闭 CLI 超时，invocation 仍有硬上限，
+ * 避免卡死的 provider 永久占用 SessionMutex（飞书后续消息卡死的一环）。
+ */
+const DEFAULT_INVOCATION_TIMEOUT_BASE_MS = 30 * 60 * 1000;
+
+/**
+ * 把 async iterator 的 .next() 与 AbortSignal 竞速：signal 先 fire 则 reject（抛出中止
+ * 原因），否则返回 iterator 结果。必要原因（对齐 Clowder invoke-single-cat.abortableNext）：
+ * `for await` 阻塞在 gen.next() 上无法被中断——provider CLI 卡死（gen 永不 resolve）时，
+ * invocation 超时与用户取消都失效，SessionMutex 永久不释放。
+ */
+function abortableNext<T>(
+  iter: AsyncIterator<T>,
+  signal: AbortSignal,
+): Promise<IteratorResult<T>> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? new Error('aborted'));
+  }
+  return new Promise<IteratorResult<T>>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason ?? new Error('aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    iter.next().then(
+      (result) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(result);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
  * Drive one agent invocation to completion, yielding its AgentMessage stream.
  *
  * Acquires the per-(agent,thread) session mutex (so concurrent invocations
@@ -146,17 +189,42 @@ export async function* invokeSingleAgent(
   const maxRetries = params.maxRetries ?? MAX_RETRIES;
   const key = sessionKey(agentId, threadId);
 
-  const mutexWaitStartedAt = now();
-  const release = await sessionMutex.acquire(
-    key,
-    params.signal !== undefined ? { signal: params.signal } : undefined,
-  );
-  params.onTiming?.({
-    type: 'mutex_acquired',
-    elapsedMs: Math.max(0, now() - mutexWaitStartedAt),
-  });
+  // invocation-level hard timeout（独立于 provider CLI timeout）。倍数兜底 + 活动
+  // reset + unref，对齐 Clowder invoke-single-cat。兜住「provider gen 卡死、内层 CLI
+  // timeout 也没触发」的情形：否则卡死的 invocation 永不释放 SessionMutex，后续同
+  // (agent,thread) 消息全部排队卡死（飞书后续消息卡死的一环）。
+  const baseTimeoutMs =
+    params.timeoutMs !== undefined && params.timeoutMs > 0
+      ? params.timeoutMs
+      : DEFAULT_INVOCATION_TIMEOUT_BASE_MS;
+  const invocationTimeoutMs = baseTimeoutMs * INVOCATION_TIMEOUT_MULTIPLIER;
+  const invocationAc = new AbortController();
+  let invocationTimer: ReturnType<typeof setTimeout> | null = null;
+  const resetInvocationTimeout = (): void => {
+    if (invocationTimer) clearTimeout(invocationTimer);
+    const t = setTimeout(() => {
+      invocationAc.abort(new Error('invocation_timeout'));
+    }, invocationTimeoutMs);
+    // unref so the pending timer never keeps the process alive on its own.
+    if (typeof t.unref === 'function') t.unref();
+    invocationTimer = t;
+  };
+  resetInvocationTimeout();
 
+  // 合并 caller signal（用户取消）+ invocation timeout —— 任一 fire 都中止本次调用。
+  const signal: AbortSignal = params.signal
+    ? AbortSignal.any([params.signal, invocationAc.signal])
+    : invocationAc.signal;
+
+  let release: (() => void) | undefined;
   try {
+    const mutexWaitStartedAt = now();
+    release = await sessionMutex.acquire(key, { signal });
+    params.onTiming?.({
+      type: 'mutex_acquired',
+      elapsedMs: Math.max(0, now() - mutexWaitStartedAt),
+    });
+
     let attempt = 0;
     // After a failure that sealed the session, the next attempt must invoke
     // without a sessionId (start fresh) even though the prior session row stays
@@ -164,9 +232,9 @@ export async function* invokeSingleAgent(
     let sealSessionForRetry = false;
 
     for (;;) {
-      // Honor abort between attempts.
-      if (params.signal?.aborted === true) {
-        yield toErrorEvent(new Error('invocation aborted'), agentId, now);
+      // Honor abort (caller cancel or invocation timeout) between attempts.
+      if (signal.aborted) {
+        yield toErrorEvent(signal.reason ?? new Error('invocation aborted'), agentId, now);
         return;
       }
 
@@ -185,7 +253,8 @@ export async function* invokeSingleAgent(
         ...(params.workingDirectory !== undefined
           ? { workingDirectory: params.workingDirectory }
           : {}),
-        ...(params.signal !== undefined ? { signal: params.signal } : {}),
+        // 合并 signal（含 invocation timeout）下传 provider，使超时/取消能 kill CLI 子进程。
+        signal,
         ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
       };
 
@@ -199,8 +268,16 @@ export async function* invokeSingleAgent(
       let sawFirstOutput = false;
       params.onTiming?.({ type: 'attempt_start', elapsedMs: 0, attempt });
 
+      // abortableNext（不是 for await）：for await 阻塞在 gen.next() 上无法中断，
+      // provider CLI 卡死时 invocation timeout / 取消都失效。逐个 next 与 signal 竞速。
+      const iter = agentService.invoke(prompt, invokeOptions)[Symbol.asyncIterator]();
       try {
-        for await (const event of agentService.invoke(prompt, invokeOptions)) {
+        for (;;) {
+          const result = await abortableNext(iter, signal);
+          if (result.done) break;
+          const event = result.value;
+          // 任一 provider 事件 = 活动，续期 invocation timeout（持续卡死才会计满）。
+          resetInvocationTimeout();
           if (!sawFirstProviderEvent) {
             sawFirstProviderEvent = true;
             params.onTiming?.({
@@ -238,8 +315,8 @@ export async function* invokeSingleAgent(
           yield event;
         }
       } catch (err) {
-        // A thrown error (provider crash / abort) becomes an error event so the
-        // retry policy can classify it uniformly with yielded error events.
+        // A thrown error (provider crash / abort / invocation timeout) becomes an
+        // error event so the retry policy can classify it uniformly.
         caughtError = toErrorEvent(err, agentId, now);
       } finally {
         params.onTiming?.({
@@ -251,6 +328,13 @@ export async function* invokeSingleAgent(
 
       if (caughtError === undefined) {
         return; // success — stream drained cleanly
+      }
+
+      // invocation timeout / caller abort → hard stop（不 retry）：已等满硬上限或被
+      // 用户主动取消，重试无意义且会再占一轮 mutex。
+      if (signal.aborted) {
+        yield caughtError;
+        return;
       }
 
       const decision = decideRetry({
@@ -283,7 +367,16 @@ export async function* invokeSingleAgent(
         threadId,
       });
     }
+  } catch (err) {
+    // mutex.acquire 在排队中被 signal 中止（caller 取消 / invocation timeout）→ 干净
+    // 收尾：yield 一个 error 事件而非把异常抛给调用方。其它异常照常上抛。
+    if (signal.aborted) {
+      yield toErrorEvent(signal.reason ?? new Error('invocation aborted'), agentId, now);
+      return;
+    }
+    throw err;
   } finally {
-    release();
+    if (invocationTimer) clearTimeout(invocationTimer);
+    release?.();
   }
 }
