@@ -183,4 +183,30 @@ describe.skipIf(!SMOKE_ENABLED)('real-cli route smoke (integration, non-gating)'
       db.close();
     }
   }, PER_TEST_TIMEOUT);
+
+  it('routing policy (review avoidCats) steers real-spawn away from the avoided cat', async () => {
+    const { router, threadStore, seenPrompts, db } = makeRealRouterHarness();
+    const threadId = 'route-policy-thread';
+    try {
+      await threadStore.ensureThread(threadId, 'policy smoke');
+      // codex is the sole participant → a no-mention fallback would pick it…
+      await threadStore.addParticipants(threadId, [CODEX]);
+      // …but a review-scope policy avoids codex.
+      await threadStore.updateRoutingPolicy(threadId, { v: 1, scopes: { review: { avoidCats: [CODEX] } } });
+
+      // A review-cue message, NO @mention: participant fallback would be codex, but
+      // applyRoutingPolicy drops it → REAL-spawns the default (claude) instead. This is
+      // the real-CLI proof that a routing policy actually changes who gets spawned.
+      const events = await drain(
+        router.route('user', '帮我 review 一下这段代码，只回一个词：OK', threadId),
+      );
+
+      expect(seenPrompts.length).toBeGreaterThan(0);
+      expect(seenPrompts.every((p) => p.agentId !== (CODEX as string))).toBe(true); // codex avoided
+      expect(seenPrompts.some((p) => p.agentId === (CLAUDE as string))).toBe(true); // claude took over
+      expect(events.some((e) => e.type === 'text' && e.agentId === CLAUDE)).toBe(true); // real reply
+    } finally {
+      db.close();
+    }
+  }, PER_TEST_TIMEOUT);
 });
