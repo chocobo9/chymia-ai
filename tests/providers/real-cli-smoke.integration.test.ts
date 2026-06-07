@@ -53,6 +53,18 @@ describe.skipIf(!SMOKE_ENABLED)('real-cli-smoke (integration, non-gating)', () =
     const messages = await drain(svc);
     expect(messages.length).toBeGreaterThan(0);
   }, SMOKE_TIMEOUT_MS + 30_000);
+
+  // gap #4 Layer 1: the relay cat (claude-opus-relay) is a claude provider on the
+  // sonnet model. Prove the configured model id (claude-sonnet-4-6) really spawns —
+  // a config-truth check so we never relay to a non-existent model.
+  it('relay cat (claude-opus-relay, sonnet model) spawns and yields at least one parsed message', async () => {
+    const svc = new ClaudeAgentService({
+      agentId: createAgentId('claude-opus-relay'),
+      defaultModel: 'claude-sonnet-4-6',
+    });
+    const messages = await drain(svc);
+    expect(messages.length).toBeGreaterThan(0);
+  }, SMOKE_TIMEOUT_MS + 30_000);
 });
 
 // 端到端：真 CLI 经 invokeSingleAgent + 真 SessionStore。验证 FakeAgentService 之外的

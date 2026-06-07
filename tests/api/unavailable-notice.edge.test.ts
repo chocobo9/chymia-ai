@@ -43,8 +43,17 @@ function buildNoticeApp(
     'claude-opus': new FakeAgentService(scripts['claude-opus'] ?? []),
     'codex-gpt': new FakeAgentService(scripts['codex-gpt'] ?? []),
     'gemini-pro': new FakeAgentService(scripts['gemini-pro'] ?? []),
+    // F215 relay cat (claude-opus-relay): a new roster member. These notice tests
+    // focus on the original 3 agents' alternatives logic; the relay cat is a system
+    //接班 target, not a user-facing notice alternative, so it is marked UNavailable
+    // here (and given a Fake so it never real-spawns even if routed).
+    'claude-opus-relay': new FakeAgentService(scripts['claude-opus-relay'] ?? []),
   };
-  const app = buildApp({ db, agentServices: fakes, agentAvailability: availability });
+  const app = buildApp({
+    db,
+    agentServices: fakes,
+    agentAvailability: { 'claude-opus-relay': false, ...availability },
+  });
   cleanups.push(app.close);
   return { app, fakes };
 }

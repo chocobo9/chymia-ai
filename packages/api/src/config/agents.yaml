@@ -56,3 +56,22 @@ agents:
     color:
       primary: '#f59e0b'
       secondary: '#fbbf24'
+
+  # malformed 46-接力 (gap #4) 的备用模型。当主 Claude (Opus) 的输出无效
+  # （form A：只有 thinking 块，没有 text 或工具调用）且重新执行仍失败时，
+  # 系统切换到此模型重新执行同一请求。选用 sonnet（与主模型不同）以降低再次
+  # 出现同类无效输出的概率。对应 Clowder 的 opus-4.8 → opus-4.6 接力。
+  - id: claude-opus-relay
+    name: Claude 备用
+    displayName: Claude (备用)
+    clientId: anthropic
+    defaultModel: claude-sonnet-4-6
+    mcpSupport: true
+    mentionPatterns: ['@备用', '@relay']
+    personality: 稳定、保守，优先返回完整可用的结果。
+    roleDescription: 备用模型，仅在主 Claude 输出无效且重试失败时由系统切换执行。
+    strengths: ['稳定输出']
+    restrictions: ['作为系统备用模型，不主动参与日常路由']
+    color:
+      primary: '#8b5cf6'
+      secondary: '#a78bfa'
