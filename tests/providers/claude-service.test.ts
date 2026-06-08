@@ -32,7 +32,7 @@ describe('claude-service buildArgs — permission mode (unit, happy path)', () =
     const options: InvokeOptions | undefined = undefined;
 
     // Act
-    const args = buildArgs(PROMPT, options, DEFAULT_MODEL, CLAUDE_DEFAULT_PERMISSION_MODE);
+    const args = buildArgs(options, DEFAULT_MODEL, CLAUDE_DEFAULT_PERMISSION_MODE);
 
     // Assert — the flag is present exactly once and carries the default value.
     expect(args).toContain(CLAUDE_PERMISSION_MODE_FLAG);
@@ -46,7 +46,7 @@ describe('claude-service buildArgs — permission mode (unit, happy path)', () =
     const injected = 'default';
 
     // Act
-    const args = buildArgs(PROMPT, undefined, DEFAULT_MODEL, injected);
+    const args = buildArgs(undefined, DEFAULT_MODEL, injected);
 
     // Assert
     expect(valueAfter(args, CLAUDE_PERMISSION_MODE_FLAG)).toBe('default');
@@ -57,13 +57,13 @@ describe('claude-service buildArgs — permission mode (unit, happy path)', () =
     const injected = 'plan';
 
     // Act
-    const args = buildArgs(PROMPT, undefined, DEFAULT_MODEL, injected);
+    const args = buildArgs(undefined, DEFAULT_MODEL, injected);
 
     // Assert
     expect(valueAfter(args, CLAUDE_PERMISSION_MODE_FLAG)).toBe('plan');
   });
 
-  it('places the permission-mode flag among the args and keeps the prompt as the final positional', () => {
+  it('places the permission-mode flag among the args and keeps the prompt OFF argv (via stdin)', () => {
     // Arrange — a realistic resume + model + system-prompt invocation.
     const options: InvokeOptions = {
       sessionId: 'sess_018ab3f2-claude',
@@ -72,11 +72,11 @@ describe('claude-service buildArgs — permission mode (unit, happy path)', () =
     };
 
     // Act
-    const args = buildArgs(PROMPT, options, DEFAULT_MODEL, CLAUDE_DEFAULT_PERMISSION_MODE);
+    const args = buildArgs(options, DEFAULT_MODEL, CLAUDE_DEFAULT_PERMISSION_MODE);
 
-    // Assert — permission mode injected AND prompt is the last positional argument.
+    // Assert — permission mode injected AND the prompt is NOT in argv (it goes to stdin).
     expect(valueAfter(args, CLAUDE_PERMISSION_MODE_FLAG)).toBe('bypassPermissions');
-    expect(args[args.length - 1]).toBe(PROMPT);
+    expect(args).not.toContain(PROMPT);
     // resume + model flags also threaded through.
     expect(valueAfter(args, '--resume')).toBe('sess_018ab3f2-claude');
     expect(valueAfter(args, '--model')).toBe('claude-opus-4-6');
@@ -87,7 +87,7 @@ describe('claude-service permission-mode validation (unit, happy path)', () => {
   // Each valid mode (the verified CLI allow-list) is accepted and emitted verbatim, once.
   it.each(PERMISSION_MODES)('accepts the valid mode %s and emits it once', (mode) => {
     // Act
-    const args = buildArgs(PROMPT, undefined, DEFAULT_MODEL, mode);
+    const args = buildArgs(undefined, DEFAULT_MODEL, mode);
 
     // Assert
     expect(args.filter((a) => a === CLAUDE_PERMISSION_MODE_FLAG)).toHaveLength(1);
@@ -111,7 +111,7 @@ describe('claude-service permission-mode validation (unit, happy path)', () => {
     const typo = 'plna';
 
     // Act + Assert — fail-fast: the bad value never reaches the CLI.
-    expect(() => buildArgs(PROMPT, undefined, DEFAULT_MODEL, typo)).toThrow(/plna/);
+    expect(() => buildArgs(undefined, DEFAULT_MODEL, typo)).toThrow(/plna/);
   });
 
   it('ClaudeAgentService constructor throws when configured with an invalid mode', () => {

@@ -17,6 +17,9 @@ test-results/
 .tmp/
 # Local runtime agent workspace (default CHOCO_WORKSPACE when unset) — runtime data, not source.
 .workspace/
+# Per-workspace gemini CLI config the engine writes (writeGeminiMcpSettings) so
+# @gemini sees the choco MCP server — runtime-generated, not source.
+.gemini/
 # Runtime data dir: rolling logs (LOG_DIR) + persisted member-edit overrides
 # (CHOCO_AGENT_OVERRIDES default data/agent-overrides.json). Runtime state, not source.
 data/

@@ -14,14 +14,14 @@ import { buildArgs, isGitRepositoryPath } from '@choco/api/providers/codex/codex
 describe('codex buildArgs — git repo trust gate (--skip-git-repo-check)', () => {
   test('non-git cwd → buildArgs includes --skip-git-repo-check', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'codex-nogit-'));
-    const args = buildArgs('hi', { workingDirectory: cwd }, '');
+    const args = buildArgs({ workingDirectory: cwd }, '');
     expect(args).toContain('--skip-git-repo-check');
   });
 
   test('git cwd (.git present) → buildArgs omits --skip-git-repo-check', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'codex-git-'));
     mkdirSync(join(cwd, '.git'));
-    const args = buildArgs('hi', { workingDirectory: cwd }, '');
+    const args = buildArgs({ workingDirectory: cwd }, '');
     expect(args).not.toContain('--skip-git-repo-check');
   });
 

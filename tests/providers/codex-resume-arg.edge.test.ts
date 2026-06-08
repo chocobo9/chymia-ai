@@ -1,24 +1,21 @@
 // tests/providers/codex-resume-arg.edge.test.ts
-// QA (edge + adversarial; dev != QA): gates the codex `exec`/`resume` argv contract
-// of the exported buildArgs(prompt, options, defaultModel) against codex-cli 0.136.
+// QA (edge + adversarial; dev != QA): codex `exec`/`resume` argv contract of the
+// exported buildArgs(options, defaultModel) against codex-cli 0.136. The PROMPT now
+// goes via STDIN (`-- -`, aligned to Clowder), so argv NEVER carries the prompt or
+// system text — the trailing positional is ALWAYS the `-- -` stdin marker, and prompt
+// content is asserted through buildStdinPrompt.
 //
 // Contract under gate (codex-service.ts buildArgs):
-//   FRESH  : ['exec', '--json', …flags…, <prompt>]
-//   RESUME : ['exec', 'resume', <SESSION_ID>, '--json', …flags…, <prompt>]
+//   FRESH  : ['exec', '--json', …flags…, '--', '-']
+//   RESUME : ['exec', 'resume', <SESSION_ID>, '--json', …flags…, '--', '-']
 //   The removed `experimental-resume <id>` form must NEVER appear; the session UUID
-//   must never become a stray trailing/2nd positional in fresh mode and must appear
-//   EXACTLY once (right after `resume`) in resume mode; the prompt is ALWAYS the single
-//   last positional element (free text, system text prepended, never split into argv).
-//
-// The dev happy-path file (codex-resume-arg.test.ts) already asserts the basic
-// fresh/resume/model-after-subcommand shape; this file adds the edge + adversarial
-// gates and does NOT duplicate those assertions.
+//   appears EXACTLY once (idx 2) in resume mode and NEVER in fresh; the prompt/system
+//   text is NEVER an argv element (it is piped to stdin).
 
 import { describe, it, expect } from 'vitest';
-import { buildArgs } from '@choco/api/providers/codex/codex-service.js';
+import { buildArgs, buildStdinPrompt } from '@choco/api/providers/codex/codex-service.js';
 import type { InvokeOptions } from '@choco/api/providers/base';
 
-// Real codex-style agent prompts + a real codex session UUID (v7, as codex 0.136 emits).
 const SESSION_ID = '019e86ef-ee2f-7360-bcdb-787dff07115f';
 const SESSION_ID_2 = '01926d4c-3b1a-7c00-9f2e-0a1b2c3d4e5f';
 const PROMPT = '@codex 把 OrderService.finalize 的库存扣减改成乐观锁重试，并补一个并发回归测试';
@@ -32,168 +29,137 @@ function countOf(args: readonly string[], value: string): number {
 describe('codex buildArgs — resume positional ordering (edge)', () => {
   it('edge: resume places `resume` at idx 1 and the session id at idx 2, both BEFORE any "-"-flag', () => {
     const options: InvokeOptions = { sessionId: SESSION_ID, model: 'gpt-5-codex' };
-    const args = buildArgs(RESUME_PROMPT, options, '');
+    const args = buildArgs(options, '');
     expect(args[1]).toBe('resume');
     expect(args[2]).toBe(SESSION_ID);
-    // The first "-"-prefixed token (a flag) must come strictly after the session id at idx 2.
     const firstFlagIdx = args.findIndex((a) => a.startsWith('-'));
     expect(firstFlagIdx).toBeGreaterThan(2);
-    // --json is present and lands after the id; prompt is the last element.
     const jsonIdx = args.indexOf('--json');
     expect(jsonIdx).toBeGreaterThan(2);
-    expect(args[args.length - 1]).toBe(RESUME_PROMPT);
+    expect(args.slice(-2)).toEqual(['--', '-']); // prompt via stdin, not argv
   });
 
-  it('edge: the session UUID appears EXACTLY once in resume mode and ONLY at idx 2 (right after `resume`)', () => {
-    const args = buildArgs(RESUME_PROMPT, { sessionId: SESSION_ID }, '');
+  it('edge: the session UUID appears EXACTLY once in resume mode and ONLY at idx 2', () => {
+    const args = buildArgs({ sessionId: SESSION_ID }, '');
     expect(countOf(args, SESSION_ID)).toBe(1);
     expect(args.indexOf(SESSION_ID)).toBe(2);
-    // It is NOT the trailing positional (the prompt is).
-    expect(args[args.length - 1]).not.toBe(SESSION_ID);
+    expect(args[args.length - 1]).not.toBe(SESSION_ID); // the trailing positional is `-`
   });
 
-  it('edge: FRESH mode contains neither `resume` nor `experimental-resume`, and `exec` is immediately followed by `--json`', () => {
-    const args = buildArgs(PROMPT, undefined, '');
+  it('edge: FRESH mode contains neither `resume` nor `experimental-resume`; `exec` then `--json`', () => {
+    const args = buildArgs(undefined, '');
     expect(args).not.toContain('resume');
     expect(args).not.toContain('experimental-resume');
     expect(args[0]).toBe('exec');
     expect(args[1]).toBe('--json');
-    expect(args[args.length - 1]).toBe(PROMPT);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('edge: FRESH mode never lets the session UUID leak in as a bare 2nd or trailing positional', () => {
-    // Even though no sessionId is supplied, assert the UUID string is wholly absent — guards
-    // against any accidental re-introduction of the old `experimental-resume <id>` leak.
-    const args = buildArgs(PROMPT, { model: 'gpt-5-codex' }, '');
+  it('edge: FRESH mode never lets the session UUID leak into argv', () => {
+    const args = buildArgs({ model: 'gpt-5-codex' }, '');
     expect(args).not.toContain(SESSION_ID);
     expect(args[2]).not.toBe(SESSION_ID);
-    expect(args[args.length - 1]).toBe(PROMPT);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('edge: model flag — with options.model, `--model <m>` sits after the subcommand and the prompt is still last (resume)', () => {
-    const args = buildArgs(RESUME_PROMPT, { sessionId: SESSION_ID, model: 'gpt-5-codex' }, 'o4-mini');
+  it('edge: options.model overrides defaultModel and follows the resume subcommand', () => {
+    const args = buildArgs({ sessionId: SESSION_ID, model: 'gpt-5-codex' }, 'o4-mini');
     const modelIdx = args.indexOf('--model');
-    // options.model overrides the defaultModel and follows the resume subcommand + id.
     expect(modelIdx).toBeGreaterThan(2);
     expect(args[modelIdx + 1]).toBe('gpt-5-codex');
     expect(args).not.toContain('o4-mini'); // defaultModel must NOT win when options.model is set
-    expect(args[args.length - 1]).toBe(RESUME_PROMPT);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('edge: no model + empty defaultModel → no `--model` flag at all (fresh)', () => {
-    const args = buildArgs(PROMPT, {}, '');
+  it('edge: no model + empty defaultModel → no `--model` flag (fresh)', () => {
+    const args = buildArgs({}, '');
     expect(args).not.toContain('--model');
-    expect(args[args.length - 1]).toBe(PROMPT);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('edge: empty options.model falls back to a non-empty defaultModel → `--model <default>` present', () => {
-    const args = buildArgs(PROMPT, { model: '' }, 'gpt-5-codex');
-    // '' is falsy → options.model ?? defaultModel still yields '' (?? only catches nullish),
-    // so define the OBSERVED-and-sane behavior: empty model string suppresses --model.
-    // (This documents the actual `model = options?.model ?? defaultModel` semantics.)
-    expect(args).not.toContain('--model');
-    expect(args[args.length - 1]).toBe(PROMPT);
-  });
-
-  it('edge: undefined options.model falls back to defaultModel → `--model <default>` present (fresh)', () => {
-    const args = buildArgs(PROMPT, undefined, 'gpt-5-codex');
+  it('edge: undefined options.model falls back to defaultModel → `--model <default>` (fresh)', () => {
+    const args = buildArgs(undefined, 'gpt-5-codex');
     const modelIdx = args.indexOf('--model');
-    expect(modelIdx).toBe(2); // exec, --json, --model, <default>, … in fresh mode
+    expect(modelIdx).toBe(2); // exec, --json, --model, <default>, …
     expect(args[modelIdx + 1]).toBe('gpt-5-codex');
-    expect(args[args.length - 1]).toBe(PROMPT);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 });
 
-describe('codex buildArgs — systemPrompt prepend into the single trailing positional (edge)', () => {
+describe('codex buildStdinPrompt — systemPrompt prepend into stdin (edge)', () => {
   const SYSTEM = '你是 Choco 编排下的 codex agent。只输出 NDJSON 事件，遵守仓库的提交规范。';
 
-  it('edge: systemPrompt is PREPENDED into the trailing prompt positional, not a separate argv entry (fresh)', () => {
-    const args = buildArgs(PROMPT, { systemPrompt: SYSTEM }, '');
-    const last = args[args.length - 1];
-    // The trailing positional carries BOTH system text and the user prompt.
-    expect(last.startsWith(SYSTEM)).toBe(true);
-    expect(last.includes(PROMPT)).toBe(true);
-    // System text is NOT its own argv element.
+  it('edge: systemPrompt is PREPENDED into the stdin text on a fresh turn, never into argv', () => {
+    const stdin = buildStdinPrompt(PROMPT, { systemPrompt: SYSTEM });
+    expect(stdin.startsWith(SYSTEM)).toBe(true);
+    expect(stdin.includes(PROMPT)).toBe(true);
+    // argv carries neither the system nor the prompt text.
+    const args = buildArgs({ systemPrompt: SYSTEM }, '');
     expect(args).not.toContain(SYSTEM);
-    // Still exactly ONE trailing positional after exec/--json (no extra positionals).
-    expect(args[0]).toBe('exec');
-    expect(args[1]).toBe('--json');
-    // index of the combined prompt is the last slot; only one non-flag positional tail.
-    expect(args.lastIndexOf(last)).toBe(args.length - 1);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('edge: in RESUME mode the systemPrompt is NOT re-prepended (session already carries identity) — the bare prompt is the last positional, id at idx 2', () => {
-    const args = buildArgs(RESUME_PROMPT, { sessionId: SESSION_ID, systemPrompt: SYSTEM }, '');
+  it('edge: in RESUME the systemPrompt is NOT re-prepended (session already carries identity)', () => {
+    const stdin = buildStdinPrompt(RESUME_PROMPT, { sessionId: SESSION_ID, systemPrompt: SYSTEM });
+    // Resume no longer re-injects identity (the gemini/codex identity-loop cause:
+    // re-prepending the persona as user text every resumed turn). stdin is the BARE prompt.
+    expect(stdin).toBe(RESUME_PROMPT);
+    const args = buildArgs({ sessionId: SESSION_ID, systemPrompt: SYSTEM }, '');
     expect(args[1]).toBe('resume');
     expect(args[2]).toBe(SESSION_ID);
-    const last = args[args.length - 1];
-    // Resume no longer re-injects the identity system prompt (it was the gemini/codex
-    // identity-loop cause: re-prepending the persona as user text every resumed turn).
-    // The trailing positional is the BARE user prompt; the session already carries identity.
-    expect(last).toBe(RESUME_PROMPT);
     expect(args).not.toContain(SYSTEM);
     expect(countOf(args, SESSION_ID)).toBe(1);
   });
 });
 
-describe('codex buildArgs — adversarial prompt / session inputs (adversarial)', () => {
-  it('adv: a prompt that STARTS with `--json` stays a SINGLE trailing element and never duplicates the real flag', () => {
-    // A user could literally type a flag-looking message; it must remain inert free text.
+describe('codex — adversarial prompt / session inputs (adversarial)', () => {
+  it('adv: a prompt that STARTS with `--json` stays in stdin and never duplicates the real flag', () => {
     const flagish = '--json 请用这个格式把上面的报错重新输出一遍，别真的解析它';
-    const args = buildArgs(flagish, { sessionId: SESSION_ID }, '');
-    // exactly one REAL --json flag (the one buildArgs emits), the prompt copy lives only in the tail.
-    expect(countOf(args, '--json')).toBe(1);
-    expect(args[args.length - 1]).toBe(flagish);
-    // the real flag sits before the prompt; the prompt is not split on its leading token.
-    expect(args.indexOf('--json')).toBeLessThan(args.length - 1);
-    // subcommand structure intact, id once.
+    const args = buildArgs({ sessionId: SESSION_ID }, '');
+    expect(countOf(args, '--json')).toBe(1); // only the real flag; the prompt is in stdin
+    expect(buildStdinPrompt(flagish, { sessionId: SESSION_ID })).toBe(flagish);
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', SESSION_ID]);
     expect(countOf(args, SESSION_ID)).toBe(1);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('adv: a prompt CONTAINING the word "resume" and the session id text does NOT add a 2nd resume/positional (fresh)', () => {
+  it('adv: a prompt CONTAINING "resume" + session id text does NOT add a 2nd resume/positional (fresh)', () => {
     const trap = `请帮我 resume 之前 ${SESSION_ID} 的工作上下文（这是叙述，不是命令）`;
-    const args = buildArgs(trap, undefined, '');
-    // No actual resume subcommand in fresh mode despite the word appearing in the prompt text.
+    const args = buildArgs(undefined, '');
     expect(args).not.toContain('resume');
     expect(args[0]).toBe('exec');
     expect(args[1]).toBe('--json');
-    // The id-looking text lives only inside the trailing prompt, not as its own argv token.
-    expect(args).not.toContain(SESSION_ID);
-    expect(args[args.length - 1]).toBe(trap);
-    expect(countOf(args, trap)).toBe(1);
+    expect(args).not.toContain(SESSION_ID); // id-looking text lives only inside stdin
+    expect(buildStdinPrompt(trap, undefined)).toBe(trap);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('adv: a multi-line prompt with quotes/spaces/newlines is ONE argv element, byte-for-byte preserved', () => {
+  it('adv: a multi-line prompt with quotes/spaces/newlines is byte-for-byte preserved in stdin', () => {
     const multiline =
       'codex 请按下列步骤执行：\n' +
       '1) 运行 `npm test -- --runInBand`\n' +
       '2) 如果失败，输出 "stderr" 原文（含双引号）\n' +
       "3) 不要把这段拆成多个参数，保持原样\t<tab 也保留>";
-    const args = buildArgs(multiline, { sessionId: SESSION_ID, model: 'gpt-5-codex' }, '');
-    expect(args[args.length - 1]).toBe(multiline);
-    expect(countOf(args, multiline)).toBe(1);
-    // structure unaffected by the wild prompt content.
+    expect(buildStdinPrompt(multiline, { sessionId: SESSION_ID })).toBe(multiline);
+    const args = buildArgs({ sessionId: SESSION_ID, model: 'gpt-5-codex' }, '');
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', SESSION_ID]);
     expect(args.indexOf('--model')).toBeGreaterThan(2);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('adv: an empty-string sessionId is falsy → FRESH form (no resume, no empty positional smuggled)', () => {
-    // Defines the sane contract: '' sessionId must NOT produce `exec resume "" --json …`.
-    const args = buildArgs(PROMPT, { sessionId: '' }, '');
+  it('adv: an empty-string sessionId is falsy → FRESH form (no resume smuggled)', () => {
+    const args = buildArgs({ sessionId: '' }, '');
     expect(args).not.toContain('resume');
     expect(args[0]).toBe('exec');
     expect(args[1]).toBe('--json');
-    // no stray empty-string positional anywhere.
-    expect(args).not.toContain('');
-    expect(args[args.length - 1]).toBe(PROMPT);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 
-  it('adv: a second distinct session id only ever appears once and as resume`s positional (no cross-contamination)', () => {
-    const args = buildArgs(RESUME_PROMPT, { sessionId: SESSION_ID_2 }, '');
+  it('adv: a second distinct session id only ever appears once at idx 2', () => {
+    const args = buildArgs({ sessionId: SESSION_ID_2 }, '');
     expect(countOf(args, SESSION_ID_2)).toBe(1);
     expect(args.indexOf(SESSION_ID_2)).toBe(2);
     expect(args).not.toContain(SESSION_ID); // the other UUID must not leak in
-    expect(args[args.length - 1]).toBe(RESUME_PROMPT);
+    expect(args.slice(-2)).toEqual(['--', '-']);
   });
 });

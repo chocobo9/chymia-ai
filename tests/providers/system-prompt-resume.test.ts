@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildStdinPrompt as geminiBuildPrompt } from '@choco/api/providers/gemini/gemini-service';
-import { buildArgs as codexBuildArgs } from '@choco/api/providers/codex/codex-service';
+import { buildStdinPrompt as codexBuildStdinPrompt } from '@choco/api/providers/codex/codex-service';
 
 const IDENTITY = '你是 Gemini (Pro)，一只暹罗猫，由 Google 提供的 AI agent。';
 const USER_MSG = '什么是离散数学的永真式';
@@ -32,10 +32,11 @@ describe('non-native-L0 providers inject identity only on the first turn (not on
   });
 
   it('[codex] first turn prepends identity; resumed turn does not', () => {
-    const fresh = codexBuildArgs(USER_MSG, { systemPrompt: IDENTITY }, 'gpt-5-codex').join('\n');
+    const fresh = codexBuildStdinPrompt(USER_MSG, { systemPrompt: IDENTITY });
     expect(fresh).toContain(IDENTITY);
+    expect(fresh).toContain(USER_MSG);
 
-    const resumed = codexBuildArgs(USER_MSG, { systemPrompt: IDENTITY, sessionId: 'sess-resume-2' }, 'gpt-5-codex').join('\n');
+    const resumed = codexBuildStdinPrompt(USER_MSG, { systemPrompt: IDENTITY, sessionId: 'sess-resume-2' });
     expect(resumed).not.toContain(IDENTITY);
     expect(resumed).toContain(USER_MSG);
   });

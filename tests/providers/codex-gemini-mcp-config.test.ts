@@ -153,22 +153,21 @@ describe('writeGeminiMcpSettings (merge-preserving project-level write)', () => 
 });
 
 describe('codex buildArgs MCP consumer hook', () => {
-  it('splices the verbatim --config args (from callbackEnv) before the prompt', () => {
+  it('splices the verbatim --config args (from callbackEnv) before the `-- -` stdin marker', () => {
     const mcpArgs = ['--config', 'mcp_servers.choco.command="node"', '--config', 'mcp_servers.choco.enabled=true'];
     const args = codexBuildArgs(
-      'codex 把这次记成 evidence',
       { callbackEnv: { [MCP_CODEX_CONFIG_ARGS_KEY]: JSON.stringify(mcpArgs) } },
       'gpt-4.1',
     );
     expect(args).toContain('mcp_servers.choco.command="node"');
     expect(args).toContain('mcp_servers.choco.enabled=true');
-    // The prompt is the LAST positional arg; MCP overrides come before it.
-    expect(args[args.length - 1]).toBe('codex 把这次记成 evidence');
-    expect(args.indexOf('mcp_servers.choco.command="node"')).toBeLessThan(args.length - 1);
+    // argv ends with the `-- -` stdin marker (prompt via stdin); MCP overrides come before it.
+    expect(args.slice(-2)).toEqual(['--', '-']);
+    expect(args.indexOf('mcp_servers.choco.command="node"')).toBeLessThan(args.length - 2);
   });
 
   it('emits NO --config when callbackEnv carries no codex MCP args', () => {
-    const args = codexBuildArgs('plain prompt', { callbackEnv: {} }, 'gpt-4.1');
+    const args = codexBuildArgs({ callbackEnv: {} }, 'gpt-4.1');
     expect(args).not.toContain('--config');
   });
 });

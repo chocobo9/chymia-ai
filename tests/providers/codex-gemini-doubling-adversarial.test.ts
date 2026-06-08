@@ -229,14 +229,13 @@ describe('claude permissionMode hardening (QA — RECONCILED to validated behavi
   // assertion to lock the new contract: every invalid value THROWS and never reaches the args.
   // The exhaustive multi-path bypass attack lives in permmode-bypass-adversarial.test.ts.
   const DEFAULT_MODEL = 'claude-opus-4-6';
-  const PROMPT = '@claude-opus 写一个带 CRUD 的 TODO API，并补充输入校验。';
 
   // adversarial — empty string is now rejected (was: passed through verbatim)
   it('REJECTS an EMPTY permission mode (no longer a verbatim passthrough)', () => {
     // Arrange — caller injects '' (e.g. a mis-wired config). `?? DEFAULT` only catches
     // undefined/null, so '' reaches buildArgs and must be rejected there.
     // Act + Assert — fail-fast: '' throws and the flag/value never reach the args.
-    expect(() => buildArgs(PROMPT, undefined, DEFAULT_MODEL, '')).toThrow(
+    expect(() => buildArgs(undefined, DEFAULT_MODEL, '')).toThrow(
       /Invalid Claude permission mode/,
     );
   });
@@ -247,7 +246,7 @@ describe('claude permissionMode hardening (QA — RECONCILED to validated behavi
     const garbage = 'totally-not-a-real-mode-💥';
 
     // Act + Assert — a typo can no longer silently disable the intended sandbox mode.
-    expect(() => buildArgs(PROMPT, undefined, DEFAULT_MODEL, garbage)).toThrow(garbage);
+    expect(() => buildArgs(undefined, DEFAULT_MODEL, garbage)).toThrow(garbage);
   });
 
   // adversarial — very long value is now rejected before any arg is built
@@ -257,7 +256,7 @@ describe('claude permissionMode hardening (QA — RECONCILED to validated behavi
     const options: InvokeOptions = { sessionId: 'sess_resume_xyz', model: DEFAULT_MODEL };
 
     // Act + Assert — throws; nothing (not even --resume) is built.
-    expect(() => buildArgs(PROMPT, options, DEFAULT_MODEL, longMode)).toThrow(
+    expect(() => buildArgs(options, DEFAULT_MODEL, longMode)).toThrow(
       /Invalid Claude permission mode/,
     );
   });
@@ -269,7 +268,7 @@ describe('claude permissionMode hardening (QA — RECONCILED to validated behavi
     const flagish = '--dangerously-skip-permissions';
 
     // Act + Assert — never placed into the args; rejected at the choke point.
-    expect(() => buildArgs(PROMPT, undefined, DEFAULT_MODEL, flagish)).toThrow(
+    expect(() => buildArgs(undefined, DEFAULT_MODEL, flagish)).toThrow(
       /Invalid Claude permission mode/,
     );
   });

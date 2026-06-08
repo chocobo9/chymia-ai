@@ -92,13 +92,35 @@ function buildGitRepoArgs(workingDirectory?: string): string[] {
   return isGitRepositoryPath(repoCheckDir) ? [] : ['--skip-git-repo-check'];
 }
 
-export function buildArgs(
+/**
+ * Build the prompt text piped via stdin (NOT an argv positional). codex `exec`
+ * reads PROMPT from stdin when the positional is `-` after a `--` end-of-options
+ * marker (see buildArgs), so the long turn prompt never enters argv. Aligned to
+ * Clowder CodexAgentService (promptArgs ['--','-'] + stdin) — fixes BOTH the Windows
+ * CreateProcess ~32K limit (`spawn ENAMETOOLONG`) and the cross-process argv exposure
+ * (ps / proc cmdline leaking cross-thread history).
+ *
+ * Codex 无原生 system prompt 注入（injectsL0Natively=false）：仅「会话首轮」（无 sessionId /
+ * 未 resume）才把身份 system prompt 前置拼入。RESUME 时会话已带身份，再每轮前置会让模型把人设
+ * 当成用户反复发的同一句话 → 重复计数 / 身份死循环（gemini 上真机实测，codex 同构，预防性同修）。
+ */
+export function buildStdinPrompt(
   prompt: string,
+  options: InvokeOptions | undefined,
+): string {
+  const withSystem =
+    options?.systemPrompt && options?.sessionId === undefined
+      ? `${options.systemPrompt}\n\n${prompt}`
+      : prompt;
+  return appendContentText(withSystem, options?.contentBlocks);
+}
+
+export function buildArgs(
   options: InvokeOptions | undefined,
   defaultModel: string,
 ): string[] {
-  // Fresh: `codex exec --json … <prompt>`. Resume: `codex exec resume <SESSION_ID>
-  // --json … <prompt>` — the `resume` subcommand + positional session id MUST come
+  // Fresh: `codex exec --json … -- -`. Resume: `codex exec resume <SESSION_ID>
+  // --json … -- -` — the `resume` subcommand + positional session id MUST come
   // right after `exec`, before the flags (codex-cli 0.136).
   const args: string[] = [CODEX_EXEC_SUBCOMMAND];
   if (options?.sessionId) {
@@ -113,23 +135,14 @@ export function buildArgs(
   }
   // MCP 工具桥 (consumer)：app-factory 把 provider-correct 的 `--config
   // mcp_servers.choco.*` flag 列表（TOML key=value，非 Claude JSON）JSON 序列化进
-  // callbackEnv，这里原样 splice 进 argv（位置：model flag 后、prompt 前，对齐
-  // Clowder CodexAgentService 的 ...catCafeMcpArgs）。
+  // callbackEnv，这里原样 splice 进 argv（对齐 Clowder CodexAgentService 的 ...catCafeMcpArgs）。
   const mcpArgsRaw = options?.callbackEnv?.[MCP_CODEX_CONFIG_ARGS_KEY];
   if (mcpArgsRaw) {
     args.push(...(JSON.parse(mcpArgsRaw) as string[]));
   }
-  // Codex 无原生 system prompt 注入（injectsL0Natively=false）：仅「会话首轮」（无
-  // sessionId / 未 resume）才把身份 system prompt 前置拼入。RESUME 时会话已带身份，再每轮
-  // 前置会让模型把人设当成用户反复发的同一句话 → 重复计数 / 身份死循环（gemini 上真机实测，
-  // codex 同构，预防性同修）。
-  const withSystem =
-    options?.systemPrompt && options?.sessionId === undefined
-      ? `${options.systemPrompt}\n\n${prompt}`
-      : prompt;
-  const effectivePrompt = appendContentText(withSystem, options?.contentBlocks);
-  // Codex `exec` 接受 prompt 作为末位位置参数。
-  args.push(effectivePrompt);
+  // `--` 终止选项解析；`-` 让 codex 从 stdin 读取 PROMPT（对齐 Clowder promptArgs）。
+  // prompt 经 stdin（buildStdinPrompt），绝不进 argv。
+  args.push('--', '-');
   return args;
 }
 
@@ -163,10 +176,12 @@ export class CodexAgentService implements AgentService {
     options?: InvokeOptions,
   ): AsyncIterable<AgentMessage> {
     const model = options?.model ?? this.defaultModel;
-    const args = buildArgs(prompt, options, this.defaultModel);
+    const args = buildArgs(options, this.defaultModel);
+    const stdinPrompt = buildStdinPrompt(prompt, options);
     const { lines, exit } = spawnCliLineStream({
       command: this.command,
       args,
+      stdin: stdinPrompt,
       cwd: options?.workingDirectory,
       env: options?.callbackEnv,
       timeoutMs: options?.timeoutMs ?? this.defaultTimeoutMs,

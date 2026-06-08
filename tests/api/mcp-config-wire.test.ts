@@ -253,7 +253,6 @@ describe('claude buildArgs MCP hook', () => {
   it('emits --mcp-config <value> when callbackEnv carries MCP_CONFIG_JSON', () => {
     const mcpValue = 'D:/tmp/choco-mcp/mcp-config.json';
     const args = buildArgs(
-      '@claude 记录 evidence',
       { callbackEnv: { [MCP_CONFIG_ENV_KEY]: mcpValue } },
       'claude-opus-4-6',
       'bypassPermissions',
