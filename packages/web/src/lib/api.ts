@@ -96,6 +96,19 @@ export interface GitStatusEntry {
   readonly path: string;
 }
 
+/** One file's change summary under a commit (GET /api/workspace/git-show). */
+export interface GitShowFile {
+  readonly path: string;
+  readonly summary: string;
+}
+
+/** A commit's changed-file list (GET /api/workspace/git-show). */
+export interface GitShowResult {
+  readonly hash: string;
+  readonly files: readonly GitShowFile[];
+  readonly gitAvailable: boolean;
+}
+
 /** Working-tree status (GET /api/workspace/git-status). */
 export interface GitStatusView {
   readonly branch: string;
@@ -747,6 +760,18 @@ export class ApiClient {
   async getGitStatus(): Promise<GitStatusView> {
     const res = await this.fetchFn(this.url('/api/workspace/git-status'));
     return parseJson<GitStatusView>(res);
+  }
+
+  /** GET /api/workspace/git-show?hash= — one commit's changed-file summary (Git log 下钻). */
+  async getGitShow(hash: string): Promise<GitShowResult> {
+    const res = await this.fetchFn(this.url(`/api/workspace/git-show?hash=${encodeURIComponent(hash)}`));
+    return parseJson<GitShowResult>(res);
+  }
+
+  /** The GET /api/workspace/file/raw URL for a media file — for an <img>/<video>
+   * `src` (not fetched here; the browser streams it directly). */
+  workspaceRawUrl(path: string): string {
+    return this.url(`/api/workspace/file/raw?path=${encodeURIComponent(path)}`);
   }
 
   /** GET /api/workspace/diff — changed files + unified diff (开发 tab 变更 view). */

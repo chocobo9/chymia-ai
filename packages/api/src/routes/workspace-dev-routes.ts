@@ -26,6 +26,7 @@ import {
   parseGitLog,
   parseGitStatus,
   parseChangedFiles,
+  parseGitShow,
 } from '@choco/api/infrastructure/git-cli';
 
 /** Directories never listed in the tree (noise / not source). */
@@ -64,6 +65,9 @@ interface WorkspaceSearchResult {
 const TreeQuerySchema = z.object({ path: z.string().optional() });
 const LogQuerySchema = z.object({ limit: z.string().optional() });
 const DiffQuerySchema = z.object({ path: z.string().optional() });
+/** git-show takes a commit hash (short or full); restricted to hex so it can never
+ * smuggle a `--flag` or path into the git argv. */
+const GitShowQuerySchema = z.object({ hash: z.string().regex(/^[0-9a-f]{7,40}$/i) });
 const SearchBodySchema = z.object({
   query: z.string().trim().min(1).max(200),
   type: z.enum(['filename', 'content', 'all']).optional(),
@@ -223,6 +227,23 @@ export function registerWorkspaceDevRoutes(
     // never a fabricated history.
     if (r.code !== 0) return reply.send({ commits: [], gitAvailable: false });
     return reply.send({ commits: parseGitLog(r.stdout), gitAvailable: true });
+  });
+
+  // GET /api/workspace/git-show?hash= — one commit's changed-file summary (the
+  // 提交详情下钻: click a commit in the Git log → which files it touched). Aligned to
+  // Clowder workspace-git.ts git-show: `git show --stat`, split off the message
+  // block, parse the stat section.
+  app.get('/api/workspace/git-show', async (request, reply) => {
+    const q = GitShowQuerySchema.safeParse(request.query);
+    if (!q.success) return reply.code(400).send({ error: 'invalid_hash' });
+    const r = await gitRunner(['show', '--stat', '--no-color', q.data.hash], fileRoot);
+    // Non-zero = not a git repo / unknown hash. Honest: empty + a flag, never faked.
+    if (r.code !== 0) return reply.send({ hash: q.data.hash, files: [], gitAvailable: false });
+    // `git show` prints the commit message, a blank line, then the --stat block.
+    // Take everything after the first blank-line break as the stat section.
+    const parts = r.stdout.split('\n\n');
+    const statSection = parts.length > 1 ? parts.slice(1).join('\n\n') : '';
+    return reply.send({ hash: q.data.hash, files: parseGitShow(statSection), gitAvailable: true });
   });
 
   // GET /api/workspace/git-status — working tree state + current branch.

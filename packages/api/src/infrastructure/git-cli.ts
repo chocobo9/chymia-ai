@@ -138,6 +138,30 @@ export function parseChangedFiles(stdout: string): ChangedFile[] {
     .filter((f) => !isDenylistedPath(f.path));
 }
 
+/** One file's change summary from `git show --stat` (the 变更文件 list under a commit). */
+export interface GitShowFile {
+  readonly path: string;
+  readonly summary: string;
+}
+
+/**
+ * Parse the `--stat` section of `git show --stat --no-color <hash>` into a
+ * per-file `{path, summary}` list. Each stat row is ` path | N ++--`; the caller
+ * passes ONLY the stat section (the message/diff blocks already stripped), so the
+ * trailing " N files changed, …" summary line (no `|`) is naturally dropped by the
+ * `|` filter. Aligned to Clowder workspace-git.ts parseGitShow.
+ */
+export function parseGitShow(statOutput: string): GitShowFile[] {
+  return statOutput
+    .trim()
+    .split('\n')
+    .filter((l) => l.includes('|'))
+    .map((l) => {
+      const [pathPart = '', ...rest] = l.split('|');
+      return { path: pathPart.trim(), summary: rest.join('|').trim() };
+    });
+}
+
 /** Path segments / suffixes that must never be read or diffed (secret leakage / noise). */
 const DENYLIST_SUFFIXES = ['.env', '.key', '.pem', '.p12', '.pfx'];
 const DENYLIST_SEGMENTS = new Set(['.git', 'node_modules']);

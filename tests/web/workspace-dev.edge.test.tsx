@@ -32,6 +32,7 @@ function fakeClient(): ApiClient {
           entries: [
             { name: 'src', type: 'directory', path: 'src' },
             { name: 'README.md', type: 'file', path: 'README.md' },
+            { name: 'logo.png', type: 'file', path: 'logo.png' },
           ],
         }),
       );
@@ -89,6 +90,11 @@ function fakeClient(): ApiClient {
             { hash: 'abc123def456', short: 'abc123de', author: '铲屎官', date: '2026-06-05T10:00:00+08:00', subject: '对齐开发 tab' },
           ],
         }),
+      );
+    }
+    if (p === '/api/workspace/git-show') {
+      return Promise.resolve(
+        json({ hash: 'abc123def456', files: [{ path: 'src/index.ts', summary: '2 +-' }], gitAvailable: true }),
       );
     }
     if (p === '/api/workspace/diff') {
@@ -153,6 +159,31 @@ describe('WorkspaceDev — operable 开发 tab', () => {
     expect(git).toHaveTextContent('main');
     await waitFor(() => expect(screen.getByTestId('git-commit')).toHaveTextContent('对齐开发 tab'));
     expect(screen.getByTestId('dev-git-status')).toHaveTextContent('未暂存 1');
+  });
+
+  it('[git] expands a commit to show its changed files (git-show drill-down)', async () => {
+    render(<WorkspaceDev client={fakeClient()} />);
+    await userEvent.click(screen.getByTestId('dev-subtab-git'));
+    await waitFor(() => expect(screen.getByTestId('git-commit')).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId('git-commit'));
+    const files = await screen.findByTestId('git-show-files');
+    expect(files).toHaveTextContent('src/index.ts');
+    expect(files).toHaveTextContent('2 +-');
+  });
+
+  it('[files] renders an <img> media preview via /file/raw for an image file', async () => {
+    render(<WorkspaceDev client={fakeClient()} />);
+    await userEvent.click(await screen.findByText('logo.png'));
+    const img = await screen.findByTestId('dev-media-image');
+    expect(img.getAttribute('src')).toContain('/api/workspace/file/raw?path=logo.png');
+  });
+
+  it('[changes] annotates diff lines with new-file line numbers', async () => {
+    render(<WorkspaceDev client={fakeClient()} />);
+    await userEvent.click(screen.getByTestId('dev-subtab-changes'));
+    await screen.findByTestId('dev-diff-file');
+    // the @@ -1 +1 @@ replacement: the added line carries new-file line number 1.
+    expect(screen.getAllByTestId('diffl-new').map((e) => e.textContent)).toContain('1');
   });
 
   it('[honest] a non-git workspace says so, never a fabricated branch', async () => {

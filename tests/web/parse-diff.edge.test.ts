@@ -37,4 +37,20 @@ describe('parseUnifiedDiff', () => {
       'diff --git a/two.ts b/two.ts\n@@ -1 +1 @@\n-3\n+4\n';
     expect(parseUnifiedDiff(diff).map((f) => f.path)).toEqual(['one.ts', 'two.ts']);
   });
+
+  it('annotates each line with 1-based old/new line numbers seeded from the @@ header', () => {
+    const diff =
+      'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n' +
+      '@@ -5,3 +5,3 @@\n const keep = 1;\n-const x = 1;\n+const x = 2;\n const tail = 3;\n';
+    const [file] = parseUnifiedDiff(diff);
+    expect(file.lines.find((l) => l.content === 'const keep = 1;')).toMatchObject({ oldLine: 5, newLine: 5 });
+    const removed = file.lines.find((l) => l.type === 'remove');
+    expect(removed).toMatchObject({ oldLine: 6 });
+    expect(removed?.newLine).toBeUndefined(); // a removed line has no new-file number
+    const added = file.lines.find((l) => l.type === 'add');
+    expect(added).toMatchObject({ newLine: 6 });
+    expect(added?.oldLine).toBeUndefined(); // an added line has no old-file number
+    // trailing context resumes after the 1-for-1 replacement: old 7 / new 7
+    expect(file.lines.find((l) => l.content === 'const tail = 3;')).toMatchObject({ oldLine: 7, newLine: 7 });
+  });
 });

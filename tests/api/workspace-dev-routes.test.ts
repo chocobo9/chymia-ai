@@ -60,6 +60,17 @@ const fakeGit: GitRunner = (args) => {
       code: 0,
     });
   }
+  if (sub.startsWith('show')) {
+    // `git show --stat <hash>`: commit header, blank, message, blank, the stat block.
+    return Promise.resolve({
+      stdout:
+        'commit abc123def456\nAuthor: 铲屎官 <x@y.z>\nDate:   Fri Jun 5 18:00:00 2026\n\n' +
+        '    修任务 tab\n\n' +
+        ' src/index.ts | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n',
+      stderr: '',
+      code: 0,
+    });
+  }
   return Promise.resolve({ stdout: '', stderr: '', code: 0 });
 };
 
@@ -121,6 +132,23 @@ describe('GET /api/workspace/git-log + git-status (Git)', () => {
     expect(body.unstaged.map((f) => f.path)).toContain('src/index.ts');
     expect(body.staged.map((f) => f.path)).toContain('added.ts');
     expect(body.untracked.map((f) => f.path)).toContain('new.txt');
+  });
+});
+
+describe('GET /api/workspace/git-show (提交详情下钻)', () => {
+  it('parses `git show --stat` into the commit changed-file list', async () => {
+    const app = makeApp(makeWorkspace());
+    const res = await app.api.inject({ method: 'GET', url: '/api/workspace/git-show?hash=abc123def456' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ hash: string; files: { path: string; summary: string }[]; gitAvailable: boolean }>();
+    expect(body.gitAvailable).toBe(true);
+    expect(body.files).toEqual([{ path: 'src/index.ts', summary: '2 +-' }]);
+  });
+
+  it('[security] rejects a non-hex hash (400) — no flag/path can be smuggled into git', async () => {
+    const app = makeApp(makeWorkspace());
+    const res = await app.api.inject({ method: 'GET', url: '/api/workspace/git-show?hash=--upload-pack' });
+    expect(res.statusCode).toBe(400);
   });
 });
 
