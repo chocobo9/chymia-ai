@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import type { AgentMessage } from '@choco/shared';
 import { createAgentId } from '@choco/shared';
 import { ClaudeAgentService } from '@choco/api/providers/claude/claude-service';
+import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
 
 const SMOKE = process.env.RUN_CLI_SMOKE === '1';
 const TIMEOUT = 120_000;
@@ -30,6 +31,22 @@ describe.skipIf(!SMOKE)('real claude — a >32K prompt no longer spawn-ENAMETOOL
     }
     // Pre-fix this was `spawn ENAMETOOLONG` (errorCode 'spawn_error'). The fix means the
     // turn spawns fine and produces real output.
+    const spawnErr = events.find(
+      (e) => e.type === 'error' && (e as { errorCode?: string }).errorCode === 'spawn_error',
+    );
+    expect(spawnErr).toBeUndefined();
+    expect(events.some((e) => e.type === 'text' || e.type === 'done')).toBe(true);
+  }, TIMEOUT + 30_000);
+});
+
+describe.skipIf(!SMOKE)('real codex — a >32K prompt no longer spawn-ENAMETOOLONGs (integration)', () => {
+  it('a >32K prompt is piped via stdin (-- -) and spawns + yields output (no spawn error)', async () => {
+    expect(LONG_PROMPT.length).toBeGreaterThan(32767);
+    const svc = new CodexAgentService({ agentId: createAgentId('codex-gpt') });
+    const events: AgentMessage[] = [];
+    for await (const ev of svc.invoke(LONG_PROMPT, { systemPrompt: LONG_SYSTEM, timeoutMs: TIMEOUT })) {
+      events.push(ev);
+    }
     const spawnErr = events.find(
       (e) => e.type === 'error' && (e as { errorCode?: string }).errorCode === 'spawn_error',
     );
