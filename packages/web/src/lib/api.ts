@@ -36,6 +36,7 @@ import type {
   WeChatSettingsView,
   TaskItem,
   TaskStatus,
+  TaskProgressSnapshot,
 } from '@choco/shared';
 
 /** One MCP tool's catalog entry (GET /api/mcp/tools). */
@@ -779,6 +780,19 @@ export class ApiClient {
     const q = path !== undefined && path.length > 0 ? `?path=${encodeURIComponent(path)}` : '';
     const res = await this.fetchFn(this.url(`/api/workspace/diff${q}`));
     return parseJson<WorkspaceDiffView>(res);
+  }
+
+  /** GET /api/audit/thread/:threadId — per-thread audit events, newest-first (审计 tab). */
+  async getAuditEvents(threadId: string): Promise<{ readonly events: readonly AuditEvent[] }> {
+    const res = await this.fetchFn(this.url(`/api/audit/thread/${encodeURIComponent(threadId)}`));
+    return parseJson<{ events: AuditEvent[] }>(res);
+  }
+
+  /** GET /api/tasks/progress?threadId= — a thread's live per-agent task-progress snapshots. */
+  async getTaskProgress(threadId: string): Promise<readonly TaskProgressSnapshot[]> {
+    const res = await this.fetchFn(this.url(`/api/tasks/progress?threadId=${encodeURIComponent(threadId)}`));
+    const data = await parseJson<{ snapshots: TaskProgressSnapshot[] }>(res);
+    return data.snapshots;
   }
 }
 

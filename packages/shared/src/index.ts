@@ -4,6 +4,7 @@ export * from './types/agent.js';
 export * from './types/message.js';
 export * from './types/thread.js';
 export * from './types/task.js';
+export * from './types/task-progress.js';
 export * from './types/tool-event.js';
 export * from './types/session.js';
 export * from './types/audit.js';

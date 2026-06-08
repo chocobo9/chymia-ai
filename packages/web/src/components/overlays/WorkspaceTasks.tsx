@@ -14,6 +14,7 @@ import type { TaskItem, TaskStatus } from '@choco/shared';
 import type { ApiClient } from '../../lib/api.js';
 import { useChatStore } from '../../stores/chat-store.js';
 import { useTaskStore } from '../../stores/task-store.js';
+import { useTaskProgressStore } from '../../stores/task-progress-store.js';
 
 /** Board sections, in display order (matches Clowder's TaskBoardPanel). */
 const SECTIONS: readonly { readonly key: TaskStatus; readonly label: string; readonly icon: string }[] = [
@@ -160,6 +161,13 @@ function TaskComposer({ onCreate, onClose }: ComposerProps): ReactElement {
   );
 }
 
+/** Status label for a task-progress snapshot (an agent's live TodoWrite plan). */
+const PROGRESS_STATUS_LABEL: Readonly<Record<string, string>> = {
+  running: '进行中',
+  completed: '已完成',
+  interrupted: '已中断',
+};
+
 export interface WorkspaceTasksProps {
   readonly client: ApiClient;
 }
@@ -172,6 +180,9 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
   const setTasks = useTaskStore((s) => s.setTasks);
   const upsertTask = useTaskStore((s) => s.upsertTask);
   const removeTask = useTaskStore((s) => s.removeTask);
+  const progressSnapshots =
+    useTaskProgressStore((s) => (threadId !== null ? s.snapshotsByThread[threadId] : undefined)) ?? [];
+  const setProgressSnapshots = useTaskProgressStore((s) => s.setSnapshots);
 
   const [phase, setPhase] = useState<'idle' | 'loading' | 'error'>('idle');
   const [composerOpen, setComposerOpen] = useState(false);
@@ -196,6 +207,24 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
       cancelled = true;
     };
   }, [client, threadId, setTasks]);
+
+  // Initial fill of the thread's live task-progress snapshots on open / thread
+  // change; the socket task_progress listener keeps them fresh after.
+  useEffect(() => {
+    if (threadId === null) return;
+    let cancelled = false;
+    client
+      .getTaskProgress(threadId)
+      .then((snaps) => {
+        if (!cancelled) setProgressSnapshots(threadId, snaps);
+      })
+      .catch(() => {
+        /* progress is best-effort; the board still works without it */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, threadId, setProgressSnapshots]);
 
   const create = useCallback(
     async (title: string, why: string): Promise<void> => {
@@ -261,6 +290,30 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
       </div>
 
       {composerOpen && <TaskComposer onCreate={create} onClose={() => setComposerOpen(false)} />}
+
+      {progressSnapshots.length > 0 && (
+        <div className="tsk-progress" data-testid="tsk-progress">
+          <div className="wsp-sec-t">实时进度</div>
+          {progressSnapshots.map((snap) => (
+            <div key={snap.agentId as string} className="tprog-cat" data-testid="tprog-snapshot">
+              <div className="tprog-head">
+                <span className="tprog-agent">{snap.agentId as string}</span>
+                <span className={`tprog-status ${snap.status}`}>
+                  {PROGRESS_STATUS_LABEL[snap.status] ?? snap.status}
+                </span>
+              </div>
+              {snap.tasks.map((t) => (
+                <div key={t.id} className={`tprog-item ${t.status}`} data-testid="tprog-item">
+                  <span className="tprog-ic">
+                    {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '◐' : '○'}
+                  </span>
+                  <span className="tprog-txt">{t.activeForm ?? t.subject}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       {phase === 'loading' && <div className="mem-loading" data-testid="tsk-loading">加载中…</div>}
       {phase === 'error' && (

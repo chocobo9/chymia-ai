@@ -146,6 +146,13 @@ export interface SessionStoreDeps {
   readonly toolEventReader: SessionToolEventReader;
   /** Clock for created_at / sealed_at stamps. Defaults to Date.now. */
   readonly now?: NowFn;
+  /**
+   * Called (best-effort) AFTER a session is sealed — by session_init sealing the
+   * prior active, sealActiveSession, or reopen sealing a different active. The
+   * composition root wires this to emit a `session_seal` audit event. Optional:
+   * omitted (tests) → no-op; seal behavior is unchanged.
+   */
+  readonly onSeal?: (info: { readonly threadId: string; readonly agentId: AgentId; readonly sessionId: string; readonly sequenceNo: number }) => void;
 }
 
 /**
@@ -163,6 +170,7 @@ export class SessionStore implements ISessionStore {
   private readonly messageReader: SessionMessageReader;
   private readonly toolEventReader: SessionToolEventReader;
   private readonly now: NowFn;
+  private readonly onSeal?: (info: { readonly threadId: string; readonly agentId: AgentId; readonly sessionId: string; readonly sequenceNo: number }) => void;
 
   private readonly getActiveStmt;
   private readonly getBySessionIdStmt;
@@ -180,6 +188,7 @@ export class SessionStore implements ISessionStore {
     this.messageReader = deps.messageReader;
     this.toolEventReader = deps.toolEventReader;
     this.now = deps.now ?? Date.now;
+    this.onSeal = deps.onSeal;
 
     this.getActiveStmt = db.prepare<[string, string], SessionRow>(`
       SELECT * FROM ${SESSIONS_TABLE}
@@ -398,6 +407,15 @@ export class SessionStore implements ISessionStore {
     // readers are async; we resolve them synchronously is impossible, so seal here
     // stores a digest computed by the synchronous path below.
     this.sealStmt.run(sealedAt, this.computeDigestJsonSync(active.session_id), active.session_id);
+    // Notify (best-effort) so the composition root can emit a session_seal audit
+    // event. Wrapped so a sink failure never breaks the seal/resume hot path.
+    if (this.onSeal !== undefined) {
+      try {
+        this.onSeal({ threadId, agentId, sessionId: active.session_id, sequenceNo: active.sequence_no });
+      } catch {
+        // onSeal is best-effort audit; a throw here must never break sealing.
+      }
+    }
   }
 
   /**

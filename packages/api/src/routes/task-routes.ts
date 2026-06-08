@@ -89,6 +89,18 @@ export function registerTaskRoutes(app: FastifyInstance, services: AppServices):
     return reply.send({ tasks });
   });
 
+  // GET /api/tasks/progress?threadId=... → a thread's LIVE per-agent task-progress
+  // snapshots (each agent's latest TodoWrite plan). Static path registered before
+  // /api/tasks/:id so it never matches the param route.
+  app.get('/api/tasks/progress', async (request, reply) => {
+    const { threadId } = request.query as { threadId?: string };
+    if (threadId === undefined || threadId.length === 0) {
+      return reply.code(400).send({ error: 'missing_threadId' });
+    }
+    const snapshots = services.taskProgressStore.listByThread(threadId);
+    return reply.send({ snapshots });
+  });
+
   // GET /api/tasks/:id → single task / 404
   app.get('/api/tasks/:id', async (request, reply) => {
     const { id } = request.params as { id: string };

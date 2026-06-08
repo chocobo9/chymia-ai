@@ -23,7 +23,14 @@ import type { Database as DatabaseType } from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { Server as SocketIoServer } from 'socket.io';
-import type { AgentMessage, AgentConfig, AgentId, IncomingPlatformMessage, StoredMessage } from '@choco/shared';
+import type {
+  AgentMessage,
+  AgentConfig,
+  AgentId,
+  IncomingPlatformMessage,
+  StoredMessage,
+  TaskProgressSnapshot,
+} from '@choco/shared';
 
 import type { AgentService } from '@choco/api/providers/base';
 import { MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
@@ -52,12 +59,14 @@ import type {
 import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
 import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
 import { SqliteTaskStore } from '@choco/api/stores/sqlite-task-store';
+import { SqliteTaskProgressStore } from '@choco/api/stores/sqlite-task-progress-store';
 import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 import { SqliteEventAuditLog } from '@choco/api/stores/sqlite-event-audit-log';
 import { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
 import { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
 import { buildSystemPrompt } from '@choco/api/context/system-prompt-builder';
 import { formatTaskSnapshot } from '@choco/api/context/format-task-snapshot';
+import { extractTaskProgress } from '@choco/api/context/extract-task-progress';
 import { buildHierarchicalContext } from '@choco/api/context/hierarchical-context';
 import { SopServiceImpl, type SopService } from '@choco/api/sop/sop-service';
 import type { EvidenceRecaller } from '@choco/api/context/evidence-recall';
@@ -337,6 +346,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   // 任务线 store (idempotent migration 006 runs in its ctor). CRUD'd by the task
   // routes; read by the invoke seam to inject the open-task snapshot.
   const taskStore = new SqliteTaskStore(db, { now });
+  // Task-PROGRESS store (idempotent migration 007 in ctor): an agent's latest
+  // in-flight TodoWrite snapshot per (thread, agent), upserted by the invoke seam.
+  const taskProgressStore = new SqliteTaskProgressStore(db);
   const toolEventLog = new SqliteToolEventLog(db);
   // 审计事件日志（对齐 Clowder EventAuditLog）— DI Database + clock; 幂等迁移 005 在 ctor 跑。
   const eventAuditLog = new SqliteEventAuditLog(db, { now });
@@ -350,6 +362,24 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     messageReader: messageStore,
     toolEventReader: toolEventLog,
     now,
+    // When a session is sealed (session_init seals the prior active / explicit seal /
+    // reopen), emit a session_seal AUDIT event so the audit tab traces session
+    // boundaries. Best-effort: a failed append never breaks the seal/resume path.
+    onSeal: (info) => {
+      void eventAuditLog
+        .append({
+          type: 'session_seal',
+          threadId: info.threadId,
+          data: { agentId: info.agentId, sessionId: info.sessionId, sequenceNo: info.sequenceNo },
+        })
+        .catch((err: unknown) => {
+          logger({
+            level: 'warn',
+            message: `session_seal audit append failed: ${err instanceof Error ? err.message : String(err)}`,
+            threadId: info.threadId,
+          });
+        });
+    },
   });
   const sessionMutex = new SessionMutex();
   const invocations = new InvocationRegistry({ now });
@@ -418,11 +448,17 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   );
 
   // --- The InvokeAgentFn seam: the load-bearing M4↔(M7,M3) integration -------
+  // Late-bound task-progress broadcaster: the SocketManager is built AFTER this
+  // seam (it needs the Fastify server), so the invoke seam calls through this
+  // holder, populated once `socket` exists (mirrors platformOutboundRef below).
+  const taskProgressBroadcast: { fn?: (snapshot: TaskProgressSnapshot) => void } = {};
   const invoke = buildInvokeAgentFn({
     registry,
     messageStore,
     threadStore,
     taskStore,
+    taskProgressStore,
+    taskProgressBroadcast,
     evidenceStore,
     sessionStore,
     sessionMutex,
@@ -448,6 +484,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     cors: { origin: true },
   });
   const socket = new SocketManager(io);
+  // Now that the socket exists, point the invoke seam's task-progress broadcaster
+  // at it (the seam captured the holder above, before the socket was built).
+  taskProgressBroadcast.fn = (snapshot) => void socket.broadcastTaskProgress(snapshot.threadId, snapshot);
 
   // web→平台 出站桥 (Issue B). Late-bound: feishuManager is built AFTER appServices
   // (it needs submitPlatformMessage, which needs appServices), so the closure reads
@@ -482,6 +521,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     messageStore,
     threadStore,
     taskStore,
+    taskProgressStore,
     toolEventLog,
     eventAuditLog,
     evidenceStore,
@@ -619,6 +659,10 @@ interface InvokeDeps {
   readonly threadStore: SqliteThreadStore;
   /** 任务线 store — read for the open-task snapshot injected into the turn context. */
   readonly taskStore: SqliteTaskStore;
+  /** Task-progress store — upserted from TodoWrite tool_use frames during a turn. */
+  readonly taskProgressStore: SqliteTaskProgressStore;
+  /** Late-bound task-progress socket broadcaster (populated after the socket builds). */
+  readonly taskProgressBroadcast: { fn?: (snapshot: TaskProgressSnapshot) => void };
   readonly evidenceStore: SqliteEvidenceStore;
   readonly sessionStore: SessionStore;
   readonly sessionMutex: SessionMutex;
@@ -962,6 +1006,9 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
     let errorCount = 0;
     // The last error frame's message, carried into the `error` audit event (if any).
     let lastErrorMessage: string | undefined;
+    // The last task-progress snapshot captured this turn (from a TodoWrite frame),
+    // so the finally block can flip it to completed/interrupted at turn end.
+    let lastTaskSnapshot: TaskProgressSnapshot | undefined;
 
     // Stamp this turn's invocationId (§4.2) AND session_id (补充 E) onto every
     // emitted event so downstream sinks — the M5 ToolEventLog live-feed + the
@@ -975,6 +1022,31 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
           textLength += event.content.length;
         } else if (event.type === 'tool_use') {
           toolCallCount += 1;
+          // Task-progress capture: a TodoWrite/write_todos frame is the agent's live
+          // plan — persist (latest-wins) + broadcast so the 任务 tab updates mid-turn.
+          const taskItems = extractTaskProgress(event.toolName, event.toolInput);
+          if (taskItems !== null) {
+            const snapshot: TaskProgressSnapshot = {
+              threadId,
+              agentId,
+              tasks: taskItems,
+              status: 'running',
+              updatedAt: deps.now(),
+              lastInvocationId: record.invocationId,
+            };
+            lastTaskSnapshot = snapshot;
+            try {
+              deps.taskProgressStore.setSnapshot(snapshot);
+              deps.taskProgressBroadcast.fn?.(snapshot);
+            } catch (err) {
+              deps.logger({
+                level: 'warn',
+                message: `task progress capture failed: ${err instanceof Error ? err.message : String(err)}`,
+                threadId,
+                agentId,
+              });
+            }
+          }
         } else if (event.type === 'error') {
           errorCount += 1;
           if (event.content !== undefined) lastErrorMessage = event.content;
@@ -1029,6 +1101,23 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
           toolCalls: toolCallCount,
         });
       }
+      // Task-progress: flip this turn's last snapshot to its terminal state so the
+      // 任务 tab stops showing it as "running" (completed, or interrupted on error).
+      if (lastTaskSnapshot !== undefined) {
+        const finalSnapshot: TaskProgressSnapshot = {
+          ...lastTaskSnapshot,
+          status: errorCount > 0 ? 'interrupted' : 'completed',
+          updatedAt: deps.now(),
+          ...(errorCount > 0 ? { interruptReason: 'error' } : {}),
+        };
+        try {
+          deps.taskProgressStore.setSnapshot(finalSnapshot);
+          deps.taskProgressBroadcast.fn?.(finalSnapshot);
+        } catch {
+          // best-effort terminal update; never break turn teardown.
+        }
+      }
+
       // Operability invariant 4: flag a silent dead turn (no output, no error) or
       // an error spike. Runs in `finally` so an aborted/short-circuited stream is
       // still judged. Silent in tests (NOOP_LOGGER) unless a logger is injected.

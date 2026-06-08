@@ -19,6 +19,7 @@ import { THREADS_TABLE, createThreadsTable } from './migrations/002-threads.js';
 import { MESSAGES_TABLE, createMessagesTable } from './migrations/001-messages.js';
 import { TOOL_EVENTS_TABLE, createToolEventsTable } from './migrations/003-tool-events.js';
 import { TASKS_TABLE, createTasksTable } from './migrations/006-tasks.js';
+import { TASK_PROGRESS_TABLE, createTaskProgressTable } from './migrations/007-task-progress.js';
 
 /**
  * Default thinking mode for newly created threads.
@@ -183,6 +184,7 @@ export class SqliteThreadStore {
   private readonly deleteMessagesStmt;
   private readonly deleteToolEventsStmt;
   private readonly deleteTasksStmt;
+  private readonly deleteTaskProgressStmt;
   private readonly deleteCascadeTxn: (threadId: string) => boolean;
   private readonly now: NowFn;
 
@@ -196,6 +198,8 @@ export class SqliteThreadStore {
     // Task lines are CASCADE-deleted with their thread (same orphan-free idiom);
     // ensure the table exists even when this store is constructed standalone.
     createTasksTable(db);
+    // Task-progress snapshots cascade with their thread too (same orphan-free idiom).
+    createTaskProgressTable(db);
     this.now = options?.now ?? Date.now;
 
     this.insertStmt = db.prepare<InsertParams>(`
@@ -258,6 +262,9 @@ export class SqliteThreadStore {
     this.deleteTasksStmt = db.prepare<[string]>(`
       DELETE FROM ${TASKS_TABLE} WHERE thread_id = ?
     `);
+    this.deleteTaskProgressStmt = db.prepare<[string]>(`
+      DELETE FROM ${TASK_PROGRESS_TABLE} WHERE thread_id = ?
+    `);
 
     // Wrap the deletes in one atomic transaction so a thread never ends up
     // half-deleted (its rows gone but the thread row remaining, or vice versa).
@@ -267,6 +274,7 @@ export class SqliteThreadStore {
       this.deleteMessagesStmt.run(threadId);
       this.deleteToolEventsStmt.run(threadId);
       this.deleteTasksStmt.run(threadId);
+      this.deleteTaskProgressStmt.run(threadId);
       return this.deleteStmt.run(threadId).changes > 0;
     });
   }

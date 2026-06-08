@@ -12,6 +12,7 @@ import type { InvocationRegistry } from '@choco/api/invocation/invocation-regist
 import type { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
 import type { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
 import type { SqliteTaskStore } from '@choco/api/stores/sqlite-task-store';
+import type { SqliteTaskProgressStore } from '@choco/api/stores/sqlite-task-progress-store';
 import type { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 import type { SqliteEventAuditLog } from '@choco/api/stores/sqlite-event-audit-log';
 import type { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
@@ -63,6 +64,13 @@ export interface AppServices {
    * of them). Persisted to SQLite (survives restart, unlike Clowder's in-memory).
    */
   readonly taskStore: SqliteTaskStore;
+  /**
+   * Task-PROGRESS store — an agent's latest in-flight TodoWrite snapshot per
+   * (thread, agent). The invoke seam upserts it from tool_use frames; the
+   * task-progress read route lists it. Ephemeral per-turn plan (latest-wins),
+   * distinct from the persisted {@link taskStore} board.
+   */
+  readonly taskProgressStore: SqliteTaskProgressStore;
   /** A6 tool-event log — the second (durable) sink for tool calls (M5 live-wire). */
   readonly toolEventLog: SqliteToolEventLog;
   /**
