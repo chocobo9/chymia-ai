@@ -30,16 +30,19 @@ const CODEX_JSON_FLAG = '--json';
  * 多余的位置参数 → "unexpected argument '<uuid>'"（实测 0.136）。
  */
 const CODEX_RESUME_SUBCOMMAND = 'resume';
-/** MCP 配置注入 flag，来源 补充 §C3（--config 注入） */
-const CODEX_CONFIG_FLAG = '--config';
 /** model 选择 flag */
 const CODEX_MODEL_FLAG = '--model';
 /** 默认进程超时：10 分钟。来源：coding agent 长任务经验默认，可被 options 覆盖 */
 const CODEX_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 /** 默认模型占位（codex 用账户默认时留空），可被 options.model 覆盖 */
 const CODEX_DEFAULT_MODEL = '';
-/** callbackEnv 中携带 MCP 配置 JSON 的约定 key（来源：补充 §C3） */
-const MCP_CONFIG_ENV_KEY = 'MCP_CONFIG_JSON';
+/**
+ * callbackEnv 中携带「codex MCP `--config` 注入参数列表（JSON 序列化的 string[]）」的
+ * 约定 key。由 app-factory 经 providers/mcp-config.ts:buildCodexMcpConfigArgs 生产。
+ * 与 claude 的 'MCP_CONFIG_JSON' 区分（两边格式不互通）。字面量必须与 producer 端
+ * （mcp-config.ts MCP_CODEX_CONFIG_ARGS_KEY）一致——wiring 测试守此契约防漂移。
+ */
+const MCP_CODEX_CONFIG_ARGS_KEY = 'MCP_CODEX_CONFIG_ARGS';
 
 export interface CodexServiceDeps {
   readonly agentId: AgentId;
@@ -108,9 +111,13 @@ export function buildArgs(
   if (model) {
     args.push(CODEX_MODEL_FLAG, model);
   }
-  const mcpConfig = options?.callbackEnv?.[MCP_CONFIG_ENV_KEY];
-  if (mcpConfig) {
-    args.push(CODEX_CONFIG_FLAG, mcpConfig);
+  // MCP 工具桥 (consumer)：app-factory 把 provider-correct 的 `--config
+  // mcp_servers.choco.*` flag 列表（TOML key=value，非 Claude JSON）JSON 序列化进
+  // callbackEnv，这里原样 splice 进 argv（位置：model flag 后、prompt 前，对齐
+  // Clowder CodexAgentService 的 ...catCafeMcpArgs）。
+  const mcpArgsRaw = options?.callbackEnv?.[MCP_CODEX_CONFIG_ARGS_KEY];
+  if (mcpArgsRaw) {
+    args.push(...(JSON.parse(mcpArgsRaw) as string[]));
   }
   // Codex 无原生 system prompt 注入（injectsL0Natively=false）：仅「会话首轮」（无
   // sessionId / 未 resume）才把身份 system prompt 前置拼入。RESUME 时会话已带身份，再每轮

@@ -20,7 +20,7 @@
 // PATH; on POSIX we return the inline JSON string.
 // Pattern from Clowder ClaudeAgentService (the win32 temp-file branch).
 
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -88,6 +88,27 @@ const MCP_LAUNCH_COMMAND = 'node';
 /** Prefix + suffix for the win32 temp config file. */
 const WIN_TEMP_PREFIX = 'choco-mcp-';
 const WIN_CONFIG_FILENAME = 'mcp-config.json';
+
+/**
+ * Codex's per-invocation MCP injection flag. codex `exec` takes repeated
+ * `--config <key>=<tomlValue>` overrides (NOT a `.mcp.json` path) — so the codex
+ * producer emits a flag LIST, not the claude JSON. Aligned to Clowder
+ * CodexAgentService.buildCatCafeMcpConfigArgs.
+ */
+const CODEX_CONFIG_FLAG = '--config';
+
+/**
+ * callbackEnv key under which app-factory stashes the JSON-serialized codex
+ * `--config` arg list (consumed by codex-service.buildArgs). DISTINCT from claude's
+ * `MCP_CONFIG_JSON` (claude-service) so the two providers never cross-read each
+ * other's incompatible payloads. The consumer (codex-service) re-declares this
+ * literal locally — keep both in sync (the mcp-config-wire wiring test guards it).
+ */
+export const MCP_CODEX_CONFIG_ARGS_KEY = 'MCP_CODEX_CONFIG_ARGS';
+
+/** Gemini reads MCP servers from `<workspace>/.gemini/settings.json` (no spawn flag). */
+const GEMINI_SETTINGS_DIR = '.gemini';
+const GEMINI_SETTINGS_FILE = 'settings.json';
 
 /** Inputs to {@link buildClaudeMcpConfig}. The three ids come from the minted record. */
 export interface ClaudeMcpConfigOptions {
@@ -225,4 +246,104 @@ function writeConfigToTempFile(json: string): string {
 export function buildClaudeMcpConfig(opts: ClaudeMcpConfigOptions): string {
   const json = JSON.stringify(buildClaudeMcpConfigObject(opts));
   return isWindows() ? writeConfigToTempFile(json) : json;
+}
+
+// ── Codex producer (per-invocation `--config` TOML overrides) ────────────────
+
+/** Quote a string as a TOML basic string. JSON's escaping (`\` → `\\`, `"` → `\"`)
+ * is a valid subset for our values (Windows paths, ids) — no extra TOML lib. */
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+/** Serialize a string[] as a TOML inline array of basic strings. */
+function tomlStringArray(values: readonly string[]): string {
+  return `[${values.map((v) => tomlString(v)).join(',')}]`;
+}
+
+/**
+ * Build codex's per-invocation MCP `--config` flag list. codex `exec` has no
+ * `--mcp-config` equivalent — the server is declared via repeated `--config
+ * mcp_servers.<name>.<field>=<tomlValue>` overrides. Aligned to Clowder
+ * CodexAgentService.buildCatCafeMcpConfigArgs: command/args/enabled/approval +
+ * the callback env keys. The launch (`node <bundle>` | `node <tsx> <src>`) reuses
+ * the SAME resolver as the claude/gemini producers.
+ *
+ * (Clowder also pushes a `cat-cafe.command="echo" ... enabled=false` dummy to
+ * disable a DEPRECATED legacy server — we have no such legacy entry under the
+ * fresh `choco` name, so that step is intentionally omitted.)
+ */
+export function buildCodexMcpConfigArgs(opts: ClaudeMcpConfigOptions): string[] {
+  const serverEntryPath = resolveServerEntryPath(opts.serverEntryPath);
+  const tsxCliPath = resolveTsxCliPath(opts.tsxCliPath);
+  const { command, args } = resolveLaunch(serverEntryPath, tsxCliPath);
+  const prefix = `mcp_servers.${MCP_SERVER_NAME}`;
+  return [
+    CODEX_CONFIG_FLAG, `${prefix}.command=${tomlString(command)}`,
+    CODEX_CONFIG_FLAG, `${prefix}.args=${tomlStringArray(args)}`,
+    CODEX_CONFIG_FLAG, `${prefix}.enabled=true`,
+    CODEX_CONFIG_FLAG, `${prefix}.default_tools_approval_mode=${tomlString('approve')}`,
+    CODEX_CONFIG_FLAG, `${prefix}.env.${CALLBACK_ENV_KEYS.apiUrl}=${tomlString(opts.apiBaseUrl)}`,
+    CODEX_CONFIG_FLAG, `${prefix}.env.${CALLBACK_ENV_KEYS.invocationId}=${tomlString(opts.invocationId)}`,
+    CODEX_CONFIG_FLAG, `${prefix}.env.${CALLBACK_ENV_KEYS.callbackToken}=${tomlString(opts.callbackToken)}`,
+  ];
+}
+
+// ── Gemini producer (pre-written `<workspace>/.gemini/settings.json`) ─────────
+
+/** One server entry in `.gemini/settings.json`'s `mcpServers` map. */
+export interface GeminiMcpSettingsServer {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly env: Record<string, string>;
+}
+
+/** Build the `choco` server entry for gemini's settings.json (same launch +
+ * embedded callback env as the claude/codex producers). */
+export function buildGeminiMcpSettingsServer(opts: ClaudeMcpConfigOptions): GeminiMcpSettingsServer {
+  const serverEntryPath = resolveServerEntryPath(opts.serverEntryPath);
+  const tsxCliPath = resolveTsxCliPath(opts.tsxCliPath);
+  const { command, args } = resolveLaunch(serverEntryPath, tsxCliPath);
+  return {
+    command,
+    args,
+    env: {
+      [CALLBACK_ENV_KEYS.apiUrl]: opts.apiBaseUrl,
+      [CALLBACK_ENV_KEYS.invocationId]: opts.invocationId,
+      [CALLBACK_ENV_KEYS.callbackToken]: opts.callbackToken,
+    },
+  };
+}
+
+/**
+ * Write `<workspaceRoot>/.gemini/settings.json` so the spawned gemini CLI (cwd =
+ * workspaceRoot) reads OUR `choco` MCP server — gemini has NO per-invocation MCP
+ * flag, so this pre-write is the only delivery path. MERGE-PRESERVING: any
+ * existing user `mcpServers` and other settings keys are kept; only the `choco`
+ * entry is set/overwritten. Aligned to Clowder mcp-config-adapters.writeGeminiMcpConfig.
+ * Best-effort read (missing / malformed file → start fresh, never throw).
+ */
+export function writeGeminiMcpSettings(workspaceRoot: string, opts: ClaudeMcpConfigOptions): void {
+  const dir = join(workspaceRoot, GEMINI_SETTINGS_DIR);
+  const filePath = join(dir, GEMINI_SETTINGS_FILE);
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as unknown;
+    if (parsed !== null && typeof parsed === 'object') {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // missing or malformed → fresh object (preserve only what we can parse)
+  }
+
+  const existingServers: Record<string, unknown> =
+    existing.mcpServers !== null && typeof existing.mcpServers === 'object'
+      ? { ...(existing.mcpServers as Record<string, unknown>) }
+      : {};
+  existingServers[MCP_SERVER_NAME] = buildGeminiMcpSettingsServer(opts);
+
+  const next = { ...existing, mcpServers: existingServers };
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
 }

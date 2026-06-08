@@ -1,8 +1,9 @@
 // tests/providers/gemini-service-done-timing.test.ts
 // Regression: GeminiAgentService.invoke must finish a turn on the LOGICAL reply
 // (result/status:success) — NOT block on the slow process exit. gemini-pro has
-// mcpSupport:true (spawns the --config MCP child), so its process teardown is slow
-// just like claude's. Before the fix, invoke did `for await(lines); await exit;
+// mcpSupport:true (its MCP server child, configured via .gemini/settings.json), so
+// its process teardown is slow just like claude's. Before the fix, invoke did
+// `for await(lines); await exit;
 // finalizeStream`, so `done` came only on process exit → gemini's SessionMutex
 // stayed held → the NEXT @gemini turn blocked on it ("网页端 @gemini 启动很慢").
 //

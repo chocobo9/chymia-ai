@@ -27,7 +27,12 @@ import type { AgentMessage, AgentConfig, AgentId, IncomingPlatformMessage, Store
 
 import type { AgentService } from '@choco/api/providers/base';
 import { MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
-import { buildClaudeMcpConfig } from '@choco/api/providers/mcp-config';
+import {
+  buildClaudeMcpConfig,
+  buildCodexMcpConfigArgs,
+  writeGeminiMcpSettings,
+  MCP_CODEX_CONFIG_ARGS_KEY,
+} from '@choco/api/providers/mcp-config';
 import { AgentRegistryImpl } from '@choco/api/routing/agent-registry';
 import {
   AgentRouter,
@@ -806,19 +811,27 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       [CALLBACK_ENV_KEYS.callbackToken]: record.callbackToken,
     };
 
-    // MCP PRODUCER (§C3): tell claude where OUR M10 MCP server is, so the 8-tool
-    // subsystem is reachable. Gated to the claude client ONLY — codex/gemini use
-    // different config formats (feeding them this JSON would be malformed), and
-    // only when the agent's config declares mcpSupport. The value is an inline
-    // JSON string (POSIX) or a temp-file path (win32); the claude provider passes
-    // it to `--mcp-config <value>`.
+    // MCP PRODUCER (§C3): tell the agent's CLI where OUR M10 MCP server is, so the
+    // 8-tool subsystem is reachable. Each provider uses a DIFFERENT delivery (the
+    // formats are not interchangeable — see providers/mcp-config.ts), so we dispatch
+    // by clientId, only when the agent's config declares mcpSupport:
+    //   - anthropic → callbackEnv MCP_CONFIG_JSON; claude passes `--mcp-config <value>`.
+    //   - openai    → callbackEnv MCP_CODEX_CONFIG_ARGS (JSON-serialized `--config`
+    //     TOML override list); codex-service splices it into its argv.
+    //   - google    → a pre-written <workspace>/.gemini/settings.json (handled below,
+    //     once the working directory is resolved; gemini has no per-invocation flag).
     const cfg = deps.resolveConfig(agentId);
-    if (cfg?.mcpSupport === true && cfg.clientId === 'anthropic') {
-      callbackEnv[MCP_CONFIG_ENV_KEY] = buildClaudeMcpConfig({
-        apiBaseUrl: deps.apiBaseUrl,
-        invocationId: record.invocationId,
-        callbackToken: record.callbackToken,
-      });
+    const mcpOpts = {
+      apiBaseUrl: deps.apiBaseUrl,
+      invocationId: record.invocationId,
+      callbackToken: record.callbackToken,
+    };
+    if (cfg?.mcpSupport === true) {
+      if (cfg.clientId === 'anthropic') {
+        callbackEnv[MCP_CONFIG_ENV_KEY] = buildClaudeMcpConfig(mcpOpts);
+      } else if (cfg.clientId === 'openai') {
+        callbackEnv[MCP_CODEX_CONFIG_ARGS_KEY] = JSON.stringify(buildCodexMcpConfigArgs(mcpOpts));
+      }
     }
 
     // M-ACCOUNT: inject the provider API key for this agent's clientId (if the
@@ -838,6 +851,25 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
     // below) so providers spawn with no explicit cwd — the pre-wire behavior, so
     // threads without a projectPath and no defaultWorkspace don't regress.
     const workingDirectory = thread?.projectPath ?? deps.defaultWorkspace;
+
+    // MCP PRODUCER (google): gemini reads MCP servers from a project-level
+    // `<workspace>/.gemini/settings.json` (no per-invocation flag), so write it into
+    // the resolved working directory before the spawn (merge-preserves any user
+    // servers). No workspace → skip + warn rather than dirty the API server's own
+    // cwd; that turn's gemini simply runs tool-less.
+    if (cfg?.mcpSupport === true && cfg.clientId === 'google') {
+      if (workingDirectory !== undefined) {
+        writeGeminiMcpSettings(workingDirectory, mcpOpts);
+      } else {
+        deps.logger({
+          level: 'warn',
+          message:
+            'gemini MCP skipped: no workspace (thread.projectPath / defaultWorkspace) to write .gemini/settings.json into',
+          threadId,
+          agentId,
+        });
+      }
+    }
 
     // Capture this turn's active session id (补充 E E3.3) so each emitted event
     // can be stamped with it — the route layer then tags the persisted agent

@@ -35,14 +35,13 @@ const GEMINI_BASE_ARGS: readonly string[] = ['--yolo', '--output-format', 'strea
 const GEMINI_MODEL_FLAG = '--model';
 /** session resume flag，来源 extraction §2.2（--resume <id>） */
 const GEMINI_RESUME_FLAG = '--resume';
-/** MCP 配置注入 flag，来源 补充 §C3（--config 注入） */
-const GEMINI_CONFIG_FLAG = '--config';
 /** 默认进程超时：10 分钟。来源：coding agent 长任务经验默认，可被 options 覆盖 */
 const GEMINI_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 /** 默认模型；来源：Gemini CLI 默认旗舰模型，可被 options.model 覆盖 */
 const GEMINI_DEFAULT_MODEL = 'gemini-2.5-pro';
-/** callbackEnv 中携带 MCP 配置 JSON 的约定 key（来源：补充 §C3） */
-const MCP_CONFIG_ENV_KEY = 'MCP_CONFIG_JSON';
+// MCP 工具桥：gemini 不吃 per-invocation MCP flag，靠预写的
+// `<workspace>/.gemini/settings.json`（app-factory 在 spawn 前写入，cwd=workspace
+// 时 CLI 自动读取）。对齐 Clowder GeminiAgentService（spawn 不传 MCP flag）。
 
 export interface GeminiServiceDeps {
   readonly agentId: AgentId;
@@ -99,10 +98,7 @@ export function buildArgs(
   if (options?.sessionId) {
     args.push(GEMINI_RESUME_FLAG, options.sessionId);
   }
-  const mcpConfig = options?.callbackEnv?.[MCP_CONFIG_ENV_KEY];
-  if (mcpConfig) {
-    args.push(GEMINI_CONFIG_FLAG, mcpConfig);
-  }
+  // MCP 不经 flag 注入（见上）：gemini 从 cwd 的 .gemini/settings.json 读 MCP server。
   return args;
 }
 
@@ -170,8 +166,8 @@ export class GeminiAgentService implements AgentService {
 
     if (sawDone) {
       // 逻辑回合已结束（result/success）。提前回收进程：SIGTERM + 后台收尾，不在关键
-      // 路径 await 进程退出——gemini 带 --config MCP 收尾慢，否则 SessionMutex 久不放、
-      // 下一条 @gemini 卡住（同 claude 修复）。
+      // 路径 await 进程退出——gemini 起了 MCP server 子进程收尾慢，否则 SessionMutex 久
+      // 不放、下一条 @gemini 卡住（同 claude 修复）。
       kill();
       void exit;
       return;
