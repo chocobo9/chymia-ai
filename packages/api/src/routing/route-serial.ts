@@ -17,6 +17,7 @@ import type {
   AgentMessage,
   InvocationContext,
   PingPongWarning,
+  ThreadRoutingPolicyV1,
 } from '@choco/shared';
 import { createAgentId } from '@choco/shared';
 import type { MentionEntry } from '@choco/api/routing/mention-parser';
@@ -282,6 +283,8 @@ export interface RouteSerialParams {
   readonly teammates: readonly AgentId[];
   readonly mcpAvailable: boolean;
   readonly promptTags: readonly string[];
+  /** F042: thread routing policy injected into each agent's system prompt. */
+  readonly routingPolicy?: ThreadRoutingPolicyV1;
   readonly maxA2ADepth?: number;
   /** Thread-wide (stop-all) signal: stops the chain from starting more agents. */
   readonly signal?: AbortSignal;
@@ -329,6 +332,7 @@ export async function* routeSerial(
       ...(directMessageFrom !== undefined ? { directMessageFrom } : {}),
       ...(pingPongWarning !== undefined ? { pingPongWarning } : {}),
       ...(params.promptTags.length > 0 ? { promptTags: params.promptTags } : {}),
+      ...(params.routingPolicy !== undefined ? { routingPolicy: params.routingPolicy } : {}),
     };
 
     const agentPrompt = composeSerialPrompt(params.prompt, previous);

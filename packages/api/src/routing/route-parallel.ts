@@ -7,7 +7,7 @@
 // One agent's failure must not kill the others — that property is owned by
 // mergeStreams; in-band `error` AgentMessages already flow through normally.
 
-import type { AgentId, AgentMessage, InvocationContext } from '@choco/shared';
+import type { AgentId, AgentMessage, InvocationContext, ThreadRoutingPolicyV1 } from '@choco/shared';
 import { mergeStreams } from '@choco/api/routing/stream-merge';
 import type {
   InvokeAgentFn,
@@ -25,6 +25,8 @@ export interface RouteParallelParams {
   readonly teammates: readonly AgentId[];
   readonly mcpAvailable: boolean;
   readonly promptTags: readonly string[];
+  /** F042: thread routing policy injected into each agent's system prompt. */
+  readonly routingPolicy?: ThreadRoutingPolicyV1;
   /** Thread-wide (stop-all) fallback signal. */
   readonly signal?: AbortSignal;
   /** Per-agent signal resolver — each fan-out agent gets its OWN abort signal. */
@@ -56,6 +58,7 @@ export async function* routeParallel(
         mcpAvailable: params.mcpAvailable,
         a2aEnabled: true,
         ...(params.promptTags.length > 0 ? { promptTags: params.promptTags } : {}),
+        ...(params.routingPolicy !== undefined ? { routingPolicy: params.routingPolicy } : {}),
       };
       const agentSignal = signalFor(params, agentId);
       return params.invoke({

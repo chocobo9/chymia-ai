@@ -522,6 +522,13 @@ export class AgentRouter {
     const strategy: 'serial' | 'parallel' =
       intentResult.intent === 'ideate' ? 'parallel' : 'serial';
 
+    // F042: read the thread routing policy once so each agent's system prompt carries
+    // the review/architecture preference (injected by SystemPromptBuilder).
+    const routingPolicy =
+      this.threadStore !== undefined
+        ? (await this.threadStore.get(threadId))?.routingPolicy
+        : undefined;
+
     const common = {
       threadId,
       prompt: cleanPrompt,
@@ -529,6 +536,7 @@ export class AgentRouter {
       teammates: targets,
       mcpAvailable: this.mcpAvailable,
       promptTags: intentResult.promptTags,
+      ...(routingPolicy !== undefined ? { routingPolicy } : {}),
       ...(options?.signal !== undefined ? { signal: options.signal } : {}),
       ...(options?.signalForAgent !== undefined ? { signalForAgent: options.signalForAgent } : {}),
       ...(this.logger !== undefined ? { logger: this.logger } : {}),
