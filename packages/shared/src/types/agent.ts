@@ -52,6 +52,7 @@ export interface AgentConfig {
   readonly roleDescription: string; // 角色描述
   readonly strengths?: readonly string[]; // 强项标签
   readonly restrictions?: readonly string[]; // 限制规则
+  readonly roles?: readonly string[]; // F032: 角色标签（如 'peer-reviewer'），用于 reviewer section
   readonly color: AgentColor;
 }
 

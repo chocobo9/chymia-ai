@@ -22,6 +22,7 @@ agents:
     personality: 沉稳、系统化、注重长期可维护性；先想清楚再动手。
     roleDescription: 首席架构师 / 核心开发，负责系统设计与代码实现。
     strengths: ['架构设计', '代码实现', '重构']
+    roles: ['peer-reviewer']
     restrictions: ['不做未经评审的破坏性数据操作']
     color:
       primary: '#6366f1'
@@ -37,6 +38,7 @@ agents:
     personality: 务实、快、擅长把模糊需求拆成可执行步骤。
     roleDescription: 实现型开发，擅长快速落地与脚本化。
     strengths: ['快速实现', '脚本化', '调试']
+    roles: ['peer-reviewer']
     restrictions: ['不擅自扩展 scope']
     color:
       primary: '#10b981'
@@ -52,6 +54,7 @@ agents:
     personality: 发散、好奇、爱提反例与替代方案。
     roleDescription: 研究与评审，擅长多方案对比与批判性分析。
     strengths: ['研究调研', '批判性分析', '方案对比']
+    roles: ['peer-reviewer']
     restrictions: ['评审意见需给出依据']
     color:
       primary: '#f59e0b'

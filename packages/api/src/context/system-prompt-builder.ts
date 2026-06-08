@@ -187,6 +187,71 @@ function nameOf(id: AgentId, resolveConfig: ResolveAgentConfig): string {
   return config ? `${config.displayName}(@${id as string})` : `@${id as string}`;
 }
 
+/** Deps for the reviewer section: the full roster + an availability probe. */
+export interface ReviewerDeps {
+  readonly allAgentIds: readonly AgentId[];
+  readonly isAvailable: (id: AgentId) => boolean;
+}
+
+/**
+ * F032: build the reviewer section — which teammates can review this agent's work.
+ * family = clientId (cross-provider review = independent perspective); only agents
+ * with the 'peer-reviewer' role qualify. Cross-provider reviewers are preferred,
+ * same-provider is a fallback, unavailable ones are listed separately. Returns null
+ * when there are no reviewers. Aligns Clowder buildReviewerSection (family→clientId,
+ * lead / reviewPolicy simplified — this repo has neither).
+ */
+export function buildReviewerSection(
+  currentAgentId: AgentId,
+  deps: ReviewerDeps,
+  resolveConfig: ResolveAgentConfig,
+): string | null {
+  const current = resolveConfig(currentAgentId);
+  if (!current) return null;
+
+  const crossFamily: string[] = [];
+  const sameFamily: string[] = [];
+  const unavailable: string[] = [];
+
+  for (const id of deps.allAgentIds) {
+    if (id === currentAgentId) continue;
+    const config = resolveConfig(id);
+    if (!config) continue;
+    if (!config.roles?.includes('peer-reviewer')) continue;
+    const mention = config.mentionPatterns[0] ?? `@${id as string}`;
+    const isDifferentFamily = config.clientId !== current.clientId;
+    if (!deps.isAvailable(id)) {
+      unavailable.push(`- ${mention} (${config.displayName}, 不可用)`);
+      continue;
+    }
+    const line = isDifferentFamily ? `- ${mention} (${config.clientId})` : `- ${mention}`;
+    (isDifferentFamily ? crossFamily : sameFamily).push(line);
+  }
+
+  // Cross-provider reviewers preferred (independence); same-provider as fallback.
+  let available: string[];
+  let fallbackNote: string | null = null;
+  if (crossFamily.length > 0) {
+    available = crossFamily;
+  } else if (sameFamily.length > 0) {
+    available = sameFamily;
+    fallbackNote = '[注意] 无跨 provider reviewer，同 provider 作 fallback：';
+  } else {
+    available = [];
+  }
+
+  if (available.length === 0 && unavailable.length === 0) return null;
+
+  const lines: string[] = ['## 你的 Reviewers', ''];
+  if (available.length > 0) {
+    lines.push(fallbackNote ?? '可以找以下 agent review 你的产出：', ...available, '');
+  }
+  if (unavailable.length > 0) {
+    lines.push('[注意] 以下 reviewer 当前不可用：', ...unavailable, '');
+  }
+  return lines.join('\n').trimEnd();
+}
+
 /**
  * Build the full system prompt: static identity + invocation context.
  * Pure function — same inputs always produce the same output. Returns '' for an
@@ -195,9 +260,17 @@ function nameOf(id: AgentId, resolveConfig: ResolveAgentConfig): string {
 export function buildSystemPrompt(
   context: InvocationContext,
   resolveConfig: ResolveAgentConfig,
+  reviewerDeps?: ReviewerDeps,
 ): string {
   const staticPart = buildStaticIdentity(context.agentId, context.teammates, resolveConfig);
   if (!staticPart) return '';
+  const parts: string[] = [staticPart];
+  // F032: reviewer section between identity and dynamic context (Clowder order).
+  if (reviewerDeps) {
+    const reviewerSection = buildReviewerSection(context.agentId, reviewerDeps, resolveConfig);
+    if (reviewerSection) parts.push(reviewerSection);
+  }
   const dynamicPart = buildInvocationContext(context, resolveConfig);
-  return dynamicPart ? `${staticPart}\n\n${dynamicPart}` : staticPart;
+  if (dynamicPart) parts.push(dynamicPart);
+  return parts.join('\n\n');
 }

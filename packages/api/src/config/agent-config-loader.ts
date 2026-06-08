@@ -43,6 +43,7 @@ const RawAgentSchema = z
     roleDescription: z.string().min(1),
     strengths: z.array(z.string().min(1)).optional(),
     restrictions: z.array(z.string().min(1)).optional(),
+    roles: z.array(z.string().min(1)).optional(),
     color: ColorSchema,
   })
   .strict();
@@ -64,6 +65,7 @@ function toAgentConfig(raw: z.infer<typeof RawAgentSchema>): AgentConfig {
     roleDescription: raw.roleDescription,
     ...(raw.strengths !== undefined ? { strengths: raw.strengths } : {}),
     ...(raw.restrictions !== undefined ? { restrictions: raw.restrictions } : {}),
+    ...(raw.roles !== undefined ? { roles: raw.roles } : {}),
     color: raw.color,
   };
 }

@@ -750,7 +750,13 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       sopStageHint !== undefined ? { ...context, sopStageHint } : context;
     // M11: append the ENABLED-skill guidance so a toggled-on skill actually reaches
     // the agent (empty when none enabled → unchanged prompt).
-    const baseSystemPrompt = buildSystemPrompt(effectiveContext, deps.resolveConfig);
+    // F032: pass the roster + availability so the system prompt carries the reviewer
+    // section (peer-reviewer teammates, cross-provider preferred). The relay cat has
+    // no peer-reviewer role and is forced unavailable, so it never appears.
+    const baseSystemPrompt = buildSystemPrompt(effectiveContext, deps.resolveConfig, {
+      allAgentIds: deps.registry.getAll().map((c) => c.id),
+      isAvailable: (id) => deps.registry.isAvailable(id),
+    });
     const skillBlock = deps.skillBlock();
     const systemPrompt =
       baseSystemPrompt.length > 0 && skillBlock.length > 0
