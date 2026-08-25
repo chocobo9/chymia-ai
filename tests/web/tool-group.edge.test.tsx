@@ -56,7 +56,7 @@ afterEach(() => {
 function viewWith(overrides: Partial<AgentMessageView>): AgentMessageView {
   return {
     agentId: CLAUDE,
-    displayName: 'Claude (Opus)',
+    displayName: 'Claude',
     text: '',
     thinking: '',
     toolBlocks: [],
@@ -314,7 +314,7 @@ describe('ToolRow — compact one-liner + per-row reveal', () => {
     const hostile: Record<string, unknown> = {
       query: 'SELECT * FROM users; <script>alert(1)</script>',
       note: 'he said "quote" & <b>bold</b>',
-      unicode: '布偶猫 🐱',
+      unicode: 'Claude 🐱',
     };
     render(
       <AgentMessage

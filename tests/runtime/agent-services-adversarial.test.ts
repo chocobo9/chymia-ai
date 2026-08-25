@@ -19,7 +19,7 @@ import {
 } from '@choco/api/runtime/agent-services';
 import { ClaudeAgentService } from '@choco/api/providers/claude/claude-service';
 import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
-import { GeminiAgentService } from '@choco/api/providers/gemini/gemini-service';
+import { AntigravityAgentService } from '@choco/api/providers/antigravity/antigravity-service';
 
 // ── Temp-roster fixtures (cleaned up afterEach; no repo litter) ────────────────
 const tmpDirs: string[] = [];
@@ -43,7 +43,7 @@ function writeRoster(yaml: string): string {
 function agentBlock(id: string, clientId: string, model: string): string {
   return [
     `  - id: ${id}`,
-    `    name: 测试猫`,
+    `    name: 测试agent`,
     `    displayName: ${id}`,
     `    clientId: ${clientId}`,
     `    defaultModel: ${model}`,
@@ -111,7 +111,7 @@ describe('buildAgentServicesFromRoster — hostile roster shapes (adversarial)',
 
     expect(anthropic['solo-claude']).toBeInstanceOf(ClaudeAgentService);
     expect(openai['solo-codex']).toBeInstanceOf(CodexAgentService);
-    expect(google['solo-gemini']).toBeInstanceOf(GeminiAgentService);
+    expect(google['solo-gemini']).toBeInstanceOf(AntigravityAgentService);
   });
 
   it('one bad agent in an otherwise-valid roster fails the WHOLE build (all-or-nothing), leaving no partially-wired map', () => {

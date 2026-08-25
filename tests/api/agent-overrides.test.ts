@@ -31,7 +31,7 @@ function baseConfig(): AgentConfig {
   return {
     id: createAgentId('claude-opus'),
     name: 'Claude',
-    displayName: 'Claude (Opus)',
+    displayName: 'Claude',
     clientId: 'anthropic',
     defaultModel: 'claude-opus-4-6',
     mcpSupport: true,
@@ -63,7 +63,7 @@ describe('applyAgentOverride (happy path)', () => {
     expect(result.roleDescription).toBe('改为：API 网关与限流策略负责人。');
     expect(result.strengths).toEqual(['限流设计', 'API 网关']);
     // Everything else is carried from the base.
-    expect(result.displayName).toBe('Claude (Opus)');
+    expect(result.displayName).toBe('Claude');
     expect(result.name).toBe('Claude');
     expect(result.personality).toBe('严谨、克制，先问清楚再动手。');
     expect(result.clientId).toBe('anthropic');

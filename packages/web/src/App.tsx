@@ -365,7 +365,7 @@ export function App(props: AppProps = {}): ReactElement {
         <div className="brand">
           <div className="brand-mark">C</div>
           <div className="brand-name">
-            Choco<span>multi-agent coding</span>
+            Chymia AI<span>personal alchemy workshop</span>
           </div>
         </div>
         <div className="header-spacer" />

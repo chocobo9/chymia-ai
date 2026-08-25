@@ -12,6 +12,7 @@ export * from './types/evidence.js';
 export * from './types/invocation.js';
 export * from './types/skill.js';
 export * from './types/sop.js';
+export * from './types/rules.js';
 export * from './types/context.js';
 export * from './types/hierarchical-context.js';
 export * from './types/platform.js';

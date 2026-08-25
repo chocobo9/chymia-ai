@@ -41,7 +41,7 @@ describe('formatMessage / getSenderName / time (edge)', () => {
 
   it('resolves sender names: user → 用户, known agent → displayName, unknown → raw id', () => {
     expect(getSenderName(null)).toBe('用户');
-    expect(getSenderName(CLAUDE, resolveConfig)).toBe('布偶猫');
+    expect(getSenderName(CLAUDE, resolveConfig)).toBe('Claude');
     expect(getSenderName(GEMINI)).toBe('gemini-pro'); // no resolver → raw branded id
   });
 

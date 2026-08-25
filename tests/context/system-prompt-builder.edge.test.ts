@@ -38,9 +38,9 @@ describe('buildStaticIdentity (edge)', () => {
   it('builds a teammate roster excluding self and unknown teammates', () => {
     const out = buildStaticIdentity(CLAUDE, [CLAUDE, CODEX, UNKNOWN], resolveConfig);
     expect(out).toContain('队友名册');
-    expect(out).toContain('缅因猫'); // CODEX present as a teammate row
-    // Self (布偶猫) appears only in the identity line, never as a teammate row.
-    expect((out.match(/布偶猫/g) ?? []).length).toBe(1);
+    expect(out).toContain('Codex'); // CODEX present as a teammate row
+    // Self (Claude) may appear in the identity line and model badge, but never as a teammate row.
+    expect(out).not.toContain('| Claude |');
     expect(out).not.toContain('ghost-agent'); // unknown teammate skipped
   });
 });
@@ -60,14 +60,14 @@ describe('buildInvocationContext (edge)', () => {
   it('renders a ping-pong warning', () => {
     const out = buildInvocationContext(ctx({ pingPongWarning: { pairedWith: CODEX, count: 4 } }), resolveConfig);
     expect(out).toContain('🏓');
-    expect(out).toContain('缅因猫');
+    expect(out).toContain('Codex');
     expect(out).toContain('4');
   });
 
   it('renders a direct message from another agent', () => {
     const out = buildInvocationContext(ctx({ directMessageFrom: CODEX }), resolveConfig);
     expect(out).toContain('Direct message from');
-    expect(out).toContain('缅因猫');
+    expect(out).toContain('Codex');
   });
 
   it('renders the SOP stage hint', () => {
@@ -93,7 +93,7 @@ describe('buildInvocationContext (edge)', () => {
 describe('buildSystemPrompt (edge)', () => {
   it('combines static identity with the dynamic invocation block', () => {
     const out = buildSystemPrompt(ctx({ mode: 'serial', chainIndex: 1, chainTotal: 2 }), resolveConfig);
-    expect(out).toContain('布偶猫'); // identity
+    expect(out).toContain('Claude'); // identity
     expect(out).toContain('当前模式：串行'); // dynamic
   });
 });

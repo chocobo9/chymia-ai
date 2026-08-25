@@ -1,5 +1,5 @@
 // tests/providers/real-cli-smoke.integration.test.ts
-// M2 NON-GATING integration smoke: 真实 spawn claude/codex/gemini CLI 跑一轮。
+// M2 NON-GATING integration smoke: 真实 spawn claude/codex/agy CLI 跑一轮。
 // 需真实安装 CLI + 凭证。缺 CLI / 未开启时 SKIP（绝不 fail）。
 // 门控（hand-off / Wave 解锁）不依赖此文件（PROJECT_SPEC M2）。
 //
@@ -10,7 +10,7 @@ import type { AgentMessage } from '@choco/shared';
 import { createAgentId } from '@choco/shared';
 import { ClaudeAgentService } from '@choco/api/providers/claude/claude-service';
 import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
-import { GeminiAgentService } from '@choco/api/providers/gemini/gemini-service';
+import { AntigravityAgentService } from '@choco/api/providers/antigravity/antigravity-service';
 import type { AgentService } from '@choco/api/providers/base';
 import Database from 'better-sqlite3';
 import { mkdtempSync } from 'node:fs';
@@ -48,8 +48,8 @@ describe.skipIf(!SMOKE_ENABLED)('real-cli-smoke (integration, non-gating)', () =
     expect(messages.length).toBeGreaterThan(0);
   }, SMOKE_TIMEOUT_MS + 30_000);
 
-  it('gemini CLI spawns and yields at least one parsed message', async () => {
-    const svc = new GeminiAgentService({ agentId: createAgentId('gemini') });
+  it('agy (Antigravity) CLI spawns and yields at least one parsed message', async () => {
+    const svc = new AntigravityAgentService({ agentId: createAgentId('gemini-pro') });
     const messages = await drain(svc);
     expect(messages.length).toBeGreaterThan(0);
   }, SMOKE_TIMEOUT_MS + 30_000);
@@ -69,8 +69,9 @@ describe.skipIf(!SMOKE_ENABLED)('real-cli-smoke (integration, non-gating)', () =
 
 // 端到端：真 CLI 经 invokeSingleAgent + 真 SessionStore。验证 FakeAgentService 之外的
 // 真实会话状态机——session_init→SessionStore 持久化、resume 注入上一轮真 sessionId。
-// P0-2 真证据地基：单测全用 fake 证契约，此处用真 claude/codex/gemini 三 provider 证端到端
-// 成立（gated，非门控）。三个 roster 一视同仁，缺一即砍 scope。
+// P0-2 真证据地基：单测全用 fake 证契约，此处用支持持久会话的 claude/codex
+// provider 证端到端成立（gated，非门控）。Antigravity `agy` 是无会话 print 路径，
+// 其真实 spawn 由上面的 smoke 覆盖，不套用此 session 恢复断言。
 describe.skipIf(!SMOKE_ENABLED)('real-cli end-to-end: invoke + session (integration, non-gating)', () => {
   function makeSessionStore(db: Database.Database): SessionStore {
     return new SessionStore(db, {
@@ -144,14 +145,5 @@ describe.skipIf(!SMOKE_ENABLED)('real-cli end-to-end: invoke + session (integrat
   it('codex: session_init persists + resume injects prior sessionId', async () => {
     const agentId = createAgentId('codex');
     await assertPersistAndResume(agentId, new CodexAgentService({ agentId }));
-  }, PER_TEST_TIMEOUT);
-
-  it('gemini: session_init persists + resume injects prior sessionId', async () => {
-    // 受信目录门：mkdtemp 是全新未信任目录，gemini-cli 未信任会 exit 55 不出 stream-json。
-    // 显式给 GEMINI_CLI_TRUST_WORKSPACE（main.ts ensureWorkspaceTrust 的运行期等价）。
-    const agentId = createAgentId('gemini');
-    await assertPersistAndResume(agentId, new GeminiAgentService({ agentId }), {
-      GEMINI_CLI_TRUST_WORKSPACE: 'true',
-    });
   }, PER_TEST_TIMEOUT);
 });

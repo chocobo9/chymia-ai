@@ -14,7 +14,7 @@ describe('AgentRegistryImpl — happy path (unit)', () => {
   test('resolveByMention matches a configured pattern (incl. Chinese)', () => {
     const registry = makeRegistry();
     expect(registry.resolveByMention('@codex')?.id).toBe(CODEX);
-    expect(registry.resolveByMention('@布偶')?.id).toBe(CLAUDE);
+    expect(registry.resolveByMention('@claude')?.id).toBe(CLAUDE);
     expect(registry.resolveByMention('@nobody')).toBeUndefined();
   });
 

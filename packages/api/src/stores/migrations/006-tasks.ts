@@ -1,7 +1,7 @@
 import type { Database } from 'better-sqlite3';
 
 /**
- * Logical table name for the task-line store (任务线 / 毛线球).
+ * Logical table name for the task-line store (任务线 / 任务).
  * Named const (not inlined) so every statement references one source of truth.
  */
 export const TASKS_TABLE = 'tasks';

@@ -1,7 +1,7 @@
 // tests/routing/real-cli-route-smoke.integration.test.ts
 // P0-1 真证据地基：真 spawn 多 provider 路由端到端 smoke。撕开 router 层 FakeAgentService
 // 坑——单测全用 recording invoke 证路由决策契约，此处用真 AgentRouter → invokeSingleAgent
-// → 真 claude/codex/gemini CLI 证「路由内核在真 CLI 下端到端成立」。
+// → 真 claude/codex/agy CLI 证「路由内核在真 CLI 下端到端成立」。
 //
 // 覆盖路由内核三大路径：
 //   1. 串行(#execute)：@claude @codex → claude 真回 → 其回复经 composeSerialPrompt 注入
@@ -13,7 +13,7 @@
 //      证 gap #1（路由时持久化）+ participant-based fallback，不靠 recording fake。
 //
 // gated：RUN_CLI_SMOKE=1 npx vitest run tests/routing/real-cli-route-smoke.integration.test.ts
-// 需真实安装 claude/codex/gemini CLI + 凭证；未开启时整组 SKIP（绝不 fail）。
+// 需真实安装 claude/codex/agy CLI + 凭证；未开启时整组 SKIP（绝不 fail）。
 
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
@@ -31,7 +31,7 @@ import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 import { SessionMutex } from '@choco/api/invocation/session-mutex';
 import { ClaudeAgentService } from '@choco/api/providers/claude/claude-service';
 import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
-import { GeminiAgentService } from '@choco/api/providers/gemini/gemini-service';
+import { AntigravityAgentService } from '@choco/api/providers/antigravity/antigravity-service';
 import {
   CLAUDE,
   CODEX,
@@ -73,7 +73,7 @@ function makeRealRouterHarness(): RouterHarness {
     {
       [CLAUDE as string]: new ClaudeAgentService({ agentId: CLAUDE }),
       [CODEX as string]: new CodexAgentService({ agentId: CODEX }),
-      [GEMINI as string]: new GeminiAgentService({ agentId: GEMINI }),
+      [GEMINI as string]: new AntigravityAgentService({ agentId: GEMINI }),
     },
     { defaultAgentId: CLAUDE },
   );
@@ -81,8 +81,6 @@ function makeRealRouterHarness(): RouterHarness {
   const seenPrompts: { agentId: string; prompt: string }[] = [];
   const invoke: InvokeAgentFn = (args): AsyncIterable<AgentMessage> => {
     seenPrompts.push({ agentId: args.agentId as string, prompt: args.prompt });
-    // gemini 受信目录门：mkdtemp 未信任目录需显式 trust env，否则 exit 55 收不到流。
-    const extraEnv = args.agentId === GEMINI ? { GEMINI_CLI_TRUST_WORKSPACE: 'true' } : undefined;
     return invokeSingleAgent({
       agentService: registry.getService(args.agentId),
       sessionStore,
@@ -92,7 +90,6 @@ function makeRealRouterHarness(): RouterHarness {
       prompt: args.prompt,
       workingDirectory: cwd,
       timeoutMs: SMOKE_TIMEOUT_MS,
-      ...(extraEnv ? { callbackEnv: extraEnv } : {}),
       ...(args.signal ? { signal: args.signal } : {}),
     });
   };

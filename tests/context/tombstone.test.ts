@@ -51,8 +51,8 @@ describe('buildTombstone (unit, happy path)', () => {
     });
     expect(tombstone!.omittedCount).toBe(3);
     // Participants come from agent messages (resolved display names).
-    expect(tombstone!.participants).toContain('布偶猫');
-    expect(tombstone!.participants).toContain('缅因猫');
+    expect(tombstone!.participants).toContain('Claude');
+    expect(tombstone!.participants).toContain('Codex');
     expect(tombstone!.retrievalHints[0]).toContain('search_evidence(');
     expect(tombstone!.retrievalHints[0]).toContain('thread-todo-api');
   });

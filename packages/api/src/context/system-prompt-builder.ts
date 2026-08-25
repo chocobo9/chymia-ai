@@ -9,8 +9,16 @@
 // inject a config resolver (ResolveAgentConfig). The three exported functions stay
 // pure (same inputs → same output). See DEV report "deviations".
 
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AgentConfig, AgentId, ClientId, InvocationContext } from '@choco/shared';
 import type { ResolveAgentConfig } from './context-assembler.js';
+import { compileSystemPromptL0Blocks, L0_TEMPLATE_PATH } from './system-prompt-l0.js';
+
+const CONTEXT_DIR = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(CONTEXT_DIR, '..', '..', '..', '..');
+const FULL_L0_TEMPLATE_PATH = resolve(PROJECT_ROOT, L0_TEMPLATE_PATH);
 
 /** Human-readable provider labels by CLI client. Source: §4.1 (ClientId). */
 const PROVIDER_LABELS: Record<ClientId, string> = {
@@ -271,6 +279,13 @@ export function buildSystemPrompt(
     if (reviewerSection) parts.push(reviewerSection);
   }
   const dynamicPart = buildInvocationContext(context, resolveConfig);
-  if (dynamicPart) parts.push(dynamicPart);
-  return parts.join('\n\n');
+  if (!existsSync(FULL_L0_TEMPLATE_PATH)) {
+    if (dynamicPart) parts.push(dynamicPart);
+    return parts.join('\n\n');
+  }
+  return compileSystemPromptL0Blocks(readFileSync(FULL_L0_TEMPLATE_PATH, 'utf8'), {
+    identityBlock: parts.join('\n\n'),
+    teammateRoster: '(See identity block roster.)',
+    invocationContext: dynamicPart,
+  });
 }

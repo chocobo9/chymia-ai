@@ -8,7 +8,7 @@
 //               in; auth_mode → detail). Absent ⇒ probe `codex --version`.
 //   google    → FILE-based: ~/.gemini/oauth_creds.json present ⇒ logged in; the email
 //               is the first '@'-ish value in ~/.gemini/google_accounts.json. Absent ⇒
-//               probe `gemini --version`.
+//               probe `agy --version`.
 //
 // We drive a FAKE AuthCliRunner so status PARSE + auth-file READ + command DISPATCH are
 // deterministic without spawning a real CLI / browser / touching the real home dir.
@@ -71,13 +71,13 @@ function ok(stdout: string): CliCaptureResult {
 /** A spawn failure (ENOENT → CLI not installed). */
 const SPAWN_ERROR: CliCaptureResult = { stdout: '', code: null, spawnError: true };
 
-/** Default map: claude logged in; codex/gemini `--version` work; logout succeeds. */
+/** Default map: claude logged in; codex/agy `--version` work; logout succeeds. */
 function defaultCaptures(command: string, args: readonly string[]): CliCaptureResult {
   const key = `${command} ${args.join(' ')}`;
   if (key === 'claude auth status') {
     return ok(JSON.stringify({ loggedIn: true, email: 'me@example.com', subscriptionType: 'max' }));
   }
-  if (key === 'codex --version' || key === 'gemini --version') return ok('1.0.0');
+  if (key === 'codex --version' || key === 'agy --version') return ok('1.0.0');
   if (key === 'claude auth logout' || key === 'codex logout') return ok('Logged out');
   return SPAWN_ERROR;
 }
@@ -300,10 +300,10 @@ describe('getAllProviderAuth — mixed + missing CLIs (adversarial)', () => {
 
   it('[adversarial] one provider spawnErroring does not reject getAllProviderAuth; others still resolve', async () => {
     // claude missing (status spawnError); codex file absent but --version errors too;
-    // gemini file absent but --version ok. getAllProviderAuth must resolve, never throw.
+    // google file absent but agy --version ok. getAllProviderAuth must resolve, never throw.
     const captures: CaptureMap = (c, a) => {
       const key = `${c} ${a.join(' ')}`;
-      if (key === 'gemini --version') return ok('1.0.0');
+      if (key === 'agy --version') return ok('1.0.0');
       return SPAWN_ERROR; // claude status + codex --version both fail
     };
     const runner = new FakeRunner(captures, () => ({ exists: false }));
@@ -348,7 +348,7 @@ describe('triggerProviderLogin (edge + adversarial)', () => {
     const result = triggerProviderLogin(runner, 'google');
     expect(result.ok).toBe(false);
     expect(result.reason).toBeTruthy();
-    // gemini is not CLI-scriptable: we must not even try to spawn a login.
+    // agy is not CLI-scriptable: we must not even try to spawn a login.
     expect(runner.detached).toHaveLength(0);
   });
 
@@ -421,10 +421,10 @@ describe('/api/auth routes — edge + adversarial', () => {
   });
 
   it('[adversarial] GET /api/auth never rejects when one provider`s capture spawnErrors', async () => {
-    // claude status spawnErrors; codex file present (logged in); gemini --version ok.
+    // claude status spawnErrors; codex file present (logged in); agy --version ok.
     const captures: CaptureMap = (c, a) => {
       const key = `${c} ${a.join(' ')}`;
-      if (key === 'gemini --version') return ok('1.0.0');
+      if (key === 'agy --version') return ok('1.0.0');
       return SPAWN_ERROR; // claude status fails
     };
     const files: FileMap = (p) =>

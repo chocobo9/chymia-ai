@@ -1,7 +1,7 @@
 # 真实完成度清单 (STATUS)
 
 > 目的：每个模块按**真实状态**标注，并写明**验证方式**，避免靠口头报「全绿」。
-> 维护：改了什么、验证到哪一级，就更新这里。Git / 文件合入前快照记录于 **2026-08-25**；下方功能矩阵的最近一次全仓验证仍是 **2026-06-05**，未标新日期的真机与全量测试结论均沿用当时证据。
+> 维护：改了什么、验证到哪一级，就更新这里。Git / 文件合入前快照记录于 **2026-08-25**；当前合入候选已在同日完成全仓验证。未标新日期的真机结论仍沿用原证据，不把自动化测试升级为真机结论。
 
 ## Git / 文件合入前快照（2026-08-25）
 
@@ -49,6 +49,16 @@
 
 > 本节只更新 Git、文件、密钥扫描与清理事实。文档改动后 `npx tsc --noEmit` 与 `npx eslint "packages/**/*.ts" --max-warnings 0` 通过；旧功能矩阵中的全量 `passed/skipped` 数字没有在 2026-08-25 重跑，不应当解释为当前全仓测试结果。
 
+## 合入候选复核（2026-08-25）
+
+- 沿用既有 `fix/next-workspace` 分支和既有两个 worktree；**没有新建分支或 workspace**。
+- 将 `main` worktree 中原有的 99 路径本地改动安全暂存后，合入当前既有分支，与已经远端化的 21 个提交以及 `f9a39ac` 文档提交统一复核；原始暂存备份保留到远端 squash merge 与本地 `main` 核验完成。
+- 用户侧 `@gemini` / `clientId: google` 名称保持不变，实际 provider 已从旧 `gemini` CLI 切换为 Antigravity `agy`。旧 Gemini CLI 的 stdin、MCP 真桥接和 session-resume 测试已删除或改写；`agy` 当前是 plain-text、无 MCP 注入、无持久会话的能力边界，不冒充旧能力仍然成立。
+- 公开仓库规则以 `AGENTS.md` + `sop/development.yaml` + `STATUS.md` 为准；本地忽略的 `CLAUDE.md` 仅作补充，tracked 文档不再硬依赖它。
+- 已清理的 58 个调试/临时/解包/旧草稿文件没有重新加入；保留的架构图、PPTX、生成源和文档已明确区分“目标设计”与“当前实现”。
+- 对 21 个原提交历史、当前合入候选文本、PPTX 内部 XML/原始字节及 `main` 本地改动的凭据模式扫描均为 **0 命中**；未发现 API Key、访问令牌或私钥块。
+- 最终全仓验证：`npx tsc --noEmit` 通过；ESLint 0 warning；`npx vitest run` 为 **251 files passed / 6 skipped，2587 tests passed / 16 skipped**。Skipped 均为需显式开启或真实 CLI/凭据的非门控 smoke，不宣称已真机执行。
+
 ## 图例（验证等级，从强到弱）
 
 | 标记 | 含义 |
@@ -59,9 +69,9 @@
 | ⛔ 占位 | 无后端，UI **明确标**「未接入 / 即将上线」（诚实占位，非伪装可用） |
 | ❓ 未核 | 没去验证，状态未知 |
 
-> ⚠️ **全仓 2371 passed / 3 skipped，但通过的用的是 `FakeAgentService`。** 真实 agent CLI（claude/codex/gemini 实际被拉起并回复）的端到端路径**不在通过的测试里**——那 3 个 skipped 全是 `tests/providers/real-cli-smoke.integration.test.ts`。截图（2026-06-04，你提供）证明 `claude-opus` 在真飞书里能回，但 `codex/gemini` 当时显示为不可用。所以"agent 真能干活"目前只对 claude 一条链有真机证据。
+> ⚠️ **2026-08-25 全仓为 2587 passed / 16 skipped。** 通过项以单元/集成测试为主；真实 CLI、长 prompt、MCP bridge 和多 provider 路由 smoke 需要显式环境变量与本机凭据，本次保持 skipped。因此不能把全绿解释成 claude/codex/agy 都已真机跑通。截图（2026-06-04，你提供）仍只直接证明 `claude-opus` 在真飞书里能回；Codex 长 prompt 另有 06-08 提交证据，Antigravity 本次未真机复验。
 
-> 🔎 **本次（2026-06-05）校验边界（诚实）**：我直接验的是 `npx vitest run`（2371 passed/3 skipped）、`npx tsc --noEmit`（repo 0 error）、`eslint`（改动文件 0）、以及审计的**隔离 live-server 检查**（127.0.0.1:4099、临时库、fake CLI——真 HTTP/真引擎/真 EventAuditLog，但非你的真实例）。**所有 ✅真通 里依赖「真飞书 / 截图 / live /api/... / 你的运行实例」的项，本会话我没有也不能复验**（不碰你在跑的 :3000/:5174）——它们的证据是你 2026-06-04 的真机使用，沿用、未由我重测。
+> 🔎 **当前校验边界（诚实）**：2026-08-25 直接验证的是全量 Vitest、TypeScript、ESLint、Git 状态和凭据扫描；没有启动或触碰你的真实运行实例。下方所有依赖「真飞书 / 截图 / live `/api/...`」的 ✅ 结论仍来自原日期证据，未由本次自动化复验。
 
 ---
 
@@ -131,16 +141,23 @@
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| 路由 / 编排 / 多 agent / 上下文 / evidence / SOP / skills | 🟢 测试绿 | 2379 passed / 3 skipped，但**全用 FakeAgentService**；真 CLI 端到端 = skipped |
-| provider done 时机（claude/gemini result→done + kill 回收） | 🟢 测试绿 | 修 @all 串行卡死 / @gemini 慢；codex 同隐患未修（follow-up） |
-| provider 身份注入（仅首轮注入、resume 不重复） | 🟢 测试绿 | 修 gemini/codex 身份死循环；claude 原生 flag 不发作 |
+| 路由 / 编排 / 多 agent / 上下文 / evidence / SOP / skills | 🟢 测试绿 | 2026-08-25 全仓 2587 passed / 16 skipped；真实 CLI smoke 仍为 gated skipped |
+| provider 收尾（Claude/Codex/Antigravity） | 🟢 测试绿 | Claude 保留 result 收尾；Antigravity drain stdout 后分类并 done；Codex 保留现有流式收尾。真 CLI 时序本次未复验 |
+| provider 身份注入 | 🟢 测试绿 | Claude 原生 system prompt；Codex fresh 注入、resume 不重复；Antigravity 无持久会话，按 stateless print 每轮带身份 |
 | 真实 agent CLI 调用（claude） | ✅ 真通（你 06-04，截图） | claude-opus 在飞书真回了 |
-| 真实 agent CLI 调用（codex / gemini） | codex：✅ 长 prompt 真 CLI 路径有 06-08 提交证据；gemini：❓ 未核 | `f6d88a2` 补 Codex 长 prompt 真机测试并将该路径从 PARTIAL 改为 DONE；本次未复跑。Gemini 仍没有新增真机结论 |
+| 真实 agent CLI 调用（Codex / Antigravity） | Codex：✅ 长 prompt 真 CLI 路径有 06-08 提交证据；Antigravity：❓ 未核 | `f6d88a2` 补 Codex 长 prompt 真机测试；本次未开启 gated smoke。用户侧仍显示 Gemini，但实际后端已是 `agy` |
 | 闸（早闸 PreToolUse / commit-msg / CI alignment-gate） | 🟢 已装 + commit 闸已生效 | 本会话装齐并提交(999aa3b)；两个碰 packages/** 的提交都过 commit 闸（带齐三 trailer）。早闸需你重启 CC 才加载 |
 
 ---
 
 ## 变更记录
+
+### 2026-08-25 · 既有分支合入候选统一复核
+- 没有新建分支/workspace；把 `main` 原有本地改动通过可恢复 stash 合入既有 `fix/next-workspace`，并保留备份直到 merge 后核验。
+- 合并目标设计文档、架构图与现有实现；公开 agent 指引不再依赖未跟踪的本地 `CLAUDE.md`。
+- 采用 `@gemini` 名称不变、后端切换 Antigravity `agy` 的较新实现，清除旧 Gemini CLI 的失效测试证据，并修正 relay roster 与编译 L0/SOP 测试的组合断言。
+- 再次确认调试截图、失败测试、临时文件、PPTX 解包结果和三个旧迭代草稿均已清理；API Key/令牌/私钥扫描 0 命中。
+- 门禁：`tsc` 通过；ESLint 0 warning；Vitest **2587 passed / 16 skipped**。真实 CLI smoke 未开启，仍待真机验证。
 
 ### 2026-08-25 · Git / 文件状态对齐（本会话）
 - 刷新并直接确认远端 heads：`main=eb1603d`、`fix/next-workspace=f6d88a2`。
@@ -202,13 +219,13 @@
 
 1. 飞书群聊 / 出站媒体 / 入站图片真正可见 —— 真机验证或补完（出站媒体/入站非文本仍 🟡）。
 2. ~~WeCom / 个人微信 / Telegram~~ —— **不做（2026-06-05 决策：IM 只用飞书，生态足够）**，代码保留不维护。
-3. codex / gemini 真 CLI 端到端 —— Codex 长 prompt 真 CLI 路径已有 06-08 提交证据，但一般端到端仍待复验；Gemini 仍是 ❓未核。
+3. Codex / Antigravity 真 CLI 端到端 —— Codex 长 prompt 真 CLI 路径已有 06-08 提交证据，但一般端到端仍待复验；Antigravity `agy` 仍是 ❓未核。
 4. 占位区（能力市场 / 通知 / Token用量 / 外部MCP）仍待决策；Workspace 已完成开发/任务的已提交实现，仍欠终端、调度和社区的既定范围。
 5. 审计/飞书/桥/provider 修复的 ✅/🟢 项需你**重启实例后真机复验**（本会话只到测试绿 + 隔离 live；未碰你的运行实例）。重点验：A 慢、C 死循环、B web→飞书、以及「封存=清理上下文」对 gemini/codex 够不够。
-6. **gemini/codex 中途更新上下文**：「封存=清理」已可用，待验；若不够 → 加 #2「中途 framed 更新」（中体量，未做）。
-7. **已知 bug（2026-06-05 真机，已记录未分析，见记忆 gemini-context-bleed-bugs）**：
-   - gemini 跨对话/跨项目**上下文串台**（问它读 eval 目录，它答无关的 `use-editor.ts` 类型修复）；重启+封存后仍发作。
-   - **reopen(解封) 后开新对话，gemini 又输出旧错误结果，且审计无活动**。
+6. **Codex 中途更新上下文**：「封存=清理」已可用，待验；Antigravity 是 stateless print 路径，不沿用旧 Gemini session-resume 设计。
+7. **旧 Gemini CLI 已知 bug（2026-06-05 真机，后端现已替换，需用 Antigravity 复验）**：
+   - 旧 Gemini CLI 曾跨对话/跨项目**上下文串台**（问它读 eval 目录，它答无关的 `use-editor.ts` 类型修复）；重启+封存后仍发作。
+   - 旧 Gemini CLI 曾在 **reopen(解封) 后开新对话**时输出旧错误结果，且审计无活动。
    - **新对话审计面板空白**（不显示任何活动）。
    - workspace 沙箱限制在 `.workspace`，读不了跨项目路径（`D:\proj\CTI-RAG\...`）。
 8. **已复现、未修复：无活动 thread 时 scope selector 预选模型无效** —— 临时回归测试曾有两项失败，现已按用户要求清理，不在待提交文件中；本会话只记录，不开发。

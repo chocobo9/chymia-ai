@@ -20,6 +20,7 @@ import type { AgentMessage } from '@choco/shared';
 import {
   isCliAvailable,
   probeAgentAvailability,
+  resolveCliCommand,
   type CliAvailabilityOptions,
 } from '@choco/api/runtime/cli-availability';
 import type { AgentService } from '@choco/api/providers/base';
@@ -166,6 +167,27 @@ describe('§A isCliAvailable (win32 PATHEXT)', () => {
       exists: existsFor([join(customBin, 'tool.exe')]),
     };
     expect(isCliAvailable('tool', opts2)).toBe(false);
+  });
+
+  it('regression: agy resolves from LOCALAPPDATA standard install path even when PATH is stale', () => {
+    const localAppData = join('C:', 'Users', 'me', 'AppData', 'Local');
+    const opts: CliAvailabilityOptions = {
+      platform: 'win32',
+      env: { PATH: '', PATHEXT: '.EXE', LOCALAPPDATA: localAppData },
+      exists: existsFor([join(localAppData, 'agy', 'bin', 'agy.exe')]),
+    };
+    expect(isCliAvailable('agy', opts)).toBe(true);
+  });
+
+  it('regression: agy fallback exposes the absolute executable path for spawn', () => {
+    const localAppData = join('C:', 'Users', 'me', 'AppData', 'Local');
+    const exe = join(localAppData, 'agy', 'bin', 'agy.exe');
+    const opts: CliAvailabilityOptions = {
+      platform: 'win32',
+      env: { PATH: '', PATHEXT: '.EXE', LOCALAPPDATA: localAppData },
+      exists: existsFor([exe]),
+    };
+    expect(resolveCliCommand('agy', opts)).toBe(exe);
   });
 });
 

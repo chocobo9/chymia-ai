@@ -87,7 +87,7 @@ function fakeClient(): ApiClient {
       return Promise.resolve(
         json({
           commits: [
-            { hash: 'abc123def456', short: 'abc123de', author: '铲屎官', date: '2026-06-05T10:00:00+08:00', subject: '对齐开发 tab' },
+            { hash: 'abc123def456', short: 'abc123de', author: '用户', date: '2026-06-05T10:00:00+08:00', subject: '对齐开发 tab' },
           ],
         }),
       );

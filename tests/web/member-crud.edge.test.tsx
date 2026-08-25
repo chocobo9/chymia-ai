@@ -40,7 +40,7 @@ class MockSocket implements SocketLike {
 /** A runtime-added member (removable) — a second Claude identity, the reviewer. */
 const REVIEWER: AgentRosterEntry = {
   id: 'claude-review',
-  name: '审查布偶',
+  name: 'Review Agent',
   displayName: 'Claude (Reviewer)',
   clientId: 'anthropic',
   color: { primary: '#dc2626', secondary: '#f87171' },
@@ -95,7 +95,7 @@ describe('添加成员 modal (create)', () => {
     await waitFor(() => expect(screen.getByTestId('member-create-modal')).toBeInTheDocument());
 
     await userEvent.type(screen.getByTestId('member-create-id'), 'claude-review');
-    await userEvent.type(screen.getByTestId('member-create-name'), '审查布偶');
+    await userEvent.type(screen.getByTestId('member-create-name'), 'Review Agent');
     await userEvent.type(screen.getByTestId('member-create-model'), 'claude-opus-4-6');
     await userEvent.type(screen.getByTestId('member-create-mentions'), 'review 审查'); // space-separated
     await userEvent.click(screen.getByTestId('member-create-save'));
@@ -104,7 +104,7 @@ describe('添加成员 modal (create)', () => {
     expect(client.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'claude-review',
-        name: '审查布偶',
+        name: 'Review Agent',
         clientId: 'anthropic',
         defaultModel: 'claude-opus-4-6',
         mentionPatterns: ['@review', '@审查'], // @-prefixed by the composer
@@ -121,7 +121,7 @@ describe('添加成员 modal (create)', () => {
     await userEvent.click(screen.getByTestId('member-create-open'));
     expect(screen.getByTestId('member-create-save')).toBeDisabled();
     await userEvent.type(screen.getByTestId('member-create-id'), 'claude-review');
-    await userEvent.type(screen.getByTestId('member-create-name'), '审查布偶');
+    await userEvent.type(screen.getByTestId('member-create-name'), 'Review Agent');
     // Still missing model + mention → still disabled.
     expect(screen.getByTestId('member-create-save')).toBeDisabled();
   });

@@ -12,12 +12,12 @@ describe('ContextAssembler (unit, happy path)', () => {
   it('assembles recent history with a header/footer wrapper', () => {
     const msgs = [
       makeMessage({ agentId: null, content: '@claude 写一个 TODO API。', mentions: [CLAUDE], offsetMin: 0 }),
-      makeMessage({ agentId: CLAUDE, content: '布偶猫：好的，我来设计 schema。', offsetMin: 1 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude：好的，我来设计 schema。', offsetMin: 1 }),
     ];
     const assembled = new ContextAssembler({ resolveConfig }).assemble(msgs);
     expect(assembled.messageCount).toBe(2);
     expect(assembled.contextText).toContain('[对话历史 - 最近 2 条]');
-    expect(assembled.contextText).toContain('布偶猫');
+    expect(assembled.contextText).toContain('Claude');
     expect(assembled.contextText).toContain('用户');
     expect(assembled.contextText).toContain('[/对话历史]');
     expect(assembled.estimatedTokens).toBeGreaterThan(0);
@@ -43,13 +43,13 @@ describe('ContextAssembler (unit, happy path)', () => {
 
   it('getSenderName resolves agents and labels users', () => {
     expect(getSenderName(null)).toBe('用户');
-    expect(getSenderName(CLAUDE, resolveConfig)).toBe('布偶猫');
+    expect(getSenderName(CLAUDE, resolveConfig)).toBe('Claude');
     expect(getSenderName(CLAUDE)).toBe('claude-opus'); // no resolver → raw id
   });
 
   it('formatMessage emits [HH:MM sender] content', () => {
     const msg = makeMessage({ agentId: CLAUDE, content: '完成。', offsetMin: 0 });
     const line = formatMessage(msg, { resolveConfig });
-    expect(line).toBe(`[${formatPromptTime(msg.timestamp)} 布偶猫] 完成。`);
+    expect(line).toBe(`[${formatPromptTime(msg.timestamp)} Claude] 完成。`);
   });
 });

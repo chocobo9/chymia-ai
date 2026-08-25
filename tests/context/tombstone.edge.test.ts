@@ -74,12 +74,12 @@ describe('buildTombstone (edge)', () => {
   it('lists unique agent participants and excludes the user', () => {
     const omitted = [
       makeMessage({ agentId: null, content: '用户提问', offsetMin: 0 }),
-      makeMessage({ agentId: CLAUDE, content: '布偶回复一', offsetMin: 1 }),
-      makeMessage({ agentId: CLAUDE, content: '布偶回复二', offsetMin: 2 }),
-      makeMessage({ agentId: CODEX, content: '缅因 review', offsetMin: 3 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude reply one', offsetMin: 1 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude reply two', offsetMin: 2 }),
+      makeMessage({ agentId: CODEX, content: 'Codex review', offsetMin: 3 }),
     ];
     const ts = buildTombstone(omitted, 'TODO API', cfg(), { resolveConfig });
-    expect(ts?.participants).toEqual(['布偶猫', '缅因猫']);
+    expect(ts?.participants).toEqual(['Claude', 'Codex']);
   });
 
   it('embeds the threadId into the retrieval hint when provided', () => {

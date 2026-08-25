@@ -43,7 +43,7 @@ function makeConfig(
   };
 }
 
-export const CLAUDE_CONFIG = makeConfig(CLAUDE, 'Claude', ['@claude', '@布偶']);
+export const CLAUDE_CONFIG = makeConfig(CLAUDE, 'Claude', ['@claude', '@claude']);
 export const CODEX_CONFIG = makeConfig(CODEX, 'Codex', ['@codex']);
 export const GEMINI_CONFIG = makeConfig(GEMINI, 'Gemini', ['@gemini']);
 

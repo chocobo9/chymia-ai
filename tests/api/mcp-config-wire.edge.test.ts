@@ -87,7 +87,7 @@ function rosterAgent(
 ): string {
   return [
     `  - id: ${id}`,
-    `    name: 测试猫`,
+    `    name: 测试agent`,
     `    displayName: ${id}`,
     `    clientId: ${clientId}`,
     `    defaultModel: ${model}`,

@@ -3,7 +3,7 @@ import { buildCoverageMap, formatCoverageMap } from '@choco/api/context/coverage
 
 function makeInput() {
   return {
-    omitted: { count: 18, timeRange: { from: 1_000, to: 2_000 }, participants: ['布偶猫', '缅因猫'] },
+    omitted: { count: 18, timeRange: { from: 1_000, to: 2_000 }, participants: ['Claude', 'Codex'] },
     burst: { count: 7, timeRange: { from: 3_000, to: 4_000 } },
     anchorIds: ['msg_a', 'msg_b'],
     threadMemory: { available: true, sessionsIncorporated: 2, decisions: ['用 SQLite'] },

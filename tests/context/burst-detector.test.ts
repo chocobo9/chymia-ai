@@ -26,10 +26,10 @@ describe('detectRecentBurst (unit, happy path)', () => {
   it('semantic-chain protection: Q→A pair is not split', () => {
     const msgs = [
       makeMessage({ agentId: null, content: '项目启动：先定 API 边界。', offsetMin: 0 }),
-      makeMessage({ agentId: CLAUDE, content: '布偶猫：API 边界我来定。', offsetMin: 1 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude：API 边界我来定。', offsetMin: 1 }),
       makeMessage({ agentId: null, content: '@claude database schema 怎么设计？', mentions: [CLAUDE], offsetMin: 2 }),
       // 18-minute gap before the answer → naive cut would land on the answer alone.
-      makeMessage({ agentId: CLAUDE, content: '布偶猫：schema 用 todos 表，加 created_at 索引。', offsetMin: 20 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude：schema 用 todos 表，加 created_at 索引。', offsetMin: 20 }),
     ];
     const { burst, omitted } = detectRecentBurst(msgs, chainConfig);
     expect(burst).toHaveLength(2);
@@ -42,17 +42,17 @@ describe('detectRecentBurst (unit, happy path)', () => {
     const msgs = [
       // Agent opener (not a user message) so Q→A protection does not also pull it in;
       // keeps this test focused on the tool_use→tool_result chain.
-      makeMessage({ agentId: CODEX, content: '缅因猫：准备 review 迁移脚本。', offsetMin: 0 }),
+      makeMessage({ agentId: CODEX, content: 'Codex：准备 review 迁移脚本。', offsetMin: 0 }),
       makeMessage({
         agentId: CODEX,
-        content: '缅因猫：开始读取迁移脚本。',
+        content: 'Codex：开始读取迁移脚本。',
         offsetMin: 1,
         toolEvents: [{ type: 'tool_use', label: 'read_file' }],
       }),
       // 19-minute gap → naive cut would split the tool call from its result.
       makeMessage({
         agentId: CODEX,
-        content: '缅因猫：迁移脚本读取完成，内容是 CREATE TABLE todos ...',
+        content: 'Codex：迁移脚本读取完成，内容是 CREATE TABLE todos ...',
         offsetMin: 20,
         toolEvents: [{ type: 'tool_result', label: 'read_file' }],
       }),

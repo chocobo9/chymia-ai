@@ -246,10 +246,10 @@ describe('post_message targetAgents through the tool (adversarial)', () => {
     // Two real fake agents. We target ONLY claude-opus, but the content tries to
     // pull in @gemini via an embedded mention. The fan-out must hit ONLY claude.
     const claudeFake = new FakeAgentService([
-      [textEvent(CLAUDE, '布偶猫已收到任务。', 1_000), doneEvent(CLAUDE, 1_001)],
+      [textEvent(CLAUDE, 'Claude已收到任务。', 1_000), doneEvent(CLAUDE, 1_001)],
     ]);
     const geminiFake = new FakeAgentService([
-      [textEvent(GEMINI, '暹罗猫不应被调用。', 2_000), doneEvent(GEMINI, 2_001)],
+      [textEvent(GEMINI, 'Gemini不应被调用。', 2_000), doneEvent(GEMINI, 2_001)],
     ]);
     const { client } = await harness({ 'claude-opus': claudeFake, 'gemini-pro': geminiFake });
 

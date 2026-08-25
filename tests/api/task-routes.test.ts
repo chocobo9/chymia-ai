@@ -49,14 +49,14 @@ describe('/api/tasks — task-line CRUD (happy)', () => {
     const { status, task } = await post(app, {
       threadId: THREAD,
       title: '把审计子视图对齐到 Clowder',
-      why: '当前是占位，铲屎官要可操作的真后端',
+      why: '当前是占位，用户要可操作的真后端',
       createdBy: 'user',
     });
     expect(status).toBe(201);
     expect(task).toMatchObject({
       threadId: THREAD,
       title: '把审计子视图对齐到 Clowder',
-      why: '当前是占位，铲屎官要可操作的真后端',
+      why: '当前是占位，用户要可操作的真后端',
       createdBy: 'user',
       status: 'todo',
     });

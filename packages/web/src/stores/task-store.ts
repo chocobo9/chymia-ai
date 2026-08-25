@@ -1,4 +1,4 @@
-// task store — Zustand state for per-thread task lines (任务线 / 毛线球), kept in
+// task store — Zustand state for per-thread task lines (任务线 / 任务), kept in
 // sync by the WorkspaceTasks board (load + optimistic CRUD) and the socket
 // listeners (task_created / task_updated / task_deleted from other clients, the
 // agent, or 飞书). Immutable updates throughout (CLAUDE.md coding-style).

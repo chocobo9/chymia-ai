@@ -8,7 +8,7 @@ import { buildCoverageMap, formatCoverageMap } from '@choco/api/context/coverage
 
 function input(over?: Partial<CoverageMapInput>): CoverageMapInput {
   return {
-    omitted: { count: 18, timeRange: { from: 1000, to: 2000 }, participants: ['布偶猫', '缅因猫'] },
+    omitted: { count: 18, timeRange: { from: 1000, to: 2000 }, participants: ['Claude', 'Codex'] },
     burst: { count: 7, timeRange: { from: 3000, to: 4000 } },
     anchorIds: ['msg_a', 'msg_b'],
     threadMemory: null,
@@ -29,10 +29,10 @@ describe('buildCoverageMap (edge)', () => {
   it('defensively copies arrays so later input mutation does not leak in', () => {
     const src = input();
     const map = buildCoverageMap(src);
-    src.omitted.participants.push('暹罗猫');
+    src.omitted.participants.push('Gemini');
     src.anchorIds.push('msg_c');
     src.retrievalHints.push('extra');
-    expect(map.omitted.participants).toEqual(['布偶猫', '缅因猫']);
+    expect(map.omitted.participants).toEqual(['Claude', 'Codex']);
     expect(map.anchorIds).toEqual(['msg_a', 'msg_b']);
     expect(map.retrievalHints).toEqual(['search_evidence("database schema")']);
   });

@@ -47,7 +47,7 @@ const fakeGit: GitRunner = (args) => {
     return Promise.resolve({ stdout: 'main\n', stderr: '', code: 0 });
   }
   if (sub.startsWith('log')) {
-    const line = ['abc123def456', '铲屎官', '2026-06-05T10:00:00+08:00', '修任务 tab'].join(NUL);
+    const line = ['abc123def456', '用户', '2026-06-05T10:00:00+08:00', '修任务 tab'].join(NUL);
     return Promise.resolve({ stdout: `${line}\n`, stderr: '', code: 0 });
   }
   if (sub.startsWith('diff')) {
@@ -115,7 +115,7 @@ describe('GET /api/workspace/git-log + git-status (Git)', () => {
     expect(res.statusCode).toBe(200);
     const { commits } = res.json<{ commits: { hash: string; short: string; author: string; subject: string }[] }>();
     expect(commits).toHaveLength(1);
-    expect(commits[0]).toMatchObject({ hash: 'abc123def456', short: 'abc123de', author: '铲屎官', subject: '修任务 tab' });
+    expect(commits[0]).toMatchObject({ hash: 'abc123def456', short: 'abc123de', author: '用户', subject: '修任务 tab' });
   });
 
   it('git-status classifies staged / unstaged / untracked + reports the branch', async () => {

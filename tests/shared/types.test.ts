@@ -61,12 +61,12 @@ describe('M1 agent (§4.1) — real instances', () => {
   it('constructs an AgentConfig for the claude provider with mention patterns', () => {
     const cfg: AgentConfig = {
       id: claudeId,
-      name: '布偶猫',
-      displayName: 'Claude (Opus)',
+      name: 'Claude',
+      displayName: 'Claude',
       clientId: 'anthropic',
       defaultModel: 'claude-opus-4-6',
       mcpSupport: true,
-      mentionPatterns: ['@claude', '@布偶', '@宪宪'],
+      mentionPatterns: ['@claude', '@claude', '@claude'],
       personality: '沉稳、注重架构清晰度',
       roleDescription: '架构与实现主力',
       strengths: ['架构设计', '代码实现'],
@@ -74,7 +74,7 @@ describe('M1 agent (§4.1) — real instances', () => {
       color: { primary: '#6366f1', secondary: '#818cf8' },
     };
     expect(cfg.clientId).toBe('anthropic');
-    expect(cfg.mentionPatterns).toContain('@布偶');
+    expect(cfg.mentionPatterns).toContain('@claude');
     expect(cfg.color.primary).toBe('#6366f1');
   });
 
@@ -234,8 +234,8 @@ describe('M1 evidence (§4.5) — real instances with Chinese content', () => {
     const entity: EntityRecord = {
       entityId: 'agent:claude-opus',
       type: 'agent',
-      canonicalName: 'Claude (Opus)',
-      aliases: ['claude', '布偶猫', '宪宪'],
+      canonicalName: 'Claude',
+      aliases: ['claude', 'Claude', '宪宪'],
       updatedAt: '2026-05-30T08:00:00.000Z',
     };
     const edge: EvidenceEdge = {
@@ -245,7 +245,7 @@ describe('M1 evidence (§4.5) — real instances with Chinese content', () => {
       createdAt: '2026-05-30T09:00:00.000Z',
     };
     expect(entity.type).toBe('agent');
-    expect(entity.aliases).toContain('布偶猫');
+    expect(entity.aliases).toContain('Claude');
     expect(edge.relation).toBe('evolved_from');
   });
 

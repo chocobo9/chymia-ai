@@ -25,8 +25,8 @@ describe('parseUserMentions — happy path (unit)', () => {
     ).toEqual([CLAUDE, CODEX]);
   });
 
-  test('matches a Chinese mention pattern (@布偶)', () => {
-    expect(parseUserMentions('@布偶 帮我设计数据库 schema', ENTRIES)).toEqual([CLAUDE]);
+  test('matches a Chinese mention pattern (@claude)', () => {
+    expect(parseUserMentions('@claude 帮我设计数据库 schema', ENTRIES)).toEqual([CLAUDE]);
   });
 
   test('no @mention → empty list', () => {

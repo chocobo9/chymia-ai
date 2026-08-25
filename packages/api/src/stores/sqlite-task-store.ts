@@ -1,4 +1,4 @@
-// SqliteTaskStore — the persistent backend for task lines (任务线 / 毛线球).
+// SqliteTaskStore — the persistent backend for task lines (任务线 / 任务).
 //
 // Aligned to Clowder reference/.../stores/ports/TaskStore.ts (ITaskStore +
 // in-memory TaskStore). DELIBERATE DEVIATION: Clowder keeps tasks in a bounded

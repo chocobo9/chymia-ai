@@ -18,7 +18,8 @@
 //   HOST                   Bind host.  Default 0.0.0.0.
 //   CHOCO_CLAUDE_CMD       Override the claude CLI command/path (default 'claude').
 //   CHOCO_CODEX_CMD        Override the codex  CLI command/path (default 'codex').
-//   CHOCO_GEMINI_CMD       Override the gemini CLI command/path (default 'gemini').
+//   CHOCO_GEMINI_CMD       Override the google-client CLI command/path (default 'agy'
+//                          — @gemini/Gemini 后端 = Antigravity agy CLI).
 //                          Use when a CLI is installed under a different name or is
 //                          NOT on PATH — set an ABSOLUTE path and the boot
 //                          availability probe resolves it directly (off-PATH OK).
@@ -60,7 +61,7 @@ import {
   buildMemberService,
   resolvePermissionMode,
 } from '@choco/api/runtime/agent-services';
-import { probeAgentAvailability } from '@choco/api/runtime/cli-availability';
+import { probeAgentAvailability, resolveCliCommand } from '@choco/api/runtime/cli-availability';
 import {
   createFileLogger,
   routeLoggerFrom,
@@ -265,7 +266,11 @@ async function main(): Promise<void> {
   // for an explicit @mention of an unavailable one — never a silent spawn-fail.
   // Derived at boot (deployment-agnostic), NOT hardcoded in agents.yaml.
   const commandByClient = resolveCommandByClient();
-  const agentServices = buildAgentServicesFromRoster({ permissionMode, commandByClient });
+  const agentServices = buildAgentServicesFromRoster({
+    permissionMode,
+    commandByClient,
+    commandResolver: resolveCliCommand,
+  });
 
   // 成员增删: the persisted runtime-ADDED members + the factory that builds a NEW
   // member's provider (curried with the live permissionMode/commandByClient). Loaded
@@ -273,7 +278,7 @@ async function main(): Promise<void> {
   const runtimeRosterPath = resolveRuntimeRosterPath();
   const runtimeRoster = new JsonRuntimeRosterStore(runtimeRosterPath);
   const buildMember = (config: Parameters<typeof buildMemberService>[0]): ReturnType<typeof buildMemberService> =>
-    buildMemberService(config, { permissionMode, commandByClient });
+    buildMemberService(config, { permissionMode, commandByClient, commandResolver: resolveCliCommand });
 
   // Probe CLI availability for BASE + runtime members (so an added member whose CLI
   // isn't installed shows offline, same honest signal as the base roster).

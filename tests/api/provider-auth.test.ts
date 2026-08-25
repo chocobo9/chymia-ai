@@ -42,7 +42,7 @@ class FakeRunner implements AuthCliRunner {
   }
 }
 
-/** claude logged in (real JSON shape); codex/gemini --version present. */
+/** claude logged in (real JSON shape); codex/agy --version present. */
 function defaultCaptures(command: string, args: readonly string[]): CliCaptureResult {
   const key = `${command} ${args.join(' ')}`;
   if (key === 'claude auth status') {
@@ -52,7 +52,7 @@ function defaultCaptures(command: string, args: readonly string[]): CliCaptureRe
       spawnError: false,
     };
   }
-  if (key === 'codex --version' || key === 'gemini --version') {
+  if (key === 'codex --version' || key === 'agy --version') {
     return { stdout: '1.0.0', code: 0, spawnError: false };
   }
   if (key === 'claude auth logout' || key === 'codex logout') {
@@ -103,6 +103,23 @@ describe('provider-auth status (dev happy path)', () => {
     const codex = await getProviderAuthStatus(runner, 'openai');
     expect(codex.available).toBe(true); // codex --version ok
     expect(codex.loggedIn).toBe(false); // no auth.json
+  });
+
+  it('[regression] probes agy, not the removed gemini CLI, when google creds are absent', async () => {
+    const seen: string[] = [];
+    const runner = new FakeRunner((command, args) => {
+      seen.push(`${command} ${args.join(' ')}`);
+      return command === 'agy' && args.join(' ') === '--version'
+        ? { stdout: '1.0.6', code: 0, spawnError: false }
+        : { stdout: '', code: null, spawnError: true };
+    }, () => ({ exists: false }));
+
+    const google = await getProviderAuthStatus(runner, 'google');
+
+    expect(google.available).toBe(true);
+    expect(google.loggedIn).toBe(false);
+    expect(seen).toContain('agy --version');
+    expect(seen).not.toContain('gemini --version');
   });
 });
 

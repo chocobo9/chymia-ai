@@ -29,14 +29,14 @@ describe('buildSystemPrompt (unit, happy path)', () => {
     const prompt = buildSystemPrompt(serialContext(), resolveConfig);
 
     // Identity
-    expect(prompt).toContain('布偶猫');
+    expect(prompt).toContain('Claude');
     expect(prompt).toContain('Anthropic');
     expect(prompt).toContain('架构设计与核心实现');
     // Restrictions (current agent's hard limits)
     expect(prompt).toContain('禁止直接合并到 main');
     // Teammate roster: teammate display names + a teammate restriction
     expect(prompt).toContain('队友名册');
-    expect(prompt).toContain('缅因猫');
+    expect(prompt).toContain('Codex');
     expect(prompt).toContain('@codex');
     expect(prompt).toContain('禁止写产品需求文档');
   });
@@ -62,12 +62,12 @@ describe('buildSystemPrompt (unit, happy path)', () => {
   it('directMessageFrom names the A2A sender', () => {
     const dyn = buildInvocationContext(serialContext({ directMessageFrom: CODEX }), resolveConfig);
     expect(dyn).toContain('Direct message from');
-    expect(dyn).toContain('缅因猫');
+    expect(dyn).toContain('Codex');
   });
 
   it('static identity alone returns identity + roster without invocation block', () => {
     const staticPart = buildStaticIdentity(CLAUDE, [CODEX, GEMINI], resolveConfig);
-    expect(staticPart).toContain('布偶猫');
+    expect(staticPart).toContain('Claude');
     expect(staticPart).toContain('队友名册');
     expect(staticPart).not.toContain('当前模式');
   });

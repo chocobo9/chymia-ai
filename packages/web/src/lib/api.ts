@@ -30,6 +30,7 @@ import type {
   AuditEvent,
   SkillDefinition,
   SopDefinition,
+  RulesPayload,
   AccountSummary,
   AuthType,
   ProviderAuthStatus,
@@ -686,6 +687,12 @@ export class ApiClient {
     return data.sop;
   }
 
+  /** GET /api/rules — Clowder-style rule sources, provider guides, L0 prompt chain, and SOP. */
+  async getRules(): Promise<RulesPayload> {
+    const res = await this.fetchFn(this.url('/api/rules'));
+    return parseJson<RulesPayload>(res);
+  }
+
   /** GET /api/mcp/tools — the MCP tool catalog (M10), read-only. */
   async listMcpTools(): Promise<readonly McpToolEntry[]> {
     const res = await this.fetchFn(this.url('/api/mcp/tools'));
@@ -693,7 +700,7 @@ export class ApiClient {
     return data.tools;
   }
 
-  /** GET /api/tasks?threadId — the thread's task lines (任务线 / 毛线球). */
+  /** GET /api/tasks?threadId — the thread's task lines (任务线 / 任务). */
   async listTasks(threadId: string): Promise<readonly TaskItem[]> {
     const res = await this.fetchFn(this.url(`/api/tasks?threadId=${encodeURIComponent(threadId)}`));
     const data = await parseJson<{ tasks: TaskItem[] }>(res);

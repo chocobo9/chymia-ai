@@ -58,7 +58,7 @@ export interface AppServices {
   readonly messageStore: SqliteMessageStore;
   readonly threadStore: SqliteThreadStore;
   /**
-   * 任务线 (毛线球) store — the per-thread long-running task board. The task
+   * 任务线 (任务) store — the per-thread long-running task board. The task
    * routes CRUD it; the invoke seam reads listByThread → formatTaskSnapshot and
    * injects the open tasks into the agent's turn context (so the agent is aware
    * of them). Persisted to SQLite (survives restart, unlike Clowder's in-memory).

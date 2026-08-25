@@ -18,7 +18,7 @@ import {
   MCP_CODEX_CONFIG_ARGS_KEY,
 } from '@choco/api/providers/mcp-config';
 import { buildArgs as codexBuildArgs } from '@choco/api/providers/codex/codex-service';
-import { buildArgs as geminiBuildArgs } from '@choco/api/providers/gemini/gemini-service';
+import { buildArgs as antigravityBuildArgs } from '@choco/api/providers/antigravity/antigravity-service';
 
 const CONFIG_OPTS = {
   apiBaseUrl: 'http://127.0.0.1:3100',
@@ -172,11 +172,14 @@ describe('codex buildArgs MCP consumer hook', () => {
   });
 });
 
-describe('gemini buildArgs no longer injects MCP via --config', () => {
-  it('omits --config even when callbackEnv carries MCP-ish keys (gemini uses settings.json)', () => {
-    const args = geminiBuildArgs(
+describe('Antigravity buildArgs does not inject MCP flags', () => {
+  it('omits --config even when callbackEnv carries legacy MCP keys', () => {
+    const args = antigravityBuildArgs(
+      'hello',
       { callbackEnv: { MCP_CONFIG_JSON: '{"x":1}', [MCP_CODEX_CONFIG_ARGS_KEY]: '["--config","y"]' } },
-      'gemini-2.5-pro',
+      'agy-session',
+      'D:\\workspace',
+      1000,
     );
     expect(args).not.toContain('--config');
   });

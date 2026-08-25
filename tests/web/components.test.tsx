@@ -200,7 +200,7 @@ describe('AgentMessage (render, happy path)', () => {
       <AgentMessage
         view={{
           agentId: CLAUDE,
-          displayName: 'Claude (Opus)',
+          displayName: 'Claude',
           text: 'TODO API 已实现，含 zod 校验。',
           thinking: '',
           toolBlocks: [],
@@ -216,7 +216,7 @@ describe('AgentMessage (render, happy path)', () => {
       <AgentMessage
         view={{
           agentId: CLAUDE,
-          displayName: 'Claude (Opus)',
+          displayName: 'Claude',
           text: '',
           thinking: '',
           toolBlocks: [{ toolUseId: 't1', toolName: 'write_file', toolInput: { path: 'src/todo.ts' } }],
@@ -244,7 +244,7 @@ describe('AgentMessage (render, happy path)', () => {
       <AgentMessage
         view={{
           agentId: CLAUDE,
-          displayName: 'Claude (Opus)',
+          displayName: 'Claude',
           text: '',
           thinking: '先确认数据模型，再决定端点划分。',
           toolBlocks: [],
@@ -263,7 +263,7 @@ describe('AgentMessage (render, happy path)', () => {
       <AgentMessage
         view={{
           agentId: CLAUDE,
-          displayName: 'Claude (Opus)',
+          displayName: 'Claude',
           text: '正在生成…',
           thinking: '',
           toolBlocks: [],

@@ -43,12 +43,12 @@ import { replyScript, CLAUDE } from './helpers.js';
 function baseConfig(): AgentConfig {
   return {
     id: createAgentId('claude-opus'),
-    name: '布偶猫',
-    displayName: 'Claude (Opus)',
+    name: 'Claude',
+    displayName: 'Claude',
     clientId: 'anthropic',
     defaultModel: 'claude-opus-4-6',
     mcpSupport: true,
-    mentionPatterns: ['@claude', '@布偶', '@宪宪'],
+    mentionPatterns: ['@claude', '@claude', '@claude'],
     personality: '沉稳、系统化、注重长期可维护性；先想清楚再动手。',
     roleDescription: '首席架构师 / 核心开发，负责系统设计与代码实现。',
     strengths: ['架构设计', '代码实现', '重构'],
@@ -97,7 +97,7 @@ describe('applyAgentOverride (edge / adversarial)', () => {
     const before = JSON.parse(JSON.stringify(base)) as AgentConfig;
     const override: AgentOverride = {
       displayName: 'Claude (Reviewer)',
-      name: '审查布偶',
+      name: 'Review Agent',
       roleDescription: '审查员 · 安全与测试，负责把关测试覆盖与威胁建模。',
       personality: '保守、对边界条件敏感，先证伪再放行。',
       strengths: ['威胁建模', '测试设计'],
@@ -144,7 +144,7 @@ describe('applyAgentOverride (edge / adversarial)', () => {
     expect(result.clientId).toBe('anthropic');
     expect(result.defaultModel).toBe('claude-opus-4-6');
     expect(result.mcpSupport).toBe(true);
-    expect(result.mentionPatterns).toEqual(['@claude', '@布偶', '@宪宪']);
+    expect(result.mentionPatterns).toEqual(['@claude', '@claude', '@claude']);
   });
 });
 
@@ -402,7 +402,7 @@ describe('PATCH /api/agents/:id (edge / adversarial)', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json<{ agent: { id: string; displayName: string } }>();
     expect(body.agent.id).toBe('claude-opus');
-    expect(body.agent.displayName).toBe('Claude (Opus)');
+    expect(body.agent.displayName).toBe('Claude');
   });
 
   it('[adv] a very long role string is accepted and reaches the next turn system prompt', async () => {
@@ -448,9 +448,9 @@ describe('PATCH /api/agents/:id (edge / adversarial)', () => {
     // The OTHER agents are untouched (overlay scoped to claude-opus only).
     const codex = agents.find((a) => a.id === 'codex-gpt');
     const gemini = agents.find((a) => a.id === 'gemini-pro');
-    expect(codex?.displayName).toBe('Codex (GPT)');
-    expect(codex?.strengths).toEqual(['快速实现', '脚本化', '调试']);
-    expect(gemini?.displayName).toBe('Gemini (Pro)');
+    expect(codex?.displayName).toBe('Codex');
+    expect(codex?.strengths).toEqual(['implementation', 'scripting', 'debugging']);
+    expect(gemini?.displayName).toBe('Gemini');
   });
 
   it('[adv] the edited roleDescription actually reaches the NEXT turn system prompt (THE behavioral guarantee)', async () => {
@@ -491,7 +491,7 @@ describe('PATCH /api/agents/:id (edge / adversarial)', () => {
     const patched = await app.api.inject({
       method: 'PATCH',
       url: '/api/agents/claude-opus',
-      payload: { displayName: 'Claude (Reviewer)', name: '审查布偶' },
+      payload: { displayName: 'Claude (Reviewer)', name: 'Review Agent' },
     });
     expect(patched.statusCode).toBe(200);
 

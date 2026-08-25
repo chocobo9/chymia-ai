@@ -43,8 +43,8 @@ describe('parseUserMentions — edge', () => {
     ).toEqual([GEMINI, CLAUDE, CODEX]);
   });
 
-  test('(edge) Chinese punctuation acts as a right boundary for @布偶', () => {
-    expect(parseUserMentions('@布偶，帮我审一下 schema', ENTRIES)).toEqual([CLAUDE]);
+  test('(edge) Chinese punctuation acts as a right boundary for @claude', () => {
+    expect(parseUserMentions('@claude，帮我审一下 schema', ENTRIES)).toEqual([CLAUDE]);
   });
 });
 

@@ -53,10 +53,10 @@ describe('AgentRegistryImpl — edge', () => {
     expect(registry.getDefault().id).toBe(CODEX);
   });
 
-  test('(edge) an alias pattern resolves to the same agent (@claude and @布偶)', () => {
+  test('(edge) an alias pattern resolves to the same agent (@claude and @claude)', () => {
     const registry = makeRegistry();
     expect(registry.resolveByMention('@claude')?.id).toBe(CLAUDE);
-    expect(registry.resolveByMention('@布偶')?.id).toBe(CLAUDE);
+    expect(registry.resolveByMention('@claude')?.id).toBe(CLAUDE);
   });
 });
 

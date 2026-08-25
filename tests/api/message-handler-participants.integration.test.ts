@@ -21,7 +21,7 @@ import { createAgentId } from '@choco/shared';
 import { buildApp } from '@choco/api/app-factory';
 import { ClaudeAgentService } from '@choco/api/providers/claude/claude-service';
 import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
-import { GeminiAgentService } from '@choco/api/providers/gemini/gemini-service';
+import { AntigravityAgentService } from '@choco/api/providers/antigravity/antigravity-service';
 
 const SMOKE_ENABLED = process.env.RUN_CLI_SMOKE === '1';
 const PER_TEST_TIMEOUT = 300_000;
@@ -47,7 +47,7 @@ describe.skipIf(!SMOKE_ENABLED)('handler full-chain participant model (real CLI)
       agentServices: {
         [CLAUDE as string]: new ClaudeAgentService({ agentId: CLAUDE }),
         [CODEX as string]: new CodexAgentService({ agentId: CODEX }),
-        [GEMINI as string]: new GeminiAgentService({ agentId: GEMINI }),
+        [GEMINI as string]: new AntigravityAgentService({ agentId: GEMINI }),
       },
     });
     const threadId = 'handler-participant-thread';

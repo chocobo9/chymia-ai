@@ -1,5 +1,5 @@
 // WorkspaceTasks — the 任务 tab of the WorkspacePanel, the operable 任务线 board
-// (毛线球). LIVE: loads the active thread's tasks (GET /api/tasks), creates
+// (任务). LIVE: loads the active thread's tasks (GET /api/tasks), creates
 // (POST), cycles status (PATCH) and deletes (DELETE); the task-store is also kept
 // in sync by socket task_created/_updated/_deleted (other clients / the agent /
 // 飞书). The open tasks are injected into the agent's turn context server-side,
@@ -83,7 +83,7 @@ function TaskCard({ task, onCycle, onDelete }: CardProps): ReactElement {
         <div className="tsk-detail">
           {task.why.length > 0 && <p className="tsk-why">{task.why}</p>}
           <p className="tsk-meta">
-            {formatRelativeTime(task.createdAt)} · {task.createdBy === 'user' ? '铲屎官' : task.createdBy}
+            {formatRelativeTime(task.createdAt)} · {task.createdBy === 'user' ? '用户' : task.createdBy}
           </p>
           <button type="button" className="tsk-del" onClick={() => onDelete(task)} data-testid="tsk-del">
             删除
@@ -278,7 +278,7 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
   return (
     <div className="wsp-pad" data-testid="wsp-tasks">
       <div className="tsk-head">
-        <span className="tsk-head-t">毛线球 · {tasks.length === 0 ? '暂无任务' : `${tasks.length} 项`}</span>
+        <span className="tsk-head-t">任务 · {tasks.length === 0 ? '暂无任务' : `${tasks.length} 项`}</span>
         <button
           type="button"
           className="tsk-new"
@@ -324,10 +324,10 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
         <div className="wsp-empty" data-testid="tsk-empty">
           <div className="wsp-empty-t">把长期事项挂在线上，不埋回聊天里</div>
           <div className="wsp-empty-s">
-            需要跨多轮对话跟踪的事项，铲屎官和 agent 都可以创建毛线球；打开的任务会被注入 agent 的上下文。
+            需要跨多轮对话跟踪的事项，用户和 agent 都可以创建任务；打开的任务会被注入 agent 的上下文。
           </div>
           <button type="button" className="tsk-btn" onClick={() => setComposerOpen(true)}>
-            创建第一颗毛线球
+            创建第一个任务
           </button>
         </div>
       ) : (

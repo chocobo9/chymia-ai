@@ -141,8 +141,8 @@ describe('编辑成员 modal — open & structure', () => {
     await mountApp();
     await openClaudeEditModal();
     // The five editable fields are present and seeded from the roster entry.
-    expect(screen.getByTestId('member-edit-name')).toHaveValue('布偶猫');
-    expect(screen.getByTestId('member-edit-displayName')).toHaveValue('Claude (Opus)');
+    expect(screen.getByTestId('member-edit-name')).toHaveValue('Claude');
+    expect(screen.getByTestId('member-edit-displayName')).toHaveValue('Claude');
     expect(screen.getByTestId('member-edit-strengths')).toHaveValue('架构设计、代码实现、重构');
     expect(screen.getByTestId('member-edit-color')).toHaveValue('#6366f1');
     expect(screen.getByTestId('member-edit-save')).toBeInTheDocument();
@@ -190,7 +190,7 @@ describe('编辑成员 modal — save', () => {
     expect(patch.roleDescription).toBe('审查员 · 安全与测试，负责威胁建模与覆盖把关。');
     expect(patch.strengths).toEqual(['威胁建模', '测试设计']);
     // The unedited display fields ride along (the modal sends the current values).
-    expect(patch.displayName).toBe('Claude (Opus)');
+    expect(patch.displayName).toBe('Claude');
     // Modal closes on success.
     await waitFor(() => expect(screen.queryByTestId('member-edit-modal')).not.toBeInTheDocument());
   });
@@ -242,7 +242,7 @@ describe('编辑成员 modal — save', () => {
     // An empty role means "leave the existing role" → the key is absent.
     expect(patch).not.toHaveProperty('roleDescription');
     // The other fields are still sent.
-    expect(patch.displayName).toBe('Claude (Opus)');
+    expect(patch.displayName).toBe('Claude');
     expect(patch.color).toEqual({ primary: '#6366f1', secondary: '#818cf8' });
   });
 

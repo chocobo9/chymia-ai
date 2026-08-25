@@ -1,4 +1,4 @@
-// task-routes — /api/tasks CRUD for the 任务线 (毛线球) board.
+// task-routes — /api/tasks CRUD for the 任务线 (任务) board.
 //
 // 对齐 Clowder reference/.../routes/tasks.ts (POST/GET/PATCH/DELETE + socket
 // broadcast). choco port: persists via SqliteTaskStore (services.taskStore) and
