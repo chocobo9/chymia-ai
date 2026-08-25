@@ -2,6 +2,7 @@
 // Source: clowder-architecture-design.md §5.4 (SystemPromptBuilder / InvocationContext).
 
 import type { AgentId } from './agent.js';
+import type { ThreadRoutingPolicyV1 } from './thread.js';
 
 /**
  * InvocationMode — 本次 invocation 的执行模式。
@@ -69,4 +70,6 @@ export interface InvocationContext {
   promptTags?: readonly string[]; // #critique, skill:xxx 等
   /** 活跃参与者列表 */
   activeParticipants?: ActiveParticipant[];
+  /** F042: 线程级路由策略——注入 prompt 让 agent 感知本线程 review/architecture scope 偏好。 */
+  routingPolicy?: ThreadRoutingPolicyV1;
 }

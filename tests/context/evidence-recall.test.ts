@@ -34,7 +34,7 @@ function searchResult(): EvidenceSearchResult {
 
 const recentMessages = [
   makeMessage({ agentId: null, content: 'TODO API 的 database schema 怎么定？', offsetMin: 0 }),
-  makeMessage({ agentId: CLAUDE, content: '布偶猫：用 SQLite + WAL，schema 见上。', offsetMin: 1 }),
+  makeMessage({ agentId: CLAUDE, content: 'Claude：用 SQLite + WAL，schema 见上。', offsetMin: 1 }),
 ];
 
 describe('recallEvidence (unit, happy path)', () => {

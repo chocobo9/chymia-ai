@@ -89,6 +89,24 @@ export function isPromptLimitError(message: string | null | undefined): boolean 
 }
 
 /**
+ * 是否为 "上下文窗口耗尽 / 会话上下文溢出" 错误（区别于 prompt 单次过长）。
+ * 对齐 Clowder invoke-helpers.isContextWindowOverflowError（ran out of room |
+ * context window | context_window）。与 prompt-limit 行为相同（清 session 重试），
+ * 但语义不同：多轮累积撑满上下文，非单条输入超长——分开分类便于诊断区分。
+ */
+export function isContextWindowOverflowError(message: string | null | undefined): boolean {
+  const m = normalize(message);
+  if (!m) {
+    return false;
+  }
+  return (
+    m.includes('ran out of room') ||
+    m.includes('context window') ||
+    m.includes('context_window')
+  );
+}
+
+/**
  * 是否为 "瞬时/可重试" CLI 错误（网络抖动、5xx、限流、连接重置等）。
  *
  * 真实变体来源：
@@ -163,4 +181,14 @@ export function isTimeoutError(message: string | null | undefined): boolean {
     m.includes('operation timed out') ||
     m.includes('request timeout')
   );
+}
+
+/**
+ * 是否为 form A malformed tool-call error（claude thinking-only 炸毛，F215 AC-B1）。
+ * 由 ClaudeAgentService 检测到 form A 时 emit：errorCode='malformed_toolcall' 且 content
+ * 以 'malformed_toolcall:' 开头。invoke 层据此 suppress + 清 session fresh-retry，耗尽后
+ * route 层接力到备用模型。这是 claude extended-thinking 特有失败（codex/gemini 无此形态）。
+ */
+export function isMalformedToolCallError(message: string | null | undefined): boolean {
+  return normalize(message).startsWith('malformed_toolcall:');
 }

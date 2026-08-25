@@ -17,7 +17,7 @@
 // the SAME clock the messages were stamped with. No real CLI, no network port.
 //
 // Roster (packages/api/src/config/agents.yaml): claude-opus = DEFAULT (first
-// entry), codex-gpt = @codex/@橘猫/@阿橘, gemini-pro = @gemini/@暹罗/@小罗.
+// entry), codex-gpt = @codex/@Codex/@codex, gemini-pro = @gemini/@gemini/@gemini.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';

@@ -9,6 +9,7 @@ import {
   parseGitStatus,
   parseChangedFiles,
   isDenylistedPath,
+  parseGitShow,
 } from '@choco/api/infrastructure/git-cli';
 
 /** The NUL field separator git emits for `--pretty=format:%x00` (kept as an escape, not a literal byte). */
@@ -23,6 +24,23 @@ describe('parseGitLog', () => {
 
   it('returns [] for empty output', () => {
     expect(parseGitLog('')).toEqual([]);
+  });
+});
+
+describe('parseGitShow', () => {
+  it('parses each `path | summary` stat row, dropping the trailing summary line (no |)', () => {
+    const stat =
+      ' src/index.ts | 2 +-\n' +
+      ' packages/api/foo.ts | 10 ++++++----\n' +
+      ' 2 files changed, 6 insertions(+), 5 deletions(-)\n';
+    expect(parseGitShow(stat)).toEqual([
+      { path: 'src/index.ts', summary: '2 +-' },
+      { path: 'packages/api/foo.ts', summary: '10 ++++++----' },
+    ]);
+  });
+
+  it('returns [] for empty stat output', () => {
+    expect(parseGitShow('')).toEqual([]);
   });
 });
 

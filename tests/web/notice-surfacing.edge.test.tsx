@@ -127,7 +127,7 @@ function systemMessage(agentId: AgentId, content: string, id = 'msg_sys_1'): Sto
   };
 }
 
-const CODEX_NOTICE = 'Codex (GPT) 未启用（未检测到 CLI）— 可用：@claude';
+const CODEX_NOTICE = 'Codex 未启用（未检测到 CLI）— 可用：@claude';
 
 beforeEach(() => {
   useChatStore.setState({

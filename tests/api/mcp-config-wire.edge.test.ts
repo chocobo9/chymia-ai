@@ -87,7 +87,7 @@ function rosterAgent(
 ): string {
   return [
     `  - id: ${id}`,
-    `    name: 测试猫`,
+    `    name: 测试agent`,
     `    displayName: ${id}`,
     `    clientId: ${clientId}`,
     `    defaultModel: ${model}`,
@@ -436,7 +436,6 @@ describe('claude buildArgs MCP consumer hook', () => {
     // A win32-style temp-file path value (what the producer hands the consumer).
     const mcpValue = join(tmpdir(), 'choco-mcp-abc123', 'mcp-config.json');
     const args = buildArgs(
-      '@claude 把这次评审记成 evidence',
       { callbackEnv: { [MCP_CONFIG_ENV_KEY]: mcpValue } },
       'claude-opus-4-6',
       'bypassPermissions',
@@ -450,7 +449,6 @@ describe('claude buildArgs MCP consumer hook', () => {
   it('(adversarial) NO --mcp-config flag when callbackEnv lacks MCP_CONFIG_JSON', () => {
     // A non-MCP turn (e.g. the gated-off case) must not sprout a --mcp-config flag.
     const args = buildArgs(
-      '@claude 普通对话，无 MCP',
       { callbackEnv: { CHOCO_API_URL: 'http://127.0.0.1:3100' } },
       'claude-opus-4-6',
       'bypassPermissions',

@@ -17,11 +17,12 @@
 
 import { useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import type { AgentMessage, AgentState, StoredMessage, TaskItem, Thread } from '@choco/shared';
+import type { AgentMessage, AgentState, StoredMessage, TaskItem, TaskProgressSnapshot, Thread } from '@choco/shared';
 import { webConfig } from '../lib/config.js';
 import { useChatStore } from '../stores/chat-store.js';
 import { useAgentStore } from '../stores/agent-store.js';
 import { useTaskStore } from '../stores/task-store.js';
+import { useTaskProgressStore } from '../stores/task-progress-store.js';
 
 /** Client→server event names (must match M8 SocketManager CLIENT_EVENTS). */
 export const CLIENT_EVENTS = {
@@ -42,6 +43,8 @@ export const SERVER_EVENTS = {
   taskCreated: 'task_created',
   taskUpdated: 'task_updated',
   taskDeleted: 'task_deleted',
+  /** Task-PROGRESS snapshot (an agent's live TodoWrite plan) → 任务 tab progress. */
+  taskProgress: 'task_progress',
 } as const;
 
 /** Minimal socket surface the hook depends on (eases mocking). */
@@ -176,6 +179,13 @@ export function registerSocketListeners(
       useTaskStore.getState().removeTask(payload.threadId, payload.id);
     }
   };
+  // Task-PROGRESS snapshot (an agent's live plan) → latest-wins into the store.
+  const onTaskProgress = (...args: unknown[]): void => {
+    const snapshot = args[0] as TaskProgressSnapshot;
+    if (snapshot !== null && typeof snapshot === 'object' && 'threadId' in snapshot && 'agentId' in snapshot) {
+      useTaskProgressStore.getState().applySnapshot(snapshot);
+    }
+  };
 
   socket.on(SERVER_EVENTS.agentEvent, onAgentEvent);
   socket.on(SERVER_EVENTS.threadUpdate, onThreadUpdate);
@@ -185,6 +195,7 @@ export function registerSocketListeners(
   socket.on(SERVER_EVENTS.taskCreated, onTaskUpsert);
   socket.on(SERVER_EVENTS.taskUpdated, onTaskUpsert);
   socket.on(SERVER_EVENTS.taskDeleted, onTaskDeleted);
+  socket.on(SERVER_EVENTS.taskProgress, onTaskProgress);
 
   return () => {
     socket.off(SERVER_EVENTS.agentEvent, onAgentEvent);
@@ -195,6 +206,7 @@ export function registerSocketListeners(
     socket.off(SERVER_EVENTS.taskCreated, onTaskUpsert);
     socket.off(SERVER_EVENTS.taskUpdated, onTaskUpsert);
     socket.off(SERVER_EVENTS.taskDeleted, onTaskDeleted);
+    socket.off(SERVER_EVENTS.taskProgress, onTaskProgress);
   };
 }
 

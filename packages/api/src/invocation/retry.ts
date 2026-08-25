@@ -7,11 +7,12 @@
 // policy is deterministically unit-testable without spawning a CLI.
 //
 // Policy (§A9):
-//   classification priority: timeout > missing session > prompt limit > transient
-//   missing session → clear session, retry WITHOUT sessionId
-//   prompt limit    → clear session, retry WITHOUT sessionId
-//   timeout         → clear session, retry WITHOUT sessionId
-//   transient       → retry AS-IS (keep sessionId)
+//   classification priority: timeout > missing session > prompt limit > context overflow > transient
+//   missing session  → clear session, retry WITHOUT sessionId
+//   prompt limit     → clear session, retry WITHOUT sessionId
+//   context overflow → clear session, retry WITHOUT sessionId
+//   timeout          → clear session, retry WITHOUT sessionId
+//   transient        → retry AS-IS (keep sessionId)
 //   unclassified    → do NOT retry (yield the error)
 //   output already produced → do NOT retry (avoid duplicate output)
 //   max retries = 2
@@ -19,8 +20,10 @@
 import {
   isMissingSessionError,
   isPromptLimitError,
+  isContextWindowOverflowError,
   isTransientCliError,
   isTimeoutError,
+  isMalformedToolCallError,
 } from '@choco/api/providers/error-classifier';
 
 /**
@@ -34,9 +37,11 @@ export const MAX_RETRIES = 2;
  * `unclassified` = matched none of the four classifiers.
  */
 export type ErrorClass =
+  | 'malformed'
   | 'timeout'
   | 'missing_session'
   | 'prompt_limit'
+  | 'context_overflow'
   | 'transient'
   | 'unclassified';
 
@@ -66,6 +71,13 @@ export type RetryDecision =
  * empty input).
  */
 export function classifyError(message: string | null | undefined): ErrorClass {
+  // F215 AC-C1: form A malformed tool-call (claude thinking-only 炸毛) is an explicit
+  // marker error — classify it first, then clear the session and fresh-context retry
+  // (same recovery as overflow, but kept distinct so the route layer can relay on
+  // exhaustion).
+  if (isMalformedToolCallError(message)) {
+    return 'malformed';
+  }
   // Pattern from invoke-single-cat.ts: timeout & missing-session both clear the
   // session; here they stay distinct error classes but share clearSession=true.
   if (isTimeoutError(message)) {
@@ -76,6 +88,11 @@ export function classifyError(message: string | null | undefined): ErrorClass {
   }
   if (isPromptLimitError(message)) {
     return 'prompt_limit';
+  }
+  // 上下文窗口溢出（多轮累积撑满）：与 prompt_limit 同样清 session 重试，但分开分类
+  // 便于诊断。对齐 Clowder invoke-single-cat（context overflow → 清 session 重试）。
+  if (isContextWindowOverflowError(message)) {
+    return 'context_overflow';
   }
   if (isTransientCliError(message)) {
     return 'transient';

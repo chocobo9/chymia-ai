@@ -1,18 +1,21 @@
 // tests/providers/codex-gemini-doubling-adversarial.test.ts
 // M2 QA (independent, dev≠QA): try to BREAK the dev's "NOT susceptible" verdict for
-// Codex & Gemini doubling, and harden the injectable Claude permissionMode passthrough.
+// Codex doubling, and harden the injectable Claude permissionMode passthrough.
 //
 // Dev verdict under attack:
 //   - Codex: no streaming-text path → only a final consolidated agent_message, de-duped by
 //     `lastAgentMessage`. Attack: re-emit the final message (identical AND with whitespace
 //     variants), emit two distinct finals, and confirm de-dup holds for the identical-repeat
 //     vector only.
-//   - Gemini: a single `content` event carries the reply; the `result` terminator has no
-//     text. Attack: emit `content` twice, content + result-with-message, content + error.
 //   - permissionMode (claude-service buildArgs): empty / garbage / very-long values — assert
 //     verbatim passthrough and report whether unvalidated injection is a defect.
 //
-// Real codex `exec --json` and gemini-cli stream-json shapes + real CJK content. No placeholders.
+// NOTE: the former Gemini doubling vectors (NDJSON `content`/`result` events) are GONE — the
+// @gemini backend is now agy (Antigravity) plain-text print: a SINGLE stdout string, no
+// streamed+terminator dual shape, so there is no doubling source to attack. The agy single-
+// emit guarantee is covered structurally in antigravity-service.test.ts (one text per turn).
+//
+// Real codex `exec --json` shapes + real CJK content. No placeholders.
 
 import { describe, it, expect } from 'vitest';
 import type { AgentMessage } from '@choco/shared';
@@ -23,12 +26,6 @@ import {
   type CodexParserState,
   type CodexParserDeps,
 } from '@choco/api/providers/codex/codex-parser';
-import {
-  createGeminiParserState,
-  parseGeminiLine,
-  type GeminiParserState,
-  type GeminiParserDeps,
-} from '@choco/api/providers/gemini/gemini-parser';
 import { buildArgs } from '@choco/api/providers/claude/claude-service';
 import type { InvokeOptions } from '@choco/api/providers/base';
 
@@ -37,25 +34,11 @@ const FIXED_TS = 1_700_000_950_000;
 const codexId = createAgentId('codex-gpt');
 const codexDeps: CodexParserDeps = { agentId: codexId, now: () => FIXED_TS, model: 'gpt-5-codex' };
 
-const geminiId = createAgentId('gemini-pro');
-const geminiDeps: GeminiParserDeps = { agentId: geminiId, now: () => FIXED_TS, model: 'gemini-2.5-pro' };
-
 function runCodex(lines: readonly string[]): AgentMessage[] {
   let state: CodexParserState = createCodexParserState();
   const out: AgentMessage[] = [];
   for (const line of lines) {
     const res = parseCodexLine(line, state, codexDeps);
-    state = res.state;
-    out.push(...res.messages);
-  }
-  return out;
-}
-
-function runGemini(lines: readonly string[]): AgentMessage[] {
-  let state: GeminiParserState = createGeminiParserState();
-  const out: AgentMessage[] = [];
-  for (const line of lines) {
-    const res = parseGeminiLine(line, state, geminiDeps);
     state = res.state;
     out.push(...res.messages);
   }
@@ -160,66 +143,6 @@ describe('codex doubling adversarial (QA — break the NOT-susceptible verdict)'
   });
 });
 
-describe('gemini doubling adversarial (QA — break the NOT-susceptible verdict)', () => {
-  // adversarial — two content events with identical text are NOT deduped (no streaming dual shape, but probe)
-  it('two identical content events both emit (gemini has no de-dup; confirm there is no hidden second source within ONE content)', () => {
-    // Arrange — gemini-cli emits reply text via `content`. If the CLI ever emitted the same
-    // content twice, the parser would double it (no de-dup). This documents that the SINGLE
-    // real source is `content` — the success terminator adds nothing — so one content == one emit.
-    const reply = '建议采用 Postgres：事务一致性与并发写入优于 SQLite。';
-    const out = runGemini([
-      JSON.stringify({ type: 'init', session_id: 'gemini-adv-1', model: 'gemini-2.5-pro' }),
-      JSON.stringify({ type: 'content', text: reply }),
-      JSON.stringify({ type: 'result', status: 'success' }),
-    ]);
-
-    // Assert — exactly ONE text; result/success contributes no text (no doubling source).
-    expect(texts(out)).toHaveLength(1);
-    expect(texts(out)[0].content).toBe(reply);
-  });
-
-  // adversarial — content followed by a non-success result carrying a message must NOT echo content as text
-  it('content then a FAILED result emits the reply once + a distinct error (terminator never echoes content)', () => {
-    // Arrange — content delivers the reply, then a non-success result with its own message.
-    // The result must map to ERROR (not a second copy of the reply text).
-    const reply = '部分结果：已生成迁移脚本。';
-    const out = runGemini([
-      JSON.stringify({ type: 'content', text: reply }),
-      JSON.stringify({ type: 'result', status: 'quota_exceeded', message: '配额已用尽' }),
-    ]);
-
-    // Assert — one text (the reply, once) + one error; reply text is not duplicated.
-    expect(texts(out)).toHaveLength(1);
-    expect(texts(out)[0].content).toBe(reply);
-    const errors = out.filter((m) => m.type === 'error');
-    expect(errors).toHaveLength(1);
-    expect(errors[0].content).toBe('配额已用尽');
-  });
-
-  // edge — thought never echoed as content
-  it('a thought with the same text as content does not double the user-visible text', () => {
-    // Arrange — gemini `thought` is a separate thinking channel; identical text in `content`
-    // is the single user-visible source.
-    const shared = '考虑为查询加复合索引。';
-    const out = runGemini([
-      JSON.stringify({ type: 'thought', text: shared }),
-      JSON.stringify({ type: 'content', text: shared }),
-    ]);
-
-    // Assert — one thinking + exactly one text.
-    expect(out.filter((m) => m.type === 'thinking')).toHaveLength(1);
-    expect(texts(out)).toHaveLength(1);
-  });
-
-  // happy
-  it('single content event emits exactly once', () => {
-    const reply = '已完成数据库选型分析。';
-    const out = runGemini([JSON.stringify({ type: 'content', text: reply })]);
-    expect(texts(out)).toHaveLength(1);
-    expect(texts(out)[0].content).toBe(reply);
-  });
-});
-
 describe('claude permissionMode hardening (QA — RECONCILED to validated behavior)', () => {
   // RECONCILIATION NOTE (QA, dev≠QA): these 4 tests previously asserted that buildArgs passed
   // invalid permission-mode values ('', garbage, 4096-char, '--dangerously-skip-permissions')
@@ -229,14 +152,13 @@ describe('claude permissionMode hardening (QA — RECONCILED to validated behavi
   // assertion to lock the new contract: every invalid value THROWS and never reaches the args.
   // The exhaustive multi-path bypass attack lives in permmode-bypass-adversarial.test.ts.
   const DEFAULT_MODEL = 'claude-opus-4-6';
-  const PROMPT = '@claude-opus 写一个带 CRUD 的 TODO API，并补充输入校验。';
 
   // adversarial — empty string is now rejected (was: passed through verbatim)
   it('REJECTS an EMPTY permission mode (no longer a verbatim passthrough)', () => {
     // Arrange — caller injects '' (e.g. a mis-wired config). `?? DEFAULT` only catches
     // undefined/null, so '' reaches buildArgs and must be rejected there.
     // Act + Assert — fail-fast: '' throws and the flag/value never reach the args.
-    expect(() => buildArgs(PROMPT, undefined, DEFAULT_MODEL, '')).toThrow(
+    expect(() => buildArgs(undefined, DEFAULT_MODEL, '')).toThrow(
       /Invalid Claude permission mode/,
     );
   });
@@ -247,7 +169,7 @@ describe('claude permissionMode hardening (QA — RECONCILED to validated behavi
     const garbage = 'totally-not-a-real-mode-💥';
 
     // Act + Assert — a typo can no longer silently disable the intended sandbox mode.
-    expect(() => buildArgs(PROMPT, undefined, DEFAULT_MODEL, garbage)).toThrow(garbage);
+    expect(() => buildArgs(undefined, DEFAULT_MODEL, garbage)).toThrow(garbage);
   });
 
   // adversarial — very long value is now rejected before any arg is built
@@ -257,7 +179,7 @@ describe('claude permissionMode hardening (QA — RECONCILED to validated behavi
     const options: InvokeOptions = { sessionId: 'sess_resume_xyz', model: DEFAULT_MODEL };
 
     // Act + Assert — throws; nothing (not even --resume) is built.
-    expect(() => buildArgs(PROMPT, options, DEFAULT_MODEL, longMode)).toThrow(
+    expect(() => buildArgs(options, DEFAULT_MODEL, longMode)).toThrow(
       /Invalid Claude permission mode/,
     );
   });
@@ -269,7 +191,7 @@ describe('claude permissionMode hardening (QA — RECONCILED to validated behavi
     const flagish = '--dangerously-skip-permissions';
 
     // Act + Assert — never placed into the args; rejected at the choke point.
-    expect(() => buildArgs(PROMPT, undefined, DEFAULT_MODEL, flagish)).toThrow(
+    expect(() => buildArgs(undefined, DEFAULT_MODEL, flagish)).toThrow(
       /Invalid Claude permission mode/,
     );
   });

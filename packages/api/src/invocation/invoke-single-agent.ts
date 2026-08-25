@@ -95,13 +95,55 @@ export interface InvokeSingleAgentParams {
   readonly onTiming?: OnInvocationTiming;
 }
 
-/** Event types that count as user-visible output (forbid retry once seen). */
-const OUTPUT_EVENT_TYPES: ReadonlySet<AgentMessage['type']> = new Set([
+/**
+ * Event types that count as REAL content output (a retry after these would
+ * duplicate model output, so retry is forbidden). Excludes 'thinking' on purpose
+ * (Clowder attemptHasContentOutput): a thinking-only (form A) turn produced NO
+ * usable content and must stay retryable / relay-able. thinking is still streamed
+ * to the user — it simply does not block recovery.
+ */
+const CONTENT_OUTPUT_TYPES: ReadonlySet<AgentMessage['type']> = new Set([
   'text',
   'tool_use',
   'tool_result',
-  'thinking',
 ]);
+
+/** F215: user-visible card shown when the malformed relay kicks in. */
+const MALFORMED_RELAY_CARD = '主模型多次输出无效（form A），正在切换备用模型重试……';
+
+/** True when an event is the internal form-A detection signal (system_info). */
+function isMalformedDetectedSignal(event: AgentMessage): boolean {
+  if (event.type !== 'system_info' || event.content === undefined) {
+    return false;
+  }
+  try {
+    return (JSON.parse(event.content) as { type?: unknown }).type === 'malformed_toolcall_detected';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * F215 AC-C3/D1: emit the malformed relay sequence after fresh-retry is exhausted —
+ * a user-visible card, then the internal `malformed_toolcall_relay_46` signal
+ * (route-serial pushes the backup model cat), then an explicit final error.
+ */
+function* emitMalformedRelay(agentId: AgentId, now: NowFn): Generator<AgentMessage> {
+  yield { type: 'text', agentId, content: MALFORMED_RELAY_CARD, timestamp: now() };
+  yield {
+    type: 'system_info',
+    agentId,
+    content: JSON.stringify({ type: 'malformed_toolcall_relay_46' }),
+    timestamp: now(),
+  };
+  yield {
+    type: 'error',
+    agentId,
+    content: 'malformed_toolcall: 主模型 fresh-context 重试仍失败，已切换备用模型接力',
+    errorCode: 'malformed_toolcall',
+    timestamp: now(),
+  };
+}
 
 /** Build the per-(agent,thread) mutex/session key. */
 function sessionKey(agentId: AgentId, threadId: string): string {
@@ -116,6 +158,49 @@ function toErrorEvent(err: unknown, agentId: AgentId, now: NowFn): AgentMessage 
     content: err instanceof Error ? err.message : String(err),
     timestamp: now(),
   };
+}
+
+/**
+ * invocation-level hard timeout 倍数。对齐 Clowder invoke-single-cat
+ * (INVOCATION_TIMEOUT_MULTIPLIER=2)：invocation 超时 = 基准 timeout × 2，确保它晚于
+ * 内层 provider CLI timeout，作为「CLI timeout 也没触发」时的最后兜底，不抢跑。
+ */
+const INVOCATION_TIMEOUT_MULTIPLIER = 2;
+
+/**
+ * params.timeoutMs 未给（或 ≤0）时的 invocation 超时基准（ms）。对齐 Clowder
+ * DEFAULT_CLI_TIMEOUT_MS 兜底语义：即便不传/关闭 CLI 超时，invocation 仍有硬上限，
+ * 避免卡死的 provider 永久占用 SessionMutex（飞书后续消息卡死的一环）。
+ */
+const DEFAULT_INVOCATION_TIMEOUT_BASE_MS = 30 * 60 * 1000;
+
+/**
+ * 把 async iterator 的 .next() 与 AbortSignal 竞速：signal 先 fire 则 reject（抛出中止
+ * 原因），否则返回 iterator 结果。必要原因（对齐 Clowder invoke-single-cat.abortableNext）：
+ * `for await` 阻塞在 gen.next() 上无法被中断——provider CLI 卡死（gen 永不 resolve）时，
+ * invocation 超时与用户取消都失效，SessionMutex 永久不释放。
+ */
+function abortableNext<T>(
+  iter: AsyncIterator<T>,
+  signal: AbortSignal,
+): Promise<IteratorResult<T>> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? new Error('aborted'));
+  }
+  return new Promise<IteratorResult<T>>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason ?? new Error('aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    iter.next().then(
+      (result) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(result);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 /**
@@ -146,17 +231,42 @@ export async function* invokeSingleAgent(
   const maxRetries = params.maxRetries ?? MAX_RETRIES;
   const key = sessionKey(agentId, threadId);
 
-  const mutexWaitStartedAt = now();
-  const release = await sessionMutex.acquire(
-    key,
-    params.signal !== undefined ? { signal: params.signal } : undefined,
-  );
-  params.onTiming?.({
-    type: 'mutex_acquired',
-    elapsedMs: Math.max(0, now() - mutexWaitStartedAt),
-  });
+  // invocation-level hard timeout（独立于 provider CLI timeout）。倍数兜底 + 活动
+  // reset + unref，对齐 Clowder invoke-single-cat。兜住「provider gen 卡死、内层 CLI
+  // timeout 也没触发」的情形：否则卡死的 invocation 永不释放 SessionMutex，后续同
+  // (agent,thread) 消息全部排队卡死（飞书后续消息卡死的一环）。
+  const baseTimeoutMs =
+    params.timeoutMs !== undefined && params.timeoutMs > 0
+      ? params.timeoutMs
+      : DEFAULT_INVOCATION_TIMEOUT_BASE_MS;
+  const invocationTimeoutMs = baseTimeoutMs * INVOCATION_TIMEOUT_MULTIPLIER;
+  const invocationAc = new AbortController();
+  let invocationTimer: ReturnType<typeof setTimeout> | null = null;
+  const resetInvocationTimeout = (): void => {
+    if (invocationTimer) clearTimeout(invocationTimer);
+    const t = setTimeout(() => {
+      invocationAc.abort(new Error('invocation_timeout'));
+    }, invocationTimeoutMs);
+    // unref so the pending timer never keeps the process alive on its own.
+    if (typeof t.unref === 'function') t.unref();
+    invocationTimer = t;
+  };
+  resetInvocationTimeout();
 
+  // 合并 caller signal（用户取消）+ invocation timeout —— 任一 fire 都中止本次调用。
+  const signal: AbortSignal = params.signal
+    ? AbortSignal.any([params.signal, invocationAc.signal])
+    : invocationAc.signal;
+
+  let release: (() => void) | undefined;
   try {
+    const mutexWaitStartedAt = now();
+    release = await sessionMutex.acquire(key, { signal });
+    params.onTiming?.({
+      type: 'mutex_acquired',
+      elapsedMs: Math.max(0, now() - mutexWaitStartedAt),
+    });
+
     let attempt = 0;
     // After a failure that sealed the session, the next attempt must invoke
     // without a sessionId (start fresh) even though the prior session row stays
@@ -164,9 +274,9 @@ export async function* invokeSingleAgent(
     let sealSessionForRetry = false;
 
     for (;;) {
-      // Honor abort between attempts.
-      if (params.signal?.aborted === true) {
-        yield toErrorEvent(new Error('invocation aborted'), agentId, now);
+      // Honor abort (caller cancel or invocation timeout) between attempts.
+      if (signal.aborted) {
+        yield toErrorEvent(signal.reason ?? new Error('invocation aborted'), agentId, now);
         return;
       }
 
@@ -185,7 +295,8 @@ export async function* invokeSingleAgent(
         ...(params.workingDirectory !== undefined
           ? { workingDirectory: params.workingDirectory }
           : {}),
-        ...(params.signal !== undefined ? { signal: params.signal } : {}),
+        // 合并 signal（含 invocation timeout）下传 provider，使超时/取消能 kill CLI 子进程。
+        signal,
         ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
       };
 
@@ -199,8 +310,16 @@ export async function* invokeSingleAgent(
       let sawFirstOutput = false;
       params.onTiming?.({ type: 'attempt_start', elapsedMs: 0, attempt });
 
+      // abortableNext（不是 for await）：for await 阻塞在 gen.next() 上无法中断，
+      // provider CLI 卡死时 invocation timeout / 取消都失效。逐个 next 与 signal 竞速。
+      const iter = agentService.invoke(prompt, invokeOptions)[Symbol.asyncIterator]();
       try {
-        for await (const event of agentService.invoke(prompt, invokeOptions)) {
+        for (;;) {
+          const result = await abortableNext(iter, signal);
+          if (result.done) break;
+          const event = result.value;
+          // 任一 provider 事件 = 活动，续期 invocation timeout（持续卡死才会计满）。
+          resetInvocationTimeout();
           if (!sawFirstProviderEvent) {
             sawFirstProviderEvent = true;
             params.onTiming?.({
@@ -220,11 +339,17 @@ export async function* invokeSingleAgent(
             // session_init is an internal lifecycle signal; do not forward it.
             continue;
           }
+          // F215 AC-C1/C2: suppress the internal form-A detection signal — it never
+          // reaches the user; it only tells us a malformed turn is coming so the
+          // error below can drive seal + fresh-retry.
+          if (event.type === 'system_info' && isMalformedDetectedSignal(event)) {
+            continue;
+          }
           if (event.type === 'error') {
             caughtError = event;
             break;
           }
-          if (OUTPUT_EVENT_TYPES.has(event.type)) {
+          if (CONTENT_OUTPUT_TYPES.has(event.type)) {
             producedOutput = true;
             if (!sawFirstOutput) {
               sawFirstOutput = true;
@@ -238,8 +363,8 @@ export async function* invokeSingleAgent(
           yield event;
         }
       } catch (err) {
-        // A thrown error (provider crash / abort) becomes an error event so the
-        // retry policy can classify it uniformly with yielded error events.
+        // A thrown error (provider crash / abort / invocation timeout) becomes an
+        // error event so the retry policy can classify it uniformly.
         caughtError = toErrorEvent(err, agentId, now);
       } finally {
         params.onTiming?.({
@@ -253,6 +378,13 @@ export async function* invokeSingleAgent(
         return; // success — stream drained cleanly
       }
 
+      // invocation timeout / caller abort → hard stop（不 retry）：已等满硬上限或被
+      // 用户主动取消，重试无意义且会再占一轮 mutex。
+      if (signal.aborted) {
+        yield caughtError;
+        return;
+      }
+
       const decision = decideRetry({
         errorMessage: caughtError.content,
         attempt,
@@ -261,6 +393,13 @@ export async function* invokeSingleAgent(
       });
 
       if (decision.action === 'stop') {
+        // F215 AC-C3/D1: malformed retry exhausted → emit the user-visible relay card,
+        // the internal relay signal (route-serial pushes the backup model cat), then
+        // an explicit final error — NOT a silent give-up nor the raw malformed error.
+        if (decision.errorClass === 'malformed') {
+          yield* emitMalformedRelay(agentId, now);
+          return;
+        }
         yield caughtError;
         return;
       }
@@ -283,7 +422,16 @@ export async function* invokeSingleAgent(
         threadId,
       });
     }
+  } catch (err) {
+    // mutex.acquire 在排队中被 signal 中止（caller 取消 / invocation timeout）→ 干净
+    // 收尾：yield 一个 error 事件而非把异常抛给调用方。其它异常照常上抛。
+    if (signal.aborted) {
+      yield toErrorEvent(signal.reason ?? new Error('invocation aborted'), agentId, now);
+      return;
+    }
+    throw err;
   } finally {
-    release();
+    if (invocationTimer) clearTimeout(invocationTimer);
+    release?.();
   }
 }

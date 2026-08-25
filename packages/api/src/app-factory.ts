@@ -8,10 +8,12 @@
 // Fake provider + temp db; index.ts only calls buildApp().api.listen().
 //
 // NOTE on the supplement-D listing: it is the IDEALIZED Clowder shape and lists
-// constructors that don't exist as written here (threadStore param of AgentRouter,
-// SkillLoader, FastifyApi). We trust the real frozen constructors instead:
-//   - AgentRouter takes { registry, invoke, history } — agent invocation is the
-//     INJECTED InvokeAgentFn seam, so M2/M3/M7 wiring lives in THIS factory.
+// some constructors that don't exist as written here (SkillLoader, FastifyApi).
+// We trust the real frozen constructors instead:
+//   - AgentRouter takes { registry, invoke, history, threadStore } — agent
+//     invocation is the INJECTED InvokeAgentFn seam, so M2/M3/M7 wiring lives in
+//     THIS factory; threadStore backs the Clowder participant model (route-time
+//     @mention persistence + the participant-based no-mention fallback).
 //   - SqliteThreadStore is M8's approved store (progress.md deviation).
 
 import { fileURLToPath } from 'node:url';
@@ -21,11 +23,23 @@ import type { Database as DatabaseType } from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { Server as SocketIoServer } from 'socket.io';
-import type { AgentMessage, AgentConfig, AgentId, IncomingPlatformMessage, StoredMessage } from '@choco/shared';
+import type {
+  AgentMessage,
+  AgentConfig,
+  AgentId,
+  IncomingPlatformMessage,
+  StoredMessage,
+  TaskProgressSnapshot,
+} from '@choco/shared';
 
 import type { AgentService } from '@choco/api/providers/base';
 import { MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
-import { buildClaudeMcpConfig } from '@choco/api/providers/mcp-config';
+import {
+  buildClaudeMcpConfig,
+  buildCodexMcpConfigArgs,
+  writeGeminiMcpSettings,
+  MCP_CODEX_CONFIG_ARGS_KEY,
+} from '@choco/api/providers/mcp-config';
 import { AgentRegistryImpl } from '@choco/api/routing/agent-registry';
 import {
   AgentRouter,
@@ -33,6 +47,7 @@ import {
   type InvokeAgentFn,
   type RouteLogger,
 } from '@choco/api/routing/agent-router';
+import { RELAY_AGENT_ID } from '@choco/api/routing/route-serial';
 import { InvocationRegistry } from '@choco/api/invocation/invocation-registry';
 import { SessionStore } from '@choco/api/invocation/session-store';
 import { SessionMutex } from '@choco/api/invocation/session-mutex';
@@ -44,12 +59,14 @@ import type {
 import { SqliteMessageStore } from '@choco/api/stores/sqlite-message-store';
 import { SqliteThreadStore } from '@choco/api/stores/sqlite-thread-store';
 import { SqliteTaskStore } from '@choco/api/stores/sqlite-task-store';
+import { SqliteTaskProgressStore } from '@choco/api/stores/sqlite-task-progress-store';
 import { SqliteToolEventLog } from '@choco/api/stores/sqlite-tool-event-log';
 import { SqliteEventAuditLog } from '@choco/api/stores/sqlite-event-audit-log';
 import { SqliteEvidenceStore } from '@choco/api/evidence/sqlite-evidence-store';
 import { SqlitePlatformMappingStore } from '@choco/api/stores/platform-mapping-store';
 import { buildSystemPrompt } from '@choco/api/context/system-prompt-builder';
 import { formatTaskSnapshot } from '@choco/api/context/format-task-snapshot';
+import { extractTaskProgress } from '@choco/api/context/extract-task-progress';
 import { buildHierarchicalContext } from '@choco/api/context/hierarchical-context';
 import { SopServiceImpl, type SopService } from '@choco/api/sop/sop-service';
 import type { EvidenceRecaller } from '@choco/api/context/evidence-recall';
@@ -329,6 +346,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   // 任务线 store (idempotent migration 006 runs in its ctor). CRUD'd by the task
   // routes; read by the invoke seam to inject the open-task snapshot.
   const taskStore = new SqliteTaskStore(db, { now });
+  // Task-PROGRESS store (idempotent migration 007 in ctor): an agent's latest
+  // in-flight TodoWrite snapshot per (thread, agent), upserted by the invoke seam.
+  const taskProgressStore = new SqliteTaskProgressStore(db);
   const toolEventLog = new SqliteToolEventLog(db);
   // 审计事件日志（对齐 Clowder EventAuditLog）— DI Database + clock; 幂等迁移 005 在 ctor 跑。
   const eventAuditLog = new SqliteEventAuditLog(db, { now });
@@ -342,6 +362,24 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     messageReader: messageStore,
     toolEventReader: toolEventLog,
     now,
+    // When a session is sealed (session_init seals the prior active / explicit seal /
+    // reopen), emit a session_seal AUDIT event so the audit tab traces session
+    // boundaries. Best-effort: a failed append never breaks the seal/resume path.
+    onSeal: (info) => {
+      void eventAuditLog
+        .append({
+          type: 'session_seal',
+          threadId: info.threadId,
+          data: { agentId: info.agentId, sessionId: info.sessionId, sequenceNo: info.sequenceNo },
+        })
+        .catch((err: unknown) => {
+          logger({
+            level: 'warn',
+            message: `session_seal audit append failed: ${err instanceof Error ? err.message : String(err)}`,
+            threadId: info.threadId,
+          });
+        });
+    },
   });
   const sessionMutex = new SessionMutex();
   const invocations = new InvocationRegistry({ now });
@@ -378,9 +416,11 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     ...(overrides.defaultAgentId !== undefined
       ? { defaultAgentId: overrides.defaultAgentId }
       : {}),
-    ...(overrides.agentAvailability !== undefined
-      ? { availability: overrides.agentAvailability }
-      : {}),
+    // F215: the relay cat is a SYSTEM backup, never a routable roster member — force
+    // it unavailable so @all / fallback / @mention never select it. It is only ever
+    // pushed by route-serial on form A exhaustion (an explicit push, not availability-
+    // filtered), so the relay still works while everyday routing never picks it.
+    availability: { ...(overrides.agentAvailability ?? {}), [RELAY_AGENT_ID as string]: false },
   });
 
   // M-MEMBER: the mutable overlay store. Default = no persistence/no overrides,
@@ -408,11 +448,17 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
   );
 
   // --- The InvokeAgentFn seam: the load-bearing M4↔(M7,M3) integration -------
+  // Late-bound task-progress broadcaster: the SocketManager is built AFTER this
+  // seam (it needs the Fastify server), so the invoke seam calls through this
+  // holder, populated once `socket` exists (mirrors platformOutboundRef below).
+  const taskProgressBroadcast: { fn?: (snapshot: TaskProgressSnapshot) => void } = {};
   const invoke = buildInvokeAgentFn({
     registry,
     messageStore,
     threadStore,
     taskStore,
+    taskProgressStore,
+    taskProgressBroadcast,
     evidenceStore,
     sessionStore,
     sessionMutex,
@@ -430,7 +476,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
       : {}),
   });
 
-  const router = new AgentRouter({ registry, invoke, history: messageStore, logger, now });
+  const router = new AgentRouter({ registry, invoke, history: messageStore, threadStore, logger, now });
 
   // --- HTTP + Socket.io ------------------------------------------------------
   const api = Fastify({ logger: false });
@@ -438,6 +484,9 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     cors: { origin: true },
   });
   const socket = new SocketManager(io);
+  // Now that the socket exists, point the invoke seam's task-progress broadcaster
+  // at it (the seam captured the holder above, before the socket was built).
+  taskProgressBroadcast.fn = (snapshot) => void socket.broadcastTaskProgress(snapshot.threadId, snapshot);
 
   // web→平台 出站桥 (Issue B). Late-bound: feishuManager is built AFTER appServices
   // (it needs submitPlatformMessage, which needs appServices), so the closure reads
@@ -472,6 +521,7 @@ export function buildApp(overrides: BuildAppOverrides = {}): BuiltApp {
     messageStore,
     threadStore,
     taskStore,
+    taskProgressStore,
     toolEventLog,
     eventAuditLog,
     evidenceStore,
@@ -609,6 +659,10 @@ interface InvokeDeps {
   readonly threadStore: SqliteThreadStore;
   /** 任务线 store — read for the open-task snapshot injected into the turn context. */
   readonly taskStore: SqliteTaskStore;
+  /** Task-progress store — upserted from TodoWrite tool_use frames during a turn. */
+  readonly taskProgressStore: SqliteTaskProgressStore;
+  /** Late-bound task-progress socket broadcaster (populated after the socket builds). */
+  readonly taskProgressBroadcast: { fn?: (snapshot: TaskProgressSnapshot) => void };
   readonly evidenceStore: SqliteEvidenceStore;
   readonly sessionStore: SessionStore;
   readonly sessionMutex: SessionMutex;
@@ -745,7 +799,13 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       sopStageHint !== undefined ? { ...context, sopStageHint } : context;
     // M11: append the ENABLED-skill guidance so a toggled-on skill actually reaches
     // the agent (empty when none enabled → unchanged prompt).
-    const baseSystemPrompt = buildSystemPrompt(effectiveContext, deps.resolveConfig);
+    // F032: pass the roster + availability so the system prompt carries the reviewer
+    // section (peer-reviewer teammates, cross-provider preferred). The relay cat has
+    // no peer-reviewer role and is forced unavailable, so it never appears.
+    const baseSystemPrompt = buildSystemPrompt(effectiveContext, deps.resolveConfig, {
+      allAgentIds: deps.registry.getAll().map((c) => c.id),
+      isAvailable: (id) => deps.registry.isAvailable(id),
+    });
     const skillBlock = deps.skillBlock();
     const systemPrompt =
       baseSystemPrompt.length > 0 && skillBlock.length > 0
@@ -795,19 +855,27 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
       [CALLBACK_ENV_KEYS.callbackToken]: record.callbackToken,
     };
 
-    // MCP PRODUCER (§C3): tell claude where OUR M10 MCP server is, so the 8-tool
-    // subsystem is reachable. Gated to the claude client ONLY — codex/gemini use
-    // different config formats (feeding them this JSON would be malformed), and
-    // only when the agent's config declares mcpSupport. The value is an inline
-    // JSON string (POSIX) or a temp-file path (win32); the claude provider passes
-    // it to `--mcp-config <value>`.
+    // MCP PRODUCER (§C3): tell the agent's CLI where OUR M10 MCP server is, so the
+    // 8-tool subsystem is reachable. Each provider uses a DIFFERENT delivery (the
+    // formats are not interchangeable — see providers/mcp-config.ts), so we dispatch
+    // by clientId, only when the agent's config declares mcpSupport:
+    //   - anthropic → callbackEnv MCP_CONFIG_JSON; claude passes `--mcp-config <value>`.
+    //   - openai    → callbackEnv MCP_CODEX_CONFIG_ARGS (JSON-serialized `--config`
+    //     TOML override list); codex-service splices it into its argv.
+    //   - google    → a pre-written <workspace>/.gemini/settings.json (handled below,
+    //     once the working directory is resolved; gemini has no per-invocation flag).
     const cfg = deps.resolveConfig(agentId);
-    if (cfg?.mcpSupport === true && cfg.clientId === 'anthropic') {
-      callbackEnv[MCP_CONFIG_ENV_KEY] = buildClaudeMcpConfig({
-        apiBaseUrl: deps.apiBaseUrl,
-        invocationId: record.invocationId,
-        callbackToken: record.callbackToken,
-      });
+    const mcpOpts = {
+      apiBaseUrl: deps.apiBaseUrl,
+      invocationId: record.invocationId,
+      callbackToken: record.callbackToken,
+    };
+    if (cfg?.mcpSupport === true) {
+      if (cfg.clientId === 'anthropic') {
+        callbackEnv[MCP_CONFIG_ENV_KEY] = buildClaudeMcpConfig(mcpOpts);
+      } else if (cfg.clientId === 'openai') {
+        callbackEnv[MCP_CODEX_CONFIG_ARGS_KEY] = JSON.stringify(buildCodexMcpConfigArgs(mcpOpts));
+      }
     }
 
     // M-ACCOUNT: inject the provider API key for this agent's clientId (if the
@@ -827,6 +895,25 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
     // below) so providers spawn with no explicit cwd — the pre-wire behavior, so
     // threads without a projectPath and no defaultWorkspace don't regress.
     const workingDirectory = thread?.projectPath ?? deps.defaultWorkspace;
+
+    // MCP PRODUCER (google): gemini reads MCP servers from a project-level
+    // `<workspace>/.gemini/settings.json` (no per-invocation flag), so write it into
+    // the resolved working directory before the spawn (merge-preserves any user
+    // servers). No workspace → skip + warn rather than dirty the API server's own
+    // cwd; that turn's gemini simply runs tool-less.
+    if (cfg?.mcpSupport === true && cfg.clientId === 'google') {
+      if (workingDirectory !== undefined) {
+        writeGeminiMcpSettings(workingDirectory, mcpOpts);
+      } else {
+        deps.logger({
+          level: 'warn',
+          message:
+            'gemini MCP skipped: no workspace (thread.projectPath / defaultWorkspace) to write .gemini/settings.json into',
+          threadId,
+          agentId,
+        });
+      }
+    }
 
     // Capture this turn's active session id (补充 E E3.3) so each emitted event
     // can be stamped with it — the route layer then tags the persisted agent
@@ -919,6 +1006,9 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
     let errorCount = 0;
     // The last error frame's message, carried into the `error` audit event (if any).
     let lastErrorMessage: string | undefined;
+    // The last task-progress snapshot captured this turn (from a TodoWrite frame),
+    // so the finally block can flip it to completed/interrupted at turn end.
+    let lastTaskSnapshot: TaskProgressSnapshot | undefined;
 
     // Stamp this turn's invocationId (§4.2) AND session_id (补充 E) onto every
     // emitted event so downstream sinks — the M5 ToolEventLog live-feed + the
@@ -932,6 +1022,31 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
           textLength += event.content.length;
         } else if (event.type === 'tool_use') {
           toolCallCount += 1;
+          // Task-progress capture: a TodoWrite/write_todos frame is the agent's live
+          // plan — persist (latest-wins) + broadcast so the 任务 tab updates mid-turn.
+          const taskItems = extractTaskProgress(event.toolName, event.toolInput);
+          if (taskItems !== null) {
+            const snapshot: TaskProgressSnapshot = {
+              threadId,
+              agentId,
+              tasks: taskItems,
+              status: 'running',
+              updatedAt: deps.now(),
+              lastInvocationId: record.invocationId,
+            };
+            lastTaskSnapshot = snapshot;
+            try {
+              deps.taskProgressStore.setSnapshot(snapshot);
+              deps.taskProgressBroadcast.fn?.(snapshot);
+            } catch (err) {
+              deps.logger({
+                level: 'warn',
+                message: `task progress capture failed: ${err instanceof Error ? err.message : String(err)}`,
+                threadId,
+                agentId,
+              });
+            }
+          }
         } else if (event.type === 'error') {
           errorCount += 1;
           if (event.content !== undefined) lastErrorMessage = event.content;
@@ -986,6 +1101,23 @@ function buildInvokeAgentFn(deps: InvokeDeps): InvokeAgentFn {
           toolCalls: toolCallCount,
         });
       }
+      // Task-progress: flip this turn's last snapshot to its terminal state so the
+      // 任务 tab stops showing it as "running" (completed, or interrupted on error).
+      if (lastTaskSnapshot !== undefined) {
+        const finalSnapshot: TaskProgressSnapshot = {
+          ...lastTaskSnapshot,
+          status: errorCount > 0 ? 'interrupted' : 'completed',
+          updatedAt: deps.now(),
+          ...(errorCount > 0 ? { interruptReason: 'error' } : {}),
+        };
+        try {
+          deps.taskProgressStore.setSnapshot(finalSnapshot);
+          deps.taskProgressBroadcast.fn?.(finalSnapshot);
+        } catch {
+          // best-effort terminal update; never break turn teardown.
+        }
+      }
+
       // Operability invariant 4: flag a silent dead turn (no output, no error) or
       // an error spike. Runs in `finally` so an aborted/short-circuited stream is
       // still judged. Silent in tests (NOOP_LOGGER) unless a logger is injected.

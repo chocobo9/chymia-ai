@@ -5,12 +5,16 @@
 // （Claude Code spawn 参数 / stream-json / --resume / --system-prompt-file）。
 // 从设计写 WHAT，不复制源码。
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AgentId, AgentMessage } from '@choco/shared';
 import type { AgentService, InvokeOptions, MessageContent } from '../base.js';
 import { spawnCliLineStream, type CliExitInfo } from '../cli-spawn.js';
 import {
   createClaudeParserState,
   parseClaudeLine,
+  isMalformedFormAState,
   CLAUDE_PROVIDER,
   type ParserState,
 } from './claude-parser.js';
@@ -78,8 +82,13 @@ export const CLAUDE_DEFAULT_PERMISSION_MODE: ClaudePermissionMode = 'bypassPermi
 const CLAUDE_RESUME_FLAG = '--resume';
 /** model 选择 flag，来源 extraction §2.2 */
 const CLAUDE_MODEL_FLAG = '--model';
-/** 原生 system prompt 注入 flag（L0），来源 extraction §2.2（--system-prompt-file 的 inline 等价） */
-const CLAUDE_SYSTEM_PROMPT_FLAG = '--append-system-prompt';
+/**
+ * 原生 system prompt 注入 flag（L0）。用 `--append-system-prompt-file <临时文件>` 而非
+ * inline `--append-system-prompt <value>`：长 system prompt（identity+skill+reviewer+
+ * routing+SOP）若进 argv，会和 prompt 一起把命令行推过 Windows CreateProcess 的 ~32K
+ * 上限 → spawn ENAMETOOLONG。对齐 Clowder ClaudeAgentService 的 --system-prompt-file。
+ */
+const CLAUDE_SYSTEM_PROMPT_FILE_FLAG = '--append-system-prompt-file';
 /** MCP 回调配置 flag，来源 extraction §2.2（--mcp-config <json>） */
 const CLAUDE_MCP_CONFIG_FLAG = '--mcp-config';
 /** 携带 prompt 的位置参数前缀（claude -p 接收 prompt 为位置参数）；prompt 末位追加 */
@@ -133,11 +142,23 @@ function describeContentBlocks(blocks: readonly MessageContent[] | undefined): s
  * 构造 `claude` CLI 参数数组（纯函数，导出供单测断言 permission-mode / resume / model 注入）。
  * permissionMode 由调用方传入（service 已应用默认 'bypassPermissions' 或注入覆盖值）。
  */
+/**
+ * Build the prompt text piped via stdin (NOT an argv positional). `claude -p`
+ * reads the prompt from stdin when no positional is given (verified live with
+ * --output-format stream-json), so the long turn prompt (history + evidence +
+ * task snapshot) never enters the command line — avoiding the Windows
+ * CreateProcess ~32K limit (`spawn ENAMETOOLONG`). System prompt is NOT here
+ * (claude injectsL0Natively → it goes via --append-system-prompt-file).
+ */
+export function buildStdinPrompt(prompt: string, options: InvokeOptions | undefined): string {
+  return `${prompt}${describeContentBlocks(options?.contentBlocks)}`;
+}
+
 export function buildArgs(
-  prompt: string,
   options: InvokeOptions | undefined,
   defaultModel: string,
   permissionMode: string,
+  systemPromptFile?: string,
 ): string[] {
   // 选点校验：buildArgs 是唯一真正 emit `--permission-mode` 的地方，所有构参路径
   // （含直接调用方/测试）都过这里，因此这是 fail-fast 的「保证点」。typo（如 'plna'）/
@@ -145,9 +166,9 @@ export function buildArgs(
   assertValidPermissionMode(permissionMode);
   const args = [...CLAUDE_BASE_ARGS];
   // `--mcp-config <configs...>` 是 VARIADIC（贪婪吞掉其后所有非 flag 参数，已用真实
-  // claude 2.1.159 验证）。必须紧跟一个以 '-' 开头的 flag 来终止它，否则末位的位置参数
-  // prompt 会被当成第二个 config 路径吞掉。下方 --permission-mode 无条件 push 且以 '-'
-  // 开头，正好终止 variadic；prompt 仍安全地留在末位。因此 mcp-config 必须先于它。
+  // claude 2.1.159 验证）。下方 --permission-mode 无条件 push 且以 '-' 开头，终止 variadic。
+  // prompt 已移出 argv（走 stdin），不再有「末位 prompt 被 variadic 吞」的风险，但仍保持
+  // mcp-config 先于 permission-mode 的顺序。
   const mcpConfig = options?.callbackEnv?.[MCP_CONFIG_ENV_KEY];
   if (mcpConfig) {
     args.push(CLAUDE_MCP_CONFIG_FLAG, mcpConfig);
@@ -160,12 +181,11 @@ export function buildArgs(
   if (model) {
     args.push(CLAUDE_MODEL_FLAG, model);
   }
-  // Claude Code 支持原生 system prompt 注入（injectsL0Natively=true）。
-  if (options?.systemPrompt) {
-    args.push(CLAUDE_SYSTEM_PROMPT_FLAG, options.systemPrompt);
+  // Claude Code 原生 L0 注入，走文件（规避命令行长度；调用方先把 L0 写临时文件）。
+  if (systemPromptFile !== undefined) {
+    args.push(CLAUDE_SYSTEM_PROMPT_FILE_FLAG, systemPromptFile);
   }
-  // prompt 作为末位位置参数；附加多模态文本说明。
-  args.push(`${prompt}${describeContentBlocks(options?.contentBlocks)}`);
+  // prompt 不再是位置参数 → 经 stdin（buildStdinPrompt + spawn 的 stdin）。
   return args;
 }
 
@@ -207,54 +227,119 @@ export class ClaudeAgentService implements AgentService {
     options?: InvokeOptions,
   ): AsyncIterable<AgentMessage> {
     const model = options?.model ?? this.defaultModel;
-    const args = buildArgs(prompt, options, this.defaultModel, this.permissionMode);
+    // L0 system prompt → a temp file referenced by --append-system-prompt-file, so
+    // a long L0 never enters argv (Windows CreateProcess ~32K → spawn ENAMETOOLONG).
+    // The temp dir is removed in the finally below regardless of how the turn ends.
+    let systemPromptDir: string | undefined;
+    let systemPromptFile: string | undefined;
+    if (options?.systemPrompt !== undefined && options.systemPrompt.length > 0) {
+      systemPromptDir = mkdtempSync(join(tmpdir(), 'choco-claude-l0-'));
+      systemPromptFile = join(systemPromptDir, 'system-prompt.md');
+      writeFileSync(systemPromptFile, options.systemPrompt, 'utf8');
+    }
+    const args = buildArgs(options, this.defaultModel, this.permissionMode, systemPromptFile);
+    const stdinPrompt = buildStdinPrompt(prompt, options);
     const { lines, exit, kill } = this.spawnStream({
       command: this.command,
       args,
+      stdin: stdinPrompt,
       cwd: options?.workingDirectory,
       env: options?.callbackEnv,
       timeoutMs: options?.timeoutMs ?? this.defaultTimeoutMs,
       signal: options?.signal,
     });
 
-    let state: ParserState = createClaudeParserState();
-    const deps = { agentId: this.agentId, now: this.now, model };
+    try {
+      let state: ParserState = createClaudeParserState();
+      const deps = { agentId: this.agentId, now: this.now, model };
 
-    let sawDone = false;
-    for await (const line of lines) {
-      const result = parseClaudeLine(line, state, deps);
-      state = result.state;
-      for (const msg of result.messages) {
-        yield msg;
-        if (msg.type === 'done') {
-          sawDone = true;
+      let sawDone = false;
+      for await (const line of lines) {
+        const result = parseClaudeLine(line, state, deps);
+        state = result.state;
+        for (const msg of result.messages) {
+          if (msg.type === 'done') {
+            // F215 AC-B1: form A malformed tool-call 检测——在 done 之前 emit detected 信号 +
+            // 显式 error（对齐 Clowder），供 invoke 层 suppress+seal+fresh-retry、route 层接力。
+            if (isMalformedFormAState(state)) {
+              yield this.makeMalformedDetected(state);
+              yield this.makeMalformedError(state);
+            }
+            yield msg;
+            sawDone = true;
+          } else {
+            yield msg;
+          }
+        }
+        // result/success → 本轮逻辑回合结束。立即停止消费 stdout，不让 `for await` 在
+        // cli-spawn 的 `await waitForClose()` 上干等进程关闭（claude 的 MCP 子进程收尾慢）。
+        if (sawDone) {
+          break;
         }
       }
-      // result/success → 本轮逻辑回合结束。立即停止消费 stdout，不让 `for await` 在
-      // cli-spawn 的 `await waitForClose()` 上干等进程关闭（claude 的 MCP 子进程收尾慢）。
+
       if (sawDone) {
-        break;
+        // 逻辑回复已完整产出（done 已 yield）。提前回收进程：SIGTERM + 让 exit 在后台
+        // resolve 收尾（清理定时器/监听），不在关键路径 await——这样上游 SessionMutex 立刻
+        // 释放、route-serial 立刻接力下一个 agent（修「@all 只有第一个 agent 回」）。
+        kill();
+        void exit;
+        return;
+      }
+
+      // 流在没有 result/success 的情况下结束（崩溃 / abort / 非零退出）→ 用退出信息收尾，
+      // 由 finalizeStream 区分 error（异常退出）与 done（干净退出但无 result，少见）。
+      const info = await exit;
+      yield* finalizeStream(info, {
+        agentId: this.agentId,
+        provider: CLAUDE_PROVIDER,
+        model,
+        now: this.now,
+      });
+    } finally {
+      // Best-effort temp cleanup; never break the turn on a cleanup failure.
+      if (systemPromptDir !== undefined) {
+        try {
+          rmSync(systemPromptDir, { recursive: true, force: true });
+        } catch {
+          /* leave the temp dir for the OS to reclaim */
+        }
       }
     }
+  }
 
-    if (sawDone) {
-      // 逻辑回复已完整产出（done 已 yield）。提前回收进程：SIGTERM + 让 exit 在后台
-      // resolve 收尾（清理定时器/监听），不在关键路径 await——这样上游 SessionMutex 立刻
-      // 释放、route-serial 立刻接力下一个 agent（修「@all 只有第一个 agent 回」）。
-      kill();
-      void exit;
-      return;
-    }
-
-    // 流在没有 result/success 的情况下结束（崩溃 / abort / 非零退出）→ 用退出信息收尾，
-    // 由 finalizeStream 区分 error（异常退出）与 done（干净退出但无 result，少见）。
-    const info = await exit;
-    yield* finalizeStream(info, {
+  /**
+   * F215 AC-B1: form A 检测信号（内部 system_info）。invoke 层 suppress 掉它（不给用户），
+   * 据此触发 seal + fresh-context 重试；耗尽后 route 层接力到备用模型。
+   */
+  private makeMalformedDetected(state: ParserState): AgentMessage {
+    return {
+      type: 'system_info',
       agentId: this.agentId,
-      provider: CLAUDE_PROVIDER,
-      model,
-      now: this.now,
-    });
+      content: JSON.stringify({
+        type: 'malformed_toolcall_detected',
+        form: 'A',
+        ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      }),
+      timestamp: this.now(),
+      metadata: { provider: CLAUDE_PROVIDER, model: state.model ?? this.defaultModel },
+    };
+  }
+
+  /**
+   * F215 AC-D1: 显式 malformed error（非静默空返回）。errorCode='malformed_toolcall' 供 invoke
+   * 层识别并 suppress + 进入 fresh-retry / 接力链。
+   */
+  private makeMalformedError(state: ParserState): AgentMessage {
+    return {
+      type: 'error',
+      agentId: this.agentId,
+      content:
+        'malformed_toolcall: Claude 输出无效（仅 thinking，无 text 或工具调用），系统将触发恢复流程',
+      errorCode: 'malformed_toolcall',
+      timestamp: this.now(),
+      metadata: { provider: CLAUDE_PROVIDER, model: state.model ?? this.defaultModel },
+    };
   }
 }
 

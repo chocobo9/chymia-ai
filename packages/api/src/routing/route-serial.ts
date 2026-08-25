@@ -17,7 +17,9 @@ import type {
   AgentMessage,
   InvocationContext,
   PingPongWarning,
+  ThreadRoutingPolicyV1,
 } from '@choco/shared';
+import { createAgentId } from '@choco/shared';
 import type { MentionEntry } from '@choco/api/routing/mention-parser';
 import { parseA2AMentions } from '@choco/api/routing/mention-parser';
 import type {
@@ -31,6 +33,33 @@ import type {
  * Source: clowder-architecture-design.md §7.4 ("maxA2ADepth 配置（默认 3）").
  */
 export const DEFAULT_MAX_A2A_DEPTH = 3;
+
+/**
+ * F215: the backup model cat the malformed relay pushes to — must match the
+ * `claude-opus-relay` entry in agents.yaml. Single source of truth for the id.
+ */
+export const RELAY_AGENT_ID: AgentId = createAgentId('claude-opus-relay');
+
+/** True when an event is the internal malformed_toolcall_relay_46 signal. */
+function isRelay46Signal(event: AgentMessage): boolean {
+  if (event.type !== 'system_info' || event.content === undefined) {
+    return false;
+  }
+  try {
+    return (JSON.parse(event.content) as { type?: unknown }).type === 'malformed_toolcall_relay_46';
+  } catch {
+    return false;
+  }
+}
+
+/** True when an event is the malformed final error (suppressed once relay is queued). */
+function isMalformedRelayError(event: AgentMessage): boolean {
+  return (
+    event.type === 'error' &&
+    (event.errorCode === 'malformed_toolcall' ||
+      (event.content ?? '').startsWith('malformed_toolcall:'))
+  );
+}
 
 /**
  * ping-pong streak at which a warning is injected into the next turn.
@@ -254,6 +283,8 @@ export interface RouteSerialParams {
   readonly teammates: readonly AgentId[];
   readonly mcpAvailable: boolean;
   readonly promptTags: readonly string[];
+  /** F042: thread routing policy injected into each agent's system prompt. */
+  readonly routingPolicy?: ThreadRoutingPolicyV1;
   readonly maxA2ADepth?: number;
   /** Thread-wide (stop-all) signal: stops the chain from starting more agents. */
   readonly signal?: AbortSignal;
@@ -261,6 +292,12 @@ export interface RouteSerialParams {
   readonly signalForAgent?: SignalForAgent;
   readonly now?: () => number;
   readonly logger?: RouteLogger;
+  /**
+   * F215: the backup model cat to relay to when an agent exhausts malformed
+   * (form A) retries. The router injects it only when the relay cat is registered
+   * AND available; absent → no relay push (the malformed signal is still consumed).
+   */
+  readonly relayAgentId?: AgentId;
 }
 
 /**
@@ -295,12 +332,14 @@ export async function* routeSerial(
       ...(directMessageFrom !== undefined ? { directMessageFrom } : {}),
       ...(pingPongWarning !== undefined ? { pingPongWarning } : {}),
       ...(params.promptTags.length > 0 ? { promptTags: params.promptTags } : {}),
+      ...(params.routingPolicy !== undefined ? { routingPolicy: params.routingPolicy } : {}),
     };
 
     const agentPrompt = composeSerialPrompt(params.prompt, previous);
 
     let collectedText = '';
     let capturedDone: AgentMessage | undefined;
+    let relayPending = false;
 
     // The active agent listens to its OWN signal (targeted stop) when available,
     // else the thread-wide signal. A targeted stop of THIS agent ends the chain too
@@ -315,6 +354,18 @@ export async function* routeSerial(
       context,
       ...(agentSignal !== undefined ? { signal: agentSignal } : {}),
     })) {
+      // F215 AC-C3: consume the internal relay signal (never forwarded); flag that
+      // the backup cat should be pushed after this agent finishes.
+      if (isRelay46Signal(event)) {
+        relayPending = true;
+        continue;
+      }
+      // Once relay is queued AND a backup target exists, suppress the malformed final
+      // error — the backup takes over. With NO relay target, let the error surface so
+      // the user is not left with a "switching backup" card and no actual recovery.
+      if (relayPending && params.relayAgentId !== undefined && isMalformedRelayError(event)) {
+        continue;
+      }
       if (event.type === 'text' && event.content !== undefined) {
         collectedText += event.content;
       }
@@ -347,6 +398,26 @@ export async function* routeSerial(
     }
 
     previous.push({ agentId, text: collectedText });
+
+    // F215 AC-C3: malformed retries exhausted → push the backup model cat onto the
+    // worklist so it runs next (organic relay). Dedup vs the pending tail; never
+    // relay onto itself. isFinal below recomputes against the grown list.
+    if (
+      relayPending &&
+      params.relayAgentId !== undefined &&
+      agentId !== params.relayAgentId &&
+      !worklist.list.slice(index + 1).includes(params.relayAgentId)
+    ) {
+      worklist.list.push(params.relayAgentId);
+      worklist.a2aCount += 1;
+      worklist.a2aFrom.set(params.relayAgentId, agentId);
+      params.logger?.({
+        level: 'warn',
+        message: `malformed relay → pushed backup cat ${params.relayAgentId as string}`,
+        threadId: params.threadId,
+        agentId,
+      });
+    }
 
     const isFinal = index === worklist.list.length - 1;
     if (capturedDone !== undefined) {

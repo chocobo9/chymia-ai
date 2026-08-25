@@ -36,7 +36,7 @@ describe('primitives (helpers)', () => {
     const claude = ROSTER[0];
     expect(monoInitials(claude.displayName)).toBe('CL');
     expect(shortName(claude)).toBe('Claude');
-    expect(modelBadge(claude)).toBe('Opus');
+    expect(modelBadge(claude)).toBe('Claude');
   });
 });
 
@@ -46,7 +46,7 @@ describe('AgentMessage (.d-choco structure)', () => {
       <AgentMessage
         view={{
           agentId: CLAUDE,
-          displayName: 'Claude (Opus)',
+          displayName: 'Claude',
           avatarName: 'Claude',
           model: 'Opus',
           text: 'TODO API 已实现，含 zod 校验。',
@@ -347,7 +347,7 @@ describe('ChatInput (.composer structure)', () => {
     expect(dropdown).toHaveClass('mentions');
     const suggestion = within(dropdown).getByTestId('mention-suggestion');
     // enriched row: short name, model, strengths, mention key.
-    expect(within(suggestion).getByText('Claude')).toBeInTheDocument();
+    expect(suggestion.querySelector('.mention-name')).toHaveTextContent('Claude');
     expect(within(suggestion).getByText('架构设计 · 代码实现 · 重构')).toBeInTheDocument();
     expect(within(suggestion).getByText('@claude')).toBeInTheDocument();
   });

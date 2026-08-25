@@ -23,7 +23,7 @@ export const DEFAULT_MAX_MESSAGES = 20; // 20 recent messages — Clowder Contex
 export const DEFAULT_MAX_CONTENT_LENGTH = 1500; // 1500 chars/message — Clowder ContextAssembler default
 export const DEFAULT_MAX_TOTAL_TOKENS = 2000; // 2000 token history budget — design-supplement §C4
 
-/** Label used for user (non-agent) messages. CLAUDE.md: 铲屎官 → 用户. */
+/** Label used for user (non-agent) messages. CLAUDE.md: 用户 → 用户. */
 export const USER_SENDER_LABEL = '用户';
 
 export interface ContextAssemblerOptions {

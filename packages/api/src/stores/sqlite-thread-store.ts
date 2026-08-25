@@ -13,12 +13,13 @@
 // backend). Constructor injection only (supplement D, no global singleton).
 
 import type { Database } from 'better-sqlite3';
-import type { AgentId, Thread, ThreadThinkingMode } from '@choco/shared';
+import type { AgentId, Thread, ThreadRoutingPolicyV1, ThreadThinkingMode } from '@choco/shared';
 import { createAgentId } from '@choco/shared';
 import { THREADS_TABLE, createThreadsTable } from './migrations/002-threads.js';
 import { MESSAGES_TABLE, createMessagesTable } from './migrations/001-messages.js';
 import { TOOL_EVENTS_TABLE, createToolEventsTable } from './migrations/003-tool-events.js';
 import { TASKS_TABLE, createTasksTable } from './migrations/006-tasks.js';
+import { TASK_PROGRESS_TABLE, createTaskProgressTable } from './migrations/007-task-progress.js';
 
 /**
  * Default thinking mode for newly created threads.
@@ -47,6 +48,7 @@ interface ThreadRow {
   readonly participants: string;
   readonly sop_stage_id: string | null;
   readonly thinking_mode: string;
+  readonly routing_policy: string | null;
 }
 
 /** Bind-parameter object for INSERT. Keys match the `@name` placeholders. */
@@ -59,10 +61,27 @@ interface InsertParams {
   readonly participants: string;
   readonly sop_stage_id: string | null;
   readonly thinking_mode: string;
+  readonly routing_policy: string | null;
 }
 
 /** Clock injected for deterministic timestamps in tests; defaults to Date.now. */
 export type NowFn = () => number;
+
+/**
+ * A thread participant plus its activity in that thread, used by the router's
+ * participant-based fallback (Clowder getParticipantsWithActivity).
+ * `messageCount` = how many messages this agent authored in the thread.
+ *
+ * NOTE: Clowder also carries `lastResponseHealthy` (a per-reply health flag set
+ * by its vision-guard / error machinery). This repo has NO reply-health mechanism
+ * yet, so the field is intentionally absent — the router treats absent as healthy
+ * (Clowder: `lastResponseHealthy !== false`). When a reply-health signal is added
+ * it should be surfaced here.
+ */
+export interface ParticipantActivity {
+  readonly agentId: AgentId;
+  readonly messageCount: number;
+}
 
 /** Options for creating a thread. All optional — a bare create() is valid. */
 export interface CreateThreadInput {
@@ -111,7 +130,26 @@ function parseParticipants(raw: string): AgentId[] {
   return result;
 }
 
+/**
+ * Parse a persisted routing policy (JSON or null). Defensive: corrupt JSON or a
+ * non-v1 shape from external persistence is treated as "no policy" (returns
+ * undefined) rather than throwing inside a get().
+ */
+function parseRoutingPolicy(raw: string | null): ThreadRoutingPolicyV1 | undefined {
+  if (raw === null) return undefined;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (value !== null && typeof value === 'object' && (value as { v?: unknown }).v === 1) {
+      return value as ThreadRoutingPolicyV1;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function rowToThread(row: ThreadRow): Thread {
+  const routingPolicy = parseRoutingPolicy(row.routing_policy);
   return {
     id: row.id,
     ...(row.title !== null ? { title: row.title } : {}),
@@ -123,6 +161,7 @@ function rowToThread(row: ThreadRow): Thread {
     thinkingMode: isThinkingMode(row.thinking_mode)
       ? row.thinking_mode
       : DEFAULT_THINKING_MODE,
+    ...(routingPolicy !== undefined ? { routingPolicy } : {}),
   };
 }
 
@@ -139,10 +178,13 @@ export class SqliteThreadStore {
   private readonly updateSopStageStmt;
   private readonly updateTitleStmt;
   private readonly updateParticipantsStmt;
+  private readonly updateRoutingPolicyStmt;
+  private readonly countAgentMessagesStmt;
   private readonly deleteStmt;
   private readonly deleteMessagesStmt;
   private readonly deleteToolEventsStmt;
   private readonly deleteTasksStmt;
+  private readonly deleteTaskProgressStmt;
   private readonly deleteCascadeTxn: (threadId: string) => boolean;
   private readonly now: NowFn;
 
@@ -156,13 +198,15 @@ export class SqliteThreadStore {
     // Task lines are CASCADE-deleted with their thread (same orphan-free idiom);
     // ensure the table exists even when this store is constructed standalone.
     createTasksTable(db);
+    // Task-progress snapshots cascade with their thread too (same orphan-free idiom).
+    createTaskProgressTable(db);
     this.now = options?.now ?? Date.now;
 
     this.insertStmt = db.prepare<InsertParams>(`
       INSERT INTO ${THREADS_TABLE}
-        (id, title, project_path, created_at, last_active_at, participants, sop_stage_id, thinking_mode)
+        (id, title, project_path, created_at, last_active_at, participants, sop_stage_id, thinking_mode, routing_policy)
       VALUES
-        (@id, @title, @project_path, @created_at, @last_active_at, @participants, @sop_stage_id, @thinking_mode)
+        (@id, @title, @project_path, @created_at, @last_active_at, @participants, @sop_stage_id, @thinking_mode, @routing_policy)
     `);
 
     this.getStmt = db.prepare<[string], ThreadRow>(`
@@ -193,6 +237,16 @@ export class SqliteThreadStore {
       UPDATE ${THREADS_TABLE} SET participants = ? WHERE id = ?
     `);
 
+    this.updateRoutingPolicyStmt = db.prepare<[string | null, string]>(`
+      UPDATE ${THREADS_TABLE} SET routing_policy = ? WHERE id = ?
+    `);
+
+    // Per-participant activity: how many messages an agent authored in a thread.
+    // Backs getParticipantsWithActivity (the router's participant-based fallback).
+    this.countAgentMessagesStmt = db.prepare<[string, string], { n: number }>(`
+      SELECT COUNT(*) AS n FROM ${MESSAGES_TABLE} WHERE thread_id = ? AND agent_id = ?
+    `);
+
     this.deleteStmt = db.prepare<[string]>(`
       DELETE FROM ${THREADS_TABLE} WHERE id = ?
     `);
@@ -208,6 +262,9 @@ export class SqliteThreadStore {
     this.deleteTasksStmt = db.prepare<[string]>(`
       DELETE FROM ${TASKS_TABLE} WHERE thread_id = ?
     `);
+    this.deleteTaskProgressStmt = db.prepare<[string]>(`
+      DELETE FROM ${TASK_PROGRESS_TABLE} WHERE thread_id = ?
+    `);
 
     // Wrap the deletes in one atomic transaction so a thread never ends up
     // half-deleted (its rows gone but the thread row remaining, or vice versa).
@@ -217,6 +274,7 @@ export class SqliteThreadStore {
       this.deleteMessagesStmt.run(threadId);
       this.deleteToolEventsStmt.run(threadId);
       this.deleteTasksStmt.run(threadId);
+      this.deleteTaskProgressStmt.run(threadId);
       return this.deleteStmt.run(threadId).changes > 0;
     });
   }
@@ -277,6 +335,21 @@ export class SqliteThreadStore {
   }
 
   /**
+   * Set or clear a thread's routing policy (Clowder updateRoutingPolicy, F042).
+   * A null / non-v1 / empty-scopes policy CLEARS it (stored NULL). No-op if the
+   * thread is unknown (UPDATE matches no row).
+   */
+  async updateRoutingPolicy(
+    threadId: string,
+    policy: ThreadRoutingPolicyV1 | null,
+  ): Promise<void> {
+    const scopes = policy?.scopes;
+    const hasScopes = scopes !== undefined && Object.keys(scopes).length > 0;
+    const value = !policy || policy.v !== 1 || !hasScopes ? null : JSON.stringify(policy);
+    this.updateRoutingPolicyStmt.run(value, threadId);
+  }
+
+  /**
    * Add agent ids to a thread's participant set (dedup'd). No-op if unknown.
    * Used after routing so the thread tracks which agents have participated.
    */
@@ -288,6 +361,31 @@ export class SqliteThreadStore {
       if (!merged.includes(id)) merged.push(id);
     }
     this.updateParticipantsStmt.run(JSON.stringify(merged), threadId);
+  }
+
+  /**
+   * Read a thread's participant ids (empty if the thread is unknown). Mirrors
+   * Clowder IThreadStore.getParticipants — the read seam group mentions (@thread)
+   * and the router's participant fallback build on.
+   */
+  async getParticipants(threadId: string): Promise<AgentId[]> {
+    const thread = await this.get(threadId);
+    return thread === null ? [] : thread.participants;
+  }
+
+  /**
+   * Read each participant plus its in-thread activity (messageCount), for the
+   * router's participant-based fallback (Clowder getParticipantsWithActivity).
+   * Returns [] for an unknown thread. `lastResponseHealthy` is omitted — this
+   * repo has no reply-health signal yet (see {@link ParticipantActivity}).
+   */
+  async getParticipantsWithActivity(threadId: string): Promise<ParticipantActivity[]> {
+    const thread = await this.get(threadId);
+    if (thread === null) return [];
+    return thread.participants.map((agentId) => ({
+      agentId,
+      messageCount: this.countAgentMessagesStmt.get(threadId, agentId as string)?.n ?? 0,
+    }));
   }
 
   /**
@@ -332,6 +430,7 @@ export class SqliteThreadStore {
       participants: JSON.stringify(thread.participants),
       sop_stage_id: thread.sopStageId ?? null,
       thinking_mode: thread.thinkingMode,
+      routing_policy: thread.routingPolicy ? JSON.stringify(thread.routingPolicy) : null,
     };
     this.insertStmt.run(params);
   }

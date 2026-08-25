@@ -78,11 +78,11 @@ describe('detectRecentBurst (edge)', () => {
     const c = cfg({ minBurstMessages: 2 });
     const msgs = [
       makeMessage({ agentId: null, content: '开场', offsetMin: 0 }),
-      makeMessage({ agentId: CLAUDE, content: '布偶猫回应开场', offsetMin: 1 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude回应开场', offsetMin: 1 }),
       makeMessage({ agentId: null, content: '请 review 一下迁移脚本', offsetMin: 2 }), // question
-      makeMessage({ agentId: CODEX, content: '缅因猫迟到的 review 回复', offsetMin: 2 + GAP_MIN }), // answer after gap
+      makeMessage({ agentId: CODEX, content: 'Codex迟到的 review 回复', offsetMin: 2 + GAP_MIN }), // answer after gap
       makeMessage({ agentId: null, content: '收到', offsetMin: 3 + GAP_MIN }),
-      makeMessage({ agentId: CLAUDE, content: '布偶猫补索引', offsetMin: 4 + GAP_MIN }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude补索引', offsetMin: 4 + GAP_MIN }),
     ];
     const { burst } = detectRecentBurst(msgs, c);
     // Natural cut is at the agent answer (index 3); protection pulls in the user question (index 2).
@@ -92,10 +92,10 @@ describe('detectRecentBurst (edge)', () => {
   it('protects a tool_use→tool_result chain: the tool_use message is pulled in', () => {
     const c = cfg({ minBurstMessages: 2 });
     const msgs = [
-      makeMessage({ agentId: CLAUDE, content: '布偶猫起手', offsetMin: 0 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude起手', offsetMin: 0 }),
       makeMessage({
         agentId: CODEX,
-        content: '缅因猫发起读取',
+        content: 'Codex发起读取',
         offsetMin: 1,
         toolEvents: [{ type: 'tool_use', label: 'read_file' }],
       }),
@@ -106,10 +106,10 @@ describe('detectRecentBurst (edge)', () => {
         toolEvents: [{ type: 'tool_result', label: 'read_file' }],
       }),
       makeMessage({ agentId: null, content: '好的', offsetMin: 2 + GAP_MIN }),
-      makeMessage({ agentId: CODEX, content: '缅因猫结论', offsetMin: 3 + GAP_MIN }),
+      makeMessage({ agentId: CODEX, content: 'Codex结论', offsetMin: 3 + GAP_MIN }),
     ];
     const { burst } = detectRecentBurst(msgs, c);
-    expect(burst[0]?.content).toBe('缅因猫发起读取'); // tool_use not split from its tool_result
+    expect(burst[0]?.content).toBe('Codex发起读取'); // tool_use not split from its tool_result
   });
 
   it('honours a custom larger minBurstMessages floor', () => {

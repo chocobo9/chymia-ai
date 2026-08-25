@@ -13,7 +13,7 @@
 // (supplement D) — the Server + helpers are injected, nothing global.
 
 import type { Server as SocketIoServer, Socket } from 'socket.io';
-import type { AgentMessage, AgentState, SopViolationPayload, StoredMessage, TaskItem, Thread } from '@choco/shared';
+import type { AgentMessage, AgentState, SopViolationPayload, StoredMessage, TaskItem, TaskProgressSnapshot, Thread } from '@choco/shared';
 import { ThreadSequencer } from './thread-sequencer.js';
 import { BroadcastRateMonitor } from './broadcast-rate-monitor.js';
 
@@ -49,6 +49,13 @@ export const SERVER_EVENTS = {
   taskCreated: 'task_created',
   taskUpdated: 'task_updated',
   taskDeleted: 'task_deleted',
+  /**
+   * Task-PROGRESS snapshot (an agent's live TodoWrite plan for the current turn).
+   * Distinct from the task-line CRUD above: this is the ephemeral per-(thread,agent)
+   * checklist the 任务 tab renders live. Latest-wins; pushed each time the agent
+   * reports a new snapshot mid-turn + once at turn end (completed/interrupted).
+   */
+  taskProgress: 'task_progress',
 } as const;
 
 /**
@@ -212,6 +219,14 @@ export class SocketManager {
     });
   }
 
+  /** Broadcast an agent's latest task-PROGRESS snapshot to its thread room (live
+   * 任务 tab sync). Ordered with the thread's other frames via the sequencer. */
+  broadcastTaskProgress(threadId: string, snapshot: TaskProgressSnapshot): Promise<void> {
+    return this.sequencer.enqueue(threadId, () => {
+      this.io.to(threadId).emit(SERVER_EVENTS.taskProgress, snapshot);
+    });
+  }
+
   /** Broadcast an agent_status change to a thread room. */
   broadcastAgentStatus(threadId: string, state: AgentState): Promise<void> {
     return this.sequencer.enqueue(threadId, () => {
@@ -258,6 +273,17 @@ export class SocketManager {
         else this.cancelThread(threadId);
       });
     });
+  }
+
+  /**
+   * Cancel ALL in-flight routes on a thread — batch AND per-agent controllers.
+   * Called by handleThreadMessage before registering a new route so a follow-up
+   * message supersedes the old invocation instead of blocking on the mutex.
+   */
+  cancelExistingRoutes(threadId: string): void {
+    this.cancelThread(threadId);
+    this.cancelControllers.delete(threadId);
+    this.agentCancelControllers.delete(threadId);
   }
 
   /**

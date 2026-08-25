@@ -7,9 +7,9 @@
 // app-factory's resolveAgentServices() registers a config WITHOUT a service as
 // "unrunnable" (registry.getService throws). Production must therefore supply a
 // real service per agent. We map each roster agent's clientId → provider:
-//   anthropic → ClaudeAgentService   (native L0 system prompt, permissionMode)
+//   anthropic → ClaudeAgentService       (native L0 system prompt, permissionMode)
 //   openai    → CodexAgentService
-//   google    → GeminiAgentService
+//   google    → AntigravityAgentService  (@gemini/Gemini 后端 = `agy` CLI, 换掉旧 gemini CLI)
 //
 // CLAUDE.md compliance: no `any`, no console, no default export, no hardcoded
 // config (permissionMode comes in via deps from env at the composition root),
@@ -25,7 +25,7 @@ import type { AgentService } from '@choco/api/providers/base';
 import { ClaudeAgentService, assertValidPermissionMode } from '@choco/api/providers/claude/claude-service';
 import type { ClaudePermissionMode } from '@choco/api/providers/claude/claude-service';
 import { CodexAgentService } from '@choco/api/providers/codex/codex-service';
-import { GeminiAgentService } from '@choco/api/providers/gemini/gemini-service';
+import { AntigravityAgentService } from '@choco/api/providers/antigravity/antigravity-service';
 import { loadAgentConfigs } from '@choco/api/config/agent-config-loader';
 
 /**
@@ -63,6 +63,37 @@ export interface BuildAgentServicesDeps {
    * boot availability probe (isCliAvailable), so it works off-PATH.
    */
   readonly commandByClient?: Partial<Record<ClientId, string>>;
+  /**
+   * Optional command resolver from a logical command name to a concrete executable
+   * path. Production passes the same resolver used by the availability probe so
+   * an off-PATH but discovered CLI (notably Windows `%LOCALAPPDATA%\agy\bin`) is
+   * also the path we spawn. Tests omit this to keep construction pure.
+   */
+  readonly commandResolver?: (command: string) => string | undefined;
+}
+
+function commandBasename(command: string): string {
+  return (command.split(/[\\/]/).pop() ?? command).toLowerCase().replace(/\.(cmd|exe|ps1|bat)$/i, '');
+}
+
+function normalizeGoogleCommand(command: string | undefined): string | undefined {
+  if (command === undefined || command.length === 0) {
+    return undefined;
+  }
+  // @gemini is backed only by Antigravity now. A stale CHOCO_GEMINI_CMD=gemini
+  // must not silently route availability/spawn back to the removed gemini CLI.
+  return commandBasename(command) === 'gemini' ? undefined : command;
+}
+
+function resolveGoogleCommand(
+  command: string | undefined,
+  commandResolver: ((command: string) => string | undefined) | undefined,
+): string | undefined {
+  const normalized = normalizeGoogleCommand(command);
+  if (normalized !== undefined) {
+    return normalized;
+  }
+  return commandResolver?.('agy');
 }
 
 /**
@@ -90,6 +121,7 @@ function buildServiceForClient(
   permissionMode: ClaudePermissionMode,
   now: (() => number) | undefined,
   command: string | undefined,
+  commandResolver: ((command: string) => string | undefined) | undefined,
 ): AgentService {
   // Only forward a non-empty override; otherwise let the provider fall back to its
   // built-in default command. `command: undefined` is also accepted by each deps.
@@ -100,8 +132,16 @@ function buildServiceForClient(
       return new ClaudeAgentService({ agentId, permissionMode, ...common });
     case 'openai':
       return new CodexAgentService({ agentId, ...common });
-    case 'google':
-      return new GeminiAgentService({ agentId, ...common });
+    case 'google': {
+      // @gemini / Gemini的后端：`agy` (Antigravity) CLI（换掉旧 gemini CLI）。
+      // 用户侧 clientId 仍是 google、身份不变；只换 spawn 的 CLI。
+      const googleCommand = resolveGoogleCommand(command, commandResolver);
+      return new AntigravityAgentService({
+        agentId,
+        ...(now !== undefined ? { now } : {}),
+        ...(googleCommand !== undefined ? { command: googleCommand } : {}),
+      });
+    }
   }
 }
 
@@ -110,6 +150,7 @@ export interface BuildMemberServiceDeps {
   readonly permissionMode?: ClaudePermissionMode;
   readonly now?: () => number;
   readonly commandByClient?: Partial<Record<ClientId, string>>;
+  readonly commandResolver?: (command: string) => string | undefined;
 }
 
 /**
@@ -130,6 +171,7 @@ export function buildMemberService(
     permissionMode,
     deps.now,
     deps.commandByClient?.[config.clientId],
+    deps.commandResolver,
   );
 }
 
@@ -158,6 +200,7 @@ export function buildAgentServicesFromRoster(
       permissionMode,
       deps.now,
       deps.commandByClient?.[config.clientId],
+      deps.commandResolver,
     );
   }
   return Object.freeze(services);

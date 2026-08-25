@@ -25,13 +25,15 @@ import {
   IconClock,
   IconCheckSquare,
   IconCommunity,
+  IconGrid,
 } from '../choco/icons.js';
 import { WorkspaceMemory } from './WorkspaceMemory.js';
 import { WorkspaceTasks } from './WorkspaceTasks.js';
 import { WorkspaceDev } from './WorkspaceDev.js';
+import { WorkspaceAudit } from './WorkspaceAudit.js';
 
-/** The five workspace tabs. */
-export type WorkspaceTab = 'dev' | 'mem' | 'sched' | 'tasks' | 'comm';
+/** The workspace tabs. */
+export type WorkspaceTab = 'dev' | 'mem' | 'sched' | 'tasks' | 'audit' | 'comm';
 
 const TABS: readonly { readonly id: WorkspaceTab; readonly label: string; readonly icon: ReactElement }[] =
   [
@@ -39,6 +41,7 @@ const TABS: readonly { readonly id: WorkspaceTab; readonly label: string; readon
     { id: 'mem', label: '记忆', icon: <IconMemory /> },
     { id: 'sched', label: '调度', icon: <IconClock /> },
     { id: 'tasks', label: '任务', icon: <IconCheckSquare /> },
+    { id: 'audit', label: '审计', icon: <IconGrid /> },
     { id: 'comm', label: '社区', icon: <IconCommunity /> },
   ];
 
@@ -73,6 +76,8 @@ function tabBody(tab: WorkspaceTab, client: ApiClient, searchQuery: string): Rea
       );
     case 'tasks':
       return <WorkspaceTasks client={client} />;
+    case 'audit':
+      return <WorkspaceAudit client={client} />;
     case 'comm':
       return (
         <SoonPane

@@ -9,6 +9,9 @@ test-results/
 .DS_Store
 .state.txt
 .harness_probe.txt
+_tmp_*
+# Codex conversation attachments are local ingestion cache, not project assets.
+.codex-remote-attachments/
 # transient test databases
 *.db
 *.db-shm
@@ -17,6 +20,9 @@ test-results/
 .tmp/
 # Local runtime agent workspace (default CHOCO_WORKSPACE when unset) — runtime data, not source.
 .workspace/
+# Per-workspace gemini CLI config the engine writes (writeGeminiMcpSettings) so
+# @gemini sees the choco MCP server — runtime-generated, not source.
+.gemini/
 # Runtime data dir: rolling logs (LOG_DIR) + persisted member-edit overrides
 # (CHOCO_AGENT_OVERRIDES default data/agent-overrides.json). Runtime state, not source.
 data/
@@ -33,5 +39,13 @@ reference/
 # Project governance / task spec — internal, not published.
 CLAUDE.md
 PROJECT_SPEC.md
-# Design docs describing Clowder internals/architecture — not published.
-docs/
+# Chymia design documentation is tracked under docs/. Third-party reference
+# material remains excluded by the reference/ rule above.
+# Document and presentation production intermediates.
+docs/architecture/*-debug.png
+outputs/pptx-link-fix/
+outputs/chymia-presentation/
+outputs/*.inspect.ndjson
+outputs/chymia-architecture.excalidraw
+outputs/chymia-architecture-v2.excalidraw
+outputs/chymia-architecture-interview.excalidraw

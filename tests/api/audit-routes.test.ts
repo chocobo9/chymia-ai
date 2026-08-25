@@ -139,8 +139,11 @@ describe('GET /api/audit/thread/:id — edge / adversarial', () => {
       durationMs: 42,
       sessionId: 'sess-legacy',
     });
+    // A still-active session (NOT sealed here). P0-6 made sealActiveSession emit a
+    // REAL session_seal audit event (via SessionStore.onSeal) — sealing here would
+    // make this thread non-empty and skip the derived path this test exercises. The
+    // session boundary still surfaces as a DERIVED session_start from the sessions row.
     app.sessionStore.startSession(CLAUDE, LEGACY, 'sess-legacy');
-    app.sessionStore.sealActiveSession(CLAUDE, LEGACY);
 
     const { status, events } = await getAudit(app, LEGACY);
     expect(status).toBe(200);
@@ -151,7 +154,7 @@ describe('GET /api/audit/thread/:id — edge / adversarial', () => {
     // The persisted history surfaces as derived events of the right kinds.
     const types = events.map((e) => e.type);
     expect(types).toContain('responded'); // the agent reply
-    expect(types).toContain('session_seal'); // the sealed session boundary
+    expect(types).toContain('session_start'); // the session boundary (derived from the sessions row)
   });
 
   it('[edge] sealing a session over HTTP emits a session_seal audit event', async () => {

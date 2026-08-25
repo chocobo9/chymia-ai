@@ -19,7 +19,7 @@ function withRawToolEvents(content: string, toolEvents: unknown): StoredMessage 
 
 describe('tool-scrub: getToolEvents / hasToolUse / hasToolResult (edge)', () => {
   it('returns [] when the message has no extra at all', () => {
-    const msg = makeMessage({ agentId: CLAUDE, content: '布偶猫：直接给结论，无工具调用。', offsetMin: 0 });
+    const msg = makeMessage({ agentId: CLAUDE, content: 'Claude：直接给结论，无工具调用。', offsetMin: 0 });
     expect(getToolEvents(msg)).toEqual([]);
     expect(hasToolUse(msg)).toBe(false);
     expect(hasToolResult(msg)).toBe(false);
@@ -28,7 +28,7 @@ describe('tool-scrub: getToolEvents / hasToolUse / hasToolResult (edge)', () => 
   it('parses well-formed tool_use and tool_result events with labels', () => {
     const msg = makeMessage({
       agentId: CODEX,
-      content: '缅因猫读取迁移脚本。',
+      content: 'Codex读取迁移脚本。',
       offsetMin: 1,
       toolEvents: [
         { type: 'tool_use', label: 'read_file' },
@@ -74,11 +74,11 @@ describe('tool-scrub: scrubToolPayloads (edge)', () => {
         offsetMin: 0,
         toolEvents: [{ type: 'tool_result', label: 'read_file' }],
       }),
-      makeMessage({ agentId: CODEX, content: '缅因猫 review 结论：补 created_at 索引。', offsetMin: 1 }),
+      makeMessage({ agentId: CODEX, content: 'Codex review 结论：补 created_at 索引。', offsetMin: 1 }),
     ];
     const scrubbed = scrubToolPayloads(messages);
     expect(scrubbed[0]?.content).toBe('<tool_result truncated: read_file executed>');
-    expect(scrubbed[1]?.content).toBe('缅因猫 review 结论：补 created_at 索引。');
+    expect(scrubbed[1]?.content).toBe('Codex review 结论：补 created_at 索引。');
   });
 
   it('preserves the LAST message verbatim even if it carries a tool_result', () => {
@@ -97,11 +97,11 @@ describe('tool-scrub: scrubToolPayloads (edge)', () => {
 
   it('leaves non-terminal messages WITHOUT a tool_result untouched', () => {
     const messages = [
-      makeMessage({ agentId: CLAUDE, content: '布偶猫纯文本回复。', offsetMin: 0 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude纯文本回复。', offsetMin: 0 }),
       makeMessage({ agentId: CODEX, content: '收尾。', offsetMin: 1 }),
     ];
     const scrubbed = scrubToolPayloads(messages);
-    expect(scrubbed[0]?.content).toBe('布偶猫纯文本回复。');
+    expect(scrubbed[0]?.content).toBe('Claude纯文本回复。');
   });
 
   it('uses the "tool" fallback label when a scrubbed tool_result has no label', () => {

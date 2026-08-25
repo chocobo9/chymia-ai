@@ -62,6 +62,53 @@ describe('catalog routes — Skill / SOP / MCP (read-only, real data)', () => {
     expect(['blocker', 'warn']).toContain(withRule?.hardRules[0].severity);
   });
 
+  it('[red] GET /api/rules exposes Clowder-style rule sources + prompt consumption chain', async () => {
+    const res = await makeApp().api.inject({ method: 'GET', url: '/api/rules' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{
+      sharedRules: Array<{ path: string; exists: boolean; content: string; consumption: { kind: string; consumers: string[] } }>;
+      providerGuides: Array<{ provider: string; path: string; exists: boolean; consumption: { kind: string } }>;
+      l0Prompts: {
+        template: { path: string; exists: boolean; consumption: { kind: string } };
+        compiledByAgent: Array<{ agentId: string; displayName: string; compiled: string; error: string | null; consumption: { kind: string } }>;
+        customization: { templatePath: string; verifyCommand: string };
+      };
+      sop: unknown;
+    }>();
+
+    expect(body.sharedRules.map((f) => f.path)).toEqual([
+      'cat-cafe-skills/refs/shared-rules.md',
+      'docs/SOP.md',
+    ]);
+    expect(body.providerGuides.map((g) => g.provider).sort()).toEqual(['claude', 'codex', 'gemini']);
+    expect(body.providerGuides.map((g) => g.path).sort()).toEqual(['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
+    expect(body.sharedRules.every((f) => f.consumption.kind === 'reference')).toBe(true);
+    expect(body.providerGuides.every((g) => g.consumption.kind === 'harness-injected')).toBe(true);
+    expect(body.l0Prompts.template.consumption.kind).toBe('actual-prompt');
+    expect(body.l0Prompts.compiledByAgent.length).toBeGreaterThan(0);
+    expect(body.l0Prompts.compiledByAgent[0].compiled).toContain('Chymia AI L0');
+    expect(body.l0Prompts.compiledByAgent[0].compiled).not.toContain('{{IDENTITY_BLOCK}}');
+    expect(body.sop).toBeDefined();
+  });
+
+  it('[edge] GET /api/rules/skill/:name previews an allowlisted skill as on-demand prompt content', async () => {
+    const res = await makeApp().api.inject({ method: 'GET', url: '/api/rules/skill/tdd' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ path: string; exists: boolean; content: string; consumption: { kind: string } }>();
+    expect(body.path).toBe('packages/skills/skills/tdd.md');
+    expect(body.exists).toBe(true);
+    expect(body.content).toContain('tdd');
+    expect(body.consumption.kind).toBe('skill-on-demand');
+  });
+
+  it('[adversarial] GET /api/rules/skill/:name rejects invalid or missing skills', async () => {
+    const invalid = await makeApp().api.inject({ method: 'GET', url: '/api/rules/skill/..%2FCLAUDE.md' });
+    expect(invalid.statusCode).toBe(400);
+
+    const missing = await makeApp().api.inject({ method: 'GET', url: '/api/rules/skill/not-a-real-skill' });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it('GET /api/mcp/tools returns the real MCP tool catalog (name + description)', async () => {
     const res = await makeApp().api.inject({ method: 'GET', url: '/api/mcp/tools' });
     expect(res.statusCode).toBe(200);

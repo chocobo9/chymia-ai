@@ -30,12 +30,14 @@ import type {
   AuditEvent,
   SkillDefinition,
   SopDefinition,
+  RulesPayload,
   AccountSummary,
   AuthType,
   ProviderAuthStatus,
   WeChatSettingsView,
   TaskItem,
   TaskStatus,
+  TaskProgressSnapshot,
 } from '@choco/shared';
 
 /** One MCP tool's catalog entry (GET /api/mcp/tools). */
@@ -94,6 +96,19 @@ export interface GitCommitEntry {
 export interface GitStatusEntry {
   readonly status: string;
   readonly path: string;
+}
+
+/** One file's change summary under a commit (GET /api/workspace/git-show). */
+export interface GitShowFile {
+  readonly path: string;
+  readonly summary: string;
+}
+
+/** A commit's changed-file list (GET /api/workspace/git-show). */
+export interface GitShowResult {
+  readonly hash: string;
+  readonly files: readonly GitShowFile[];
+  readonly gitAvailable: boolean;
 }
 
 /** Working-tree status (GET /api/workspace/git-status). */
@@ -672,6 +687,12 @@ export class ApiClient {
     return data.sop;
   }
 
+  /** GET /api/rules — Clowder-style rule sources, provider guides, L0 prompt chain, and SOP. */
+  async getRules(): Promise<RulesPayload> {
+    const res = await this.fetchFn(this.url('/api/rules'));
+    return parseJson<RulesPayload>(res);
+  }
+
   /** GET /api/mcp/tools — the MCP tool catalog (M10), read-only. */
   async listMcpTools(): Promise<readonly McpToolEntry[]> {
     const res = await this.fetchFn(this.url('/api/mcp/tools'));
@@ -679,7 +700,7 @@ export class ApiClient {
     return data.tools;
   }
 
-  /** GET /api/tasks?threadId — the thread's task lines (任务线 / 毛线球). */
+  /** GET /api/tasks?threadId — the thread's task lines (任务线 / 任务). */
   async listTasks(threadId: string): Promise<readonly TaskItem[]> {
     const res = await this.fetchFn(this.url(`/api/tasks?threadId=${encodeURIComponent(threadId)}`));
     const data = await parseJson<{ tasks: TaskItem[] }>(res);
@@ -749,11 +770,36 @@ export class ApiClient {
     return parseJson<GitStatusView>(res);
   }
 
+  /** GET /api/workspace/git-show?hash= — one commit's changed-file summary (Git log 下钻). */
+  async getGitShow(hash: string): Promise<GitShowResult> {
+    const res = await this.fetchFn(this.url(`/api/workspace/git-show?hash=${encodeURIComponent(hash)}`));
+    return parseJson<GitShowResult>(res);
+  }
+
+  /** The GET /api/workspace/file/raw URL for a media file — for an <img>/<video>
+   * `src` (not fetched here; the browser streams it directly). */
+  workspaceRawUrl(path: string): string {
+    return this.url(`/api/workspace/file/raw?path=${encodeURIComponent(path)}`);
+  }
+
   /** GET /api/workspace/diff — changed files + unified diff (开发 tab 变更 view). */
   async getWorkspaceDiff(path?: string): Promise<WorkspaceDiffView> {
     const q = path !== undefined && path.length > 0 ? `?path=${encodeURIComponent(path)}` : '';
     const res = await this.fetchFn(this.url(`/api/workspace/diff${q}`));
     return parseJson<WorkspaceDiffView>(res);
+  }
+
+  /** GET /api/audit/thread/:threadId — per-thread audit events, newest-first (审计 tab). */
+  async getAuditEvents(threadId: string): Promise<{ readonly events: readonly AuditEvent[] }> {
+    const res = await this.fetchFn(this.url(`/api/audit/thread/${encodeURIComponent(threadId)}`));
+    return parseJson<{ events: AuditEvent[] }>(res);
+  }
+
+  /** GET /api/tasks/progress?threadId= — a thread's live per-agent task-progress snapshots. */
+  async getTaskProgress(threadId: string): Promise<readonly TaskProgressSnapshot[]> {
+    const res = await this.fetchFn(this.url(`/api/tasks/progress?threadId=${encodeURIComponent(threadId)}`));
+    const data = await parseJson<{ snapshots: TaskProgressSnapshot[] }>(res);
+    return data.snapshots;
   }
 }
 

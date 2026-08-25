@@ -19,6 +19,7 @@ import { Avatar } from './choco/primitives.js';
 import { Think, Diff, ToolGroup, type ToolRowData, type DiffLine } from './choco/blocks.js';
 import { renderForToolBlock, toolDetailPreview } from './choco/tool-render.js';
 import type { CodeLang } from './choco/highlight.js';
+import { MarkdownText } from './MarkdownText.js';
 
 /** Normalized view of one agent turn for rendering. */
 export interface AgentMessageView {
@@ -155,8 +156,8 @@ export function AgentMessage({ view, onRevealFile, onLoadFile }: AgentMessagePro
           )}
 
           {view.text.length > 0 && (
-            <div className="body agent-message__text" data-testid="agent-text">
-              {view.text}
+            <div className="body markdown agent-message__text" data-testid="agent-text">
+              <MarkdownText text={view.text} />
             </div>
           )}
         </div>

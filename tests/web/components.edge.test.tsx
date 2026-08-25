@@ -31,13 +31,11 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('ChatInput @mention autocomplete (edge + adversarial)', () => {
-  it('CJK alias mention "@布" surfaces the Claude alias "@布偶" and excludes others', async () => {
+  it('cat-style aliases no longer trigger mention suggestions', async () => {
     render(<ChatInput onSend={vi.fn()} />);
     const textarea = screen.getByTestId('chat-input-textarea');
     await userEvent.type(textarea, '@布');
-    const patterns = screen.getAllByTestId('mention-suggestion').map((s) => s.getAttribute('data-pattern'));
-    expect(patterns).toContain('@布偶');
-    expect(patterns).not.toContain('@codex');
+    expect(screen.queryByTestId('mention-suggestions')).not.toBeInTheDocument();
   });
 
   it('a no-match token "@zzz" shows no suggestion list', async () => {
@@ -69,11 +67,11 @@ describe('ChatInput @mention autocomplete (edge + adversarial)', () => {
     expect(textarea.value).toBe('请 @codex ');
   });
 
-  it('a bare "@" shows ALL mention patterns across the roster (9 patterns)', async () => {
+  it('a bare "@" shows the three default model handles', async () => {
     render(<ChatInput onSend={vi.fn()} />);
     await userEvent.type(screen.getByTestId('chat-input-textarea'), '@');
-    // 3 agents × 3 patterns each.
-    expect(screen.getAllByTestId('mention-suggestion')).toHaveLength(9);
+    const patterns = screen.getAllByTestId('mention-suggestion').map((s) => s.getAttribute('data-pattern'));
+    expect(patterns).toEqual(['@claude', '@codex', '@gemini']);
   });
 
   it('empty roster → typing "@claude" surfaces no suggestions and does not crash', async () => {
@@ -114,7 +112,7 @@ describe('AgentMessage rendering safety (adversarial)', () => {
   function viewWith(overrides: Partial<AgentMessageView>): AgentMessageView {
     return {
       agentId: CLAUDE,
-      displayName: 'Claude (Opus)',
+      displayName: 'Claude',
       text: '',
       thinking: '',
       toolBlocks: [],
@@ -135,12 +133,37 @@ describe('AgentMessage rendering safety (adversarial)', () => {
     expect(body.innerHTML).toContain('&lt;script&gt;');
   });
 
+  it('agent markdown renders as structured content while keeping raw HTML inert', () => {
+    const markdown = [
+      '### 方案 1：无符号 32 位整型',
+      '',
+      '* **十进制结果**：`3735928559`',
+      '* 依据：按权展开',
+      '',
+      '> 备注：<b>不是 HTML</b>',
+      '',
+      '```ts',
+      'const value = 0xDEADBEEF;',
+      '```',
+    ].join('\n');
+    render(<AgentMessage view={viewWith({ text: markdown })} />);
+    const body = screen.getByTestId('agent-text');
+
+    expect(within(body).getByRole('heading', { level: 3 })).toHaveTextContent('方案 1');
+    expect(within(body).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(body).getByText('十进制结果')).toBeInstanceOf(HTMLElement);
+    expect(within(body).getByText('3735928559').tagName).toBe('CODE');
+    expect(within(body).getByText(/const value/).tagName).toBe('CODE');
+    expect(body.querySelector('blockquote')).toHaveTextContent('<b>不是 HTML</b>');
+    expect(body.querySelector('blockquote b')).toBeNull();
+  });
+
   it('large / odd tool_use JSON input renders inside the collapsible pre without crashing', async () => {
     const bigInput: Record<string, unknown> = {
       command: 'rg --json "needle" .',
       nested: { deep: { array: Array.from({ length: 40 }, (_, i) => `path/to/file_${i}.ts`) } },
       quoteHeavy: 'he said "use \\"quotes\\"" & <tags>',
-      unicode: '布偶猫 🐱 / 暹罗猫',
+      unicode: 'Claude 🐱 / Gemini',
     };
     render(
       <AgentMessage

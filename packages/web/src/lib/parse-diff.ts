@@ -2,10 +2,14 @@
 // in the 变更 view. Ported from Clowder reference/.../workspace/DiffViewer.tsx
 // (parseUnifiedDiff), kept as a pure util so it is unit-tested without React.
 
-/** One rendered diff line. */
+/** One rendered diff line. `oldLine`/`newLine` are the 1-based line numbers in the
+ * old / new file: a `context` line has both, `remove` only `oldLine`, `add` only
+ * `newLine`, and a `meta` (@@) line neither. */
 export interface DiffLine {
   readonly type: 'add' | 'remove' | 'context' | 'meta';
   readonly content: string;
+  readonly oldLine?: number;
+  readonly newLine?: number;
 }
 
 /** One file's worth of diff lines (already including its @@ hunk headers as meta). */
@@ -24,6 +28,10 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
   const files: { path: string; lines: DiffLine[] }[] = [];
   let current: { path: string; lines: DiffLine[] } | null = null;
   let inHunk = false;
+  // 1-based cursors into the old / new file, seeded from each `@@` hunk header and
+  // advanced per body line (context: both; add: new only; remove: old only).
+  let oldLine = 0;
+  let newLine = 0;
 
   for (const line of diff.split('\n')) {
     const gitHeader = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
@@ -45,14 +53,28 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
 
     if (line.startsWith('@@')) {
       inHunk = true;
+      // `@@ -oldStart[,oldCount] +newStart[,newCount] @@` — seed both cursors.
+      const m = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (m !== null) {
+        oldLine = Number(m[1]);
+        newLine = Number(m[2]);
+      }
       current.lines.push({ type: 'meta', content: line });
       continue;
     }
     if (!inHunk) continue;
 
-    if (line.startsWith('+')) current.lines.push({ type: 'add', content: line.slice(1) });
-    else if (line.startsWith('-')) current.lines.push({ type: 'remove', content: line.slice(1) });
-    else current.lines.push({ type: 'context', content: line.startsWith(' ') ? line.slice(1) : line });
+    if (line.startsWith('+')) {
+      current.lines.push({ type: 'add', content: line.slice(1), newLine });
+      newLine += 1;
+    } else if (line.startsWith('-')) {
+      current.lines.push({ type: 'remove', content: line.slice(1), oldLine });
+      oldLine += 1;
+    } else {
+      current.lines.push({ type: 'context', content: line.startsWith(' ') ? line.slice(1) : line, oldLine, newLine });
+      oldLine += 1;
+      newLine += 1;
+    }
   }
 
   return files.map((f) => ({ path: f.path, lines: f.lines }));

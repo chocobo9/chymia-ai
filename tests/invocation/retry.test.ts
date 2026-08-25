@@ -14,6 +14,10 @@ describe('classifyError — one representative per class (unit)', () => {
     expect(classifyError('prompt is too long: 250000 tokens')).toBe('prompt_limit');
   });
 
+  test('context window overflow error → context_overflow', () => {
+    expect(classifyError('Claude ran out of room in the context window')).toBe('context_overflow');
+  });
+
   test('transient error → transient', () => {
     expect(classifyError('overloaded_error: service temporarily unavailable')).toBe('transient');
   });
@@ -44,6 +48,15 @@ describe('decideRetry — strategy per class (unit)', () => {
       producedOutput: false,
     });
     expect(decision).toEqual({ action: 'retry', clearSession: true, errorClass: 'prompt_limit' });
+  });
+
+  test('context overflow → retry with clearSession=true', () => {
+    const decision = decideRetry({
+      errorMessage: 'ran out of room in the context window',
+      attempt: 0,
+      producedOutput: false,
+    });
+    expect(decision).toEqual({ action: 'retry', clearSession: true, errorClass: 'context_overflow' });
   });
 
   test('timeout → retry with clearSession=true', () => {

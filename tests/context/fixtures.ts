@@ -15,12 +15,12 @@ export const USER_ID = 'user-makima';
 const AGENT_CONFIGS: Record<string, AgentConfig> = {
   [CLAUDE as string]: {
     id: CLAUDE,
-    name: 'Ragdoll',
-    displayName: '布偶猫',
+    name: 'Claude',
+    displayName: 'Claude',
     clientId: 'anthropic',
     defaultModel: 'claude-opus-4-6',
     mcpSupport: true,
-    mentionPatterns: ['@claude', '@布偶'],
+    mentionPatterns: ['@claude'],
     personality: '沉稳、重架构，先想清楚再动手。',
     roleDescription: '架构设计与核心实现',
     strengths: ['架构设计', '代码实现'],
@@ -29,12 +29,12 @@ const AGENT_CONFIGS: Record<string, AgentConfig> = {
   },
   [CODEX as string]: {
     id: CODEX,
-    name: 'Maine Coon',
-    displayName: '缅因猫',
+    name: 'Codex',
+    displayName: 'Codex',
     clientId: 'openai',
     defaultModel: 'gpt-5-codex',
     mcpSupport: true,
-    mentionPatterns: ['@codex', '@缅因'],
+    mentionPatterns: ['@codex'],
     personality: '挑剔、较真，code review 一针见血。',
     roleDescription: '代码审查与质量把关',
     strengths: ['代码审查', '测试'],
@@ -43,12 +43,12 @@ const AGENT_CONFIGS: Record<string, AgentConfig> = {
   },
   [GEMINI as string]: {
     id: GEMINI,
-    name: 'Siamese',
-    displayName: '暹罗猫',
+    name: 'Gemini',
+    displayName: 'Gemini',
     clientId: 'google',
     defaultModel: 'gemini-2.5-pro',
     mcpSupport: false,
-    mentionPatterns: ['@gemini', '@暹罗'],
+    mentionPatterns: ['@gemini'],
     personality: '审美在线，关注交互与视觉。',
     roleDescription: '前端与视觉设计',
     strengths: ['UI 设计', '交互'],
@@ -113,7 +113,7 @@ export function build25MessageThread(): StoredMessage[] {
       makeMessage({
         agentId: isAgent ? CLAUDE : null,
         content: isAgent
-          ? `布偶猫回复 #${i}：schema 设计了 todos 表与 indexes，迁移脚本已写好。`
+          ? `Claude回复 #${i}：schema 设计了 todos 表与 indexes，迁移脚本已写好。`
           : `用户追问 #${i}：那 database 索引怎么建？要不要加 created_at？`,
         offsetMin: i,
       }),
@@ -132,7 +132,7 @@ export function build25MessageThread(): StoredMessage[] {
   msgs.push(
     makeMessage({
       agentId: CODEX,
-      content: '缅因猫开始 review，先读迁移脚本。',
+      content: 'Codex开始 review，先读迁移脚本。',
       offsetMin: burstBase + 1,
       toolEvents: [{ type: 'tool_use', label: 'read_file' }],
     }),
@@ -148,14 +148,14 @@ export function build25MessageThread(): StoredMessage[] {
   msgs.push(
     makeMessage({
       agentId: CODEX,
-      content: '缅因猫 review 结论：indexes 缺 created_at，建议补一个 idx_todos_created。',
+      content: 'Codex review 结论：indexes 缺 created_at，建议补一个 idx_todos_created。',
       offsetMin: burstBase + 3,
     }),
   );
   msgs.push(
     makeMessage({
       agentId: null,
-      content: '好的，那 @claude 按缅因的意见补一下索引。',
+      content: '好的，那 @claude 按Codex 的意见补一下索引。',
       mentions: [CLAUDE],
       offsetMin: burstBase + 4,
     }),
@@ -163,7 +163,7 @@ export function build25MessageThread(): StoredMessage[] {
   msgs.push(
     makeMessage({
       agentId: CLAUDE,
-      content: '布偶猫已补 idx_todos_created 索引并更新迁移脚本。',
+      content: 'Claude已补 idx_todos_created 索引并更新迁移脚本。',
       offsetMin: burstBase + 5,
     }),
   );

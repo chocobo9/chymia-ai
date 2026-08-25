@@ -494,7 +494,7 @@ describe('SettingsOverlay (设置)', () => {
     expect(cards[0]).toHaveAttribute('data-agent', CLAUDE);
     // Accent comes from roster color.primary (#6366f1 = rgb(99,102,241)).
     expect(cards[0]).toHaveStyle({ '--ac': '#6366f1' });
-    expect(within(cards[0]).getByText('Claude')).toBeInTheDocument();
+    expect(cards[0].querySelector('.member-id b')).toHaveTextContent('Claude');
   });
 
   it('[edge] nav switching renders each pane head + body (members → ops → appearance)', async () => {
@@ -515,7 +515,7 @@ describe('SettingsOverlay (设置)', () => {
     const RECOLORED: readonly AgentRosterEntry[] = [
       {
         id: 'gemini-pro',
-        name: '暹罗猫',
+        name: 'Gemini',
         displayName: 'Hermes (Flash)',
         clientId: 'google',
         color: { primary: '#e11d48', secondary: '#fb7185' },

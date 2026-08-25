@@ -17,12 +17,14 @@ import type {
   AgentMessage,
   InvocationContext,
   StoredMessage,
+  ThreadRoutingPolicyV1,
+  ThreadRoutingScope,
 } from '@choco/shared';
 import type { MessageContent } from '@choco/api/providers/base';
 import type { AgentRegistry } from '@choco/api/routing/agent-registry';
 import { parseUserMentions, hasBroadcastMention } from '@choco/api/routing/mention-parser';
 import { parseIntent, stripIntentTags } from '@choco/api/routing/intent-parser';
-import { routeSerial, DEFAULT_MAX_A2A_DEPTH } from '@choco/api/routing/route-serial';
+import { routeSerial, DEFAULT_MAX_A2A_DEPTH, RELAY_AGENT_ID } from '@choco/api/routing/route-serial';
 import { routeParallel } from '@choco/api/routing/route-parallel';
 
 /** Arguments passed to the injected invocation seam for one agent turn. */
@@ -62,6 +64,68 @@ export interface RecentMessageReader {
   getByThread(threadId: string, limit?: number): Promise<StoredMessage[]>;
 }
 
+/**
+ * A thread participant plus its in-thread activity (Clowder ParticipantActivity).
+ * `lastResponseHealthy` absent ⇒ healthy (Clowder: `lastResponseHealthy !== false`)
+ * — this repo has no reply-health signal yet, so the field is always absent today.
+ */
+export interface ParticipantActivity {
+  readonly agentId: AgentId;
+  readonly messageCount: number;
+  readonly lastResponseHealthy?: boolean;
+}
+
+/**
+ * Narrow thread-participant seam — satisfied structurally by SqliteThreadStore.
+ * The router PERSISTS @mentions as participants at routing time (Clowder
+ * resolveTargets → addParticipants) and READS participant activity for its
+ * no-mention fallback (Clowder getParticipantsWithActivity). Kept as a narrow
+ * port (like {@link RecentMessageReader}) so routing does not depend on the
+ * stores layer.
+ */
+export interface ParticipantThreadStore {
+  addParticipants(threadId: string, agentIds: readonly AgentId[]): Promise<void>;
+  getParticipantsWithActivity(
+    threadId: string,
+  ): Promise<readonly ParticipantActivity[]>;
+  /** Read the thread's routing policy (F042) for fallback shaping. */
+  get(threadId: string): Promise<{ readonly routingPolicy?: ThreadRoutingPolicyV1 } | null>;
+}
+
+/**
+ * Infer the routing scope of a message (Clowder inferRoutingScope, F042 v1).
+ * Deterministic + conservative: review cues → 'review', architecture cues →
+ * 'architecture', else null (no policy applies).
+ */
+function inferRoutingScope(message: string): ThreadRoutingScope | null {
+  const lower = message.toLowerCase();
+  const hasPrToken = /\bpr\b/i.test(lower);
+  if (
+    lower.includes('review') ||
+    lower.includes('lgtm') ||
+    lower.includes('merge') ||
+    hasPrToken ||
+    message.includes('合入') ||
+    message.includes('开 PR') ||
+    message.includes('云端 review') ||
+    message.includes('帮我看看') ||
+    message.includes('请 reviewer 看看') ||
+    message.includes('请 review')
+  ) {
+    return 'review';
+  }
+  if (
+    lower.includes('architecture') ||
+    lower.includes('tradeoff') ||
+    message.includes('架构') ||
+    message.includes('设计') ||
+    message.includes('方案')
+  ) {
+    return 'architecture';
+  }
+  return null;
+}
+
 /** Resolve the per-agent abort signal for a target — the targeted-cancel seam. */
 export type SignalForAgent = (agentId: AgentId) => AbortSignal | undefined;
 
@@ -96,6 +160,13 @@ export interface AgentRouterDeps {
   readonly invoke: InvokeAgentFn;
   /** Optional history reader for @mention fallback (rule 2). */
   readonly history?: RecentMessageReader;
+  /**
+   * Optional participant seam (SqliteThreadStore). When present, route() persists
+   * @mentions as thread participants and the no-mention fallback can continue with
+   * a thread participant (Clowder participant model). Absent → the router stays
+   * read-only (unit tests that wire no store).
+   */
+  readonly threadStore?: ParticipantThreadStore;
   readonly config?: AgentRouterConfig;
   readonly logger?: RouteLogger;
   readonly now?: () => number;
@@ -113,6 +184,13 @@ export interface ResolvedRouting {
   readonly targets: readonly AgentId[];
   /** Explicitly @mentioned agents that are NOT available (for the notice). */
   readonly unavailable: readonly AgentId[];
+  /**
+   * The AVAILABLE agents that were EXPLICITLY @mentioned (or @all-expanded) this
+   * turn — the set {@link AgentRouter.route} writes back as thread participants
+   * (Clowder resolveTargets → addParticipants). Empty on a fallback/default route:
+   * Clowder persists participants only on the explicit-mention branch.
+   */
+  readonly mentioned: readonly AgentId[];
 }
 
 /**
@@ -135,6 +213,7 @@ export class AgentRouter {
   private readonly registry: AgentRegistry;
   private readonly invoke: InvokeAgentFn;
   private readonly history: RecentMessageReader | undefined;
+  private readonly threadStore: ParticipantThreadStore | undefined;
   private readonly logger: RouteLogger | undefined;
   private readonly now: () => number;
   private readonly maxA2ADepth: number;
@@ -146,6 +225,7 @@ export class AgentRouter {
     this.registry = deps.registry;
     this.invoke = deps.invoke;
     this.history = deps.history;
+    this.threadStore = deps.threadStore;
     this.logger = deps.logger;
     this.now = deps.now ?? Date.now;
     this.maxA2ADepth = deps.config?.maxA2ADepth ?? DEFAULT_MAX_A2A_DEPTH;
@@ -191,37 +271,67 @@ export class AgentRouter {
         .map((config) => config.id)
         .filter((id) => this.registry.isAvailable(id));
       if (everyone.length > 0) {
-        return { targets: everyone, unavailable: [] };
+        // @all addresses every available agent → all of them become participants.
+        return { targets: everyone, unavailable: [], mentioned: everyone };
       }
       // Nobody available → the deterministic single fallback (never an empty spawn).
       const pick = this.pickFallback();
-      return { targets: pick === undefined ? [] : [pick], unavailable: [] };
+      return { targets: pick === undefined ? [] : [pick], unavailable: [], mentioned: [] };
     }
 
     const entries = this.registry.getMentionEntries();
-    const mentioned = parseUserMentions(message, entries);
+    const parsed = parseUserMentions(message, entries);
 
-    if (mentioned.length > 0) {
-      const available = mentioned.filter((id) => this.registry.isAvailable(id));
-      const unavailable = mentioned.filter((id) => !this.registry.isAvailable(id));
+    if (parsed.length > 0) {
+      const available = parsed.filter((id) => this.registry.isAvailable(id));
+      const unavailable = parsed.filter((id) => !this.registry.isAvailable(id));
       // If some mentions are available, route to those + still report the
       // unavailable ones for the notice. If ALL mentions were unavailable, route
       // to nothing (targets=[]) — the handler shows only the notice, never a
       // silent spawn-fail (§C). We do NOT silently re-route an explicit @codex to
       // claude (that would be the surprising behavior the user hit).
-      return { targets: available, unavailable };
+      // `mentioned` = the available explicit mentions — the set route() persists.
+      return { targets: available, unavailable, mentioned: available };
     }
 
-    // No explicit mention: recent-mention fallback (available-only), then the
-    // default-available agent. Neither path is a "notice" case — the user did not
-    // explicitly address an unavailable agent this turn.
+    // No explicit mention. Fallback chain (Clowder peekTargets/resolveTargets):
+    //   1. recent USER @mention history,
+    //   2. else a thread PARTICIPANT (getParticipantsWithActivity),
+    //   3. else the default available agent.
+    // Each fallback result is shaped by the thread routing policy (Clowder
+    // applyThreadRoutingPolicy — FALLBACK only). None persist participants —
+    // Clowder writes back only on the explicit-mention branch (so `mentioned`
+    // stays empty here).
+    const routingPolicy =
+      this.threadStore !== undefined
+        ? (await this.threadStore.get(threadId))?.routingPolicy
+        : undefined;
+
     const fallback = await this.fallbackTargets(threadId);
     if (fallback.length > 0) {
-      return { targets: fallback, unavailable: [] };
+      return {
+        targets: this.applyRoutingPolicy(routingPolicy, message, fallback),
+        unavailable: [],
+        mentioned: [],
+      };
+    }
+
+    const participants = await this.participantFallback(threadId);
+    if (participants.length > 0) {
+      return {
+        targets: this.applyRoutingPolicy(routingPolicy, message, participants),
+        unavailable: [],
+        mentioned: [],
+      };
     }
 
     const pick = this.pickFallback();
-    return { targets: pick === undefined ? [] : [pick], unavailable: [] };
+    const picked = pick === undefined ? [] : [pick];
+    return {
+      targets: this.applyRoutingPolicy(routingPolicy, message, picked),
+      unavailable: [],
+      mentioned: [],
+    };
   }
 
   /**
@@ -230,16 +340,79 @@ export class AgentRouter {
    * Returns undefined only when NO agent is available.
    */
   private pickFallback(): AgentId | undefined {
+    return this.pickFallbackExcluding(new Set());
+  }
+
+  /**
+   * Clowder pickFallbackCat(exclude): the default agent if available AND not
+   * excluded, else the first available non-excluded agent (registry order).
+   * Returns undefined when none qualifies.
+   */
+  private pickFallbackExcluding(exclude: ReadonlySet<string>): AgentId | undefined {
     const def = this.registry.getDefault();
-    if (this.registry.isAvailable(def.id)) {
+    if (!exclude.has(def.id as string) && this.registry.isAvailable(def.id)) {
       return def.id;
     }
     for (const config of this.registry.getAll()) {
-      if (this.registry.isAvailable(config.id)) {
-        return config.id;
-      }
+      if (exclude.has(config.id as string)) continue;
+      if (this.registry.isAvailable(config.id)) return config.id;
     }
     return undefined;
+  }
+
+  /**
+   * Apply a thread routing policy to a FALLBACK candidate list (Clowder
+   * applyThreadRoutingPolicy). Only fallback routing is shaped — an explicit
+   * @mention is never policy-filtered (avoidCats: "unless explicitly @mentioned").
+   * For the inferred scope: preferCats first, avoidCats dropped (and if that
+   * empties the list, a non-avoided fallback agent is chosen). No scope / no rule
+   * / expired rule ⇒ the routable candidates unchanged.
+   */
+  private applyRoutingPolicy(
+    policy: ThreadRoutingPolicyV1 | undefined,
+    message: string,
+    candidates: readonly AgentId[],
+  ): AgentId[] {
+    const routable = candidates.filter((id) => this.registry.isAvailable(id));
+    const passthrough = (): AgentId[] => {
+      if (routable.length > 0) return routable;
+      const fb = this.pickFallbackExcluding(new Set());
+      return fb !== undefined ? [fb] : [];
+    };
+
+    const scope = inferRoutingScope(message);
+    if (scope === null) return passthrough();
+
+    const rule = policy?.v === 1 ? policy.scopes?.[scope] : undefined;
+    if (rule === undefined) return passthrough();
+    if (typeof rule.expiresAt === 'number' && rule.expiresAt > 0 && rule.expiresAt < this.now()) {
+      return passthrough();
+    }
+
+    const avoid = new Set((rule.avoidCats ?? []).map((id) => id as string));
+    const prefer = (rule.preferCats ?? [])
+      .map((id) => id as string)
+      .filter((id) => !avoid.has(id));
+    const filtered = routable.filter((id) => !avoid.has(id as string));
+
+    const out: AgentId[] = [];
+    const seen = new Set<string>();
+    for (const id of prefer) {
+      const aid = id as AgentId;
+      if (!this.registry.isAvailable(aid) || seen.has(id)) continue;
+      seen.add(id);
+      out.push(aid);
+    }
+    for (const id of filtered) {
+      const sid = id as string;
+      if (seen.has(sid)) continue;
+      seen.add(sid);
+      out.push(id);
+    }
+    if (out.length > 0) return out;
+
+    const fb = this.pickFallbackExcluding(avoid);
+    return fb !== undefined ? [fb] : [...routable];
   }
 
   /**
@@ -272,7 +445,12 @@ export class AgentRouter {
     threadId: string,
     options?: RouteOptions,
   ): AsyncGenerator<AgentMessage> {
-    const targets = await this.resolveTargets(message, threadId);
+    const { targets, mentioned } = await this.resolveRouting(message, threadId);
+    // Clowder resolveTargets: persist EXPLICIT @mentions (incl. @all expansion) as
+    // thread participants at routing time. No store wired → a harmless no-op.
+    if (mentioned.length > 0 && this.threadStore !== undefined) {
+      await this.threadStore.addParticipants(threadId, mentioned);
+    }
     yield* this.dispatch(targets, message, threadId, options);
   }
 
@@ -344,6 +522,13 @@ export class AgentRouter {
     const strategy: 'serial' | 'parallel' =
       intentResult.intent === 'ideate' ? 'parallel' : 'serial';
 
+    // F042: read the thread routing policy once so each agent's system prompt carries
+    // the review/architecture preference (injected by SystemPromptBuilder).
+    const routingPolicy =
+      this.threadStore !== undefined
+        ? (await this.threadStore.get(threadId))?.routingPolicy
+        : undefined;
+
     const common = {
       threadId,
       prompt: cleanPrompt,
@@ -351,6 +536,7 @@ export class AgentRouter {
       teammates: targets,
       mcpAvailable: this.mcpAvailable,
       promptTags: intentResult.promptTags,
+      ...(routingPolicy !== undefined ? { routingPolicy } : {}),
       ...(options?.signal !== undefined ? { signal: options.signal } : {}),
       ...(options?.signalForAgent !== undefined ? { signalForAgent: options.signalForAgent } : {}),
       ...(this.logger !== undefined ? { logger: this.logger } : {}),
@@ -361,12 +547,19 @@ export class AgentRouter {
       return;
     }
 
+    // F215 AC-C3: inject the relay target by REGISTRATION presence, NOT availability.
+    // The relay cat is forced unavailable (a system backup, not a routable roster
+    // member), so checking isAvailable would wrongly skip it. route-serial pushes it
+    // explicitly on form A exhaustion — that push is not availability-filtered.
+    const relayAgentId =
+      this.registry.get(RELAY_AGENT_ID) !== undefined ? RELAY_AGENT_ID : undefined;
     yield* routeSerial({
       ...common,
       targets,
       mentionEntries: this.registry.getMentionEntries(),
       maxA2ADepth: this.maxA2ADepth,
       now: this.now,
+      ...(relayAgentId !== undefined ? { relayAgentId } : {}),
     });
   }
 
@@ -396,5 +589,31 @@ export class AgentRouter {
       }
     }
     return [];
+  }
+
+  /**
+   * No-mention fallback to a thread PARTICIPANT (Clowder getParticipantsWithActivity
+   * three-tier). This repo has no preferredCats, so it collapses to two tiers:
+   *   (1) a healthy participant who has actually replied (messageCount > 0),
+   *   (2) else any healthy participant.
+   * Health is absent-means-healthy (Clowder `lastResponseHealthy !== false`).
+   * Returns [] when no store is wired or no routable participant exists.
+   */
+  private async participantFallback(threadId: string): Promise<AgentId[]> {
+    if (this.threadStore === undefined) {
+      return [];
+    }
+    const activity = await this.threadStore.getParticipantsWithActivity(threadId);
+    const isHealthy = (p: ParticipantActivity): boolean => p.lastResponseHealthy !== false;
+    const isRoutable = (p: ParticipantActivity): boolean =>
+      this.registry.isAvailable(p.agentId);
+    const healthyReplier = activity.find(
+      (p) => p.messageCount > 0 && isHealthy(p) && isRoutable(p),
+    );
+    if (healthyReplier !== undefined) {
+      return [healthyReplier.agentId];
+    }
+    const anyHealthy = activity.find((p) => isHealthy(p) && isRoutable(p));
+    return anyHealthy !== undefined ? [anyHealthy.agentId] : [];
   }
 }

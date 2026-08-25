@@ -7,7 +7,7 @@
 //                  model badge, accent, strengths, live status dot).
 //   • 运维监控   — LIVE: per-agent live status (agent store) + the /health-backed
 //                  ConnStrip; the token-usage bars are clearly marked 未接入.
-//   • 外观 / 系统 — appearance shows the active theme (Choco) honestly.
+//   • 外观 / 系统 — appearance shows the active Chymia AI theme honestly.
 //   • Skill 管理 / 规则与SOP / MCP 管理 — LIVE (read-only): the real skill manifest
 //     (GET /api/skills), the loaded SOP definition (GET /api/sop), and the MCP tool
 //     catalog (GET /api/mcp/tools). Browse-only; editing/management is unbuilt.
@@ -20,6 +20,8 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import QRCode from 'qrcode';
 import type {
   SopDefinition,
+  RuleFile,
+  RulesPayload,
   AccountSummary,
   ClientId,
   ProviderAuthStatus,
@@ -257,24 +259,72 @@ function SopRuleList({
  * hint 告示牌, NOT a hard gate) + each stage's ACTUAL hard rules + pitfalls with their
  * text and severity (not just counts). Read-only.
  */
-function SopPane({ client }: { readonly client: ApiClient }): ReactElement {
-  const [sop, setSop] = useState<SopDefinition | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void client.getSop().then(
-      (d) => !cancelled && setSop(d),
-      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [client]);
-  if (sop === null) {
-    return <div className="set-soon">{error !== null ? `加载失败：${error}` : '加载中…'}</div>;
-  }
+function ConsumptionBadge({ file }: { readonly file: Pick<RuleFile, 'consumption'> }): ReactElement {
+  return <span className="schip">{file.consumption.label}</span>;
+}
+
+function RuleFileCard({
+  file,
+  onPreview,
+}: {
+  readonly file: RuleFile;
+  readonly onPreview: (file: RuleFile) => void;
+}): ReactElement {
   return (
-    <div className="set-pane-body" data-testid="settings-rules">
+    <div className={`rule-file${file.exists ? '' : ' rule-file--missing'}`}>
+      <div className="set-card-t">
+        <span className="set-mono">{file.path}</span>
+        <ConsumptionBadge file={file} />
+        {file.exists && <span className="schip">{file.lineCount} lines</span>}
+        {!file.exists && <span className="schip">missing</span>}
+      </div>
+      <div className="set-row-s">{file.consumption.detail}</div>
+      <div className="si-chips">
+        {file.consumption.consumers.map((consumer) => (
+          <span key={consumer} className="schip">
+            {consumer}
+          </span>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="member-edit-btn"
+        data-testid={`rule-preview-${file.path}`}
+        disabled={!file.exists}
+        onClick={() => onPreview(file)}
+      >
+        预览
+      </button>
+    </div>
+  );
+}
+
+function RuleSection({
+  title,
+  testid,
+  files,
+  onPreview,
+}: {
+  readonly title: string;
+  readonly testid: string;
+  readonly files: readonly RuleFile[];
+  readonly onPreview: (file: RuleFile) => void;
+}): ReactElement {
+  return (
+    <div className="set-card" data-testid={testid}>
+      <div className="set-card-t">
+        {title} <span className="schip">{files.length}</span>
+      </div>
+      {files.map((file) => (
+        <RuleFileCard key={file.path} file={file} onPreview={onPreview} />
+      ))}
+    </div>
+  );
+}
+
+function SopDefinitionView({ sop }: { readonly sop: SopDefinition }): ReactElement {
+  return (
+    <>
       <div className="set-card">
         <div className="set-card-t">
           {sop.label} <span className="set-mono dim">{sop.domain}</span>
@@ -298,6 +348,115 @@ function SopPane({ client }: { readonly client: ApiClient }): ReactElement {
           <SopRuleList title="常见坑" rules={st.pitfalls} testid="sop-pitfall" />
         </div>
       ))}
+    </>
+  );
+}
+
+function RulePreviewModal({
+  file,
+  onClose,
+}: {
+  readonly file: RuleFile;
+  readonly onClose: () => void;
+}): ReactElement {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="member-edit-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`预览 ${file.path}`}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="member-edit-card rule-preview" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="member-edit-head">
+          <h3>
+            {file.path} <span className="schip">{file.lineCount} lines</span>
+          </h3>
+          <button type="button" className="set-close" aria-label="关闭预览" onClick={onClose}>
+            <IconClose />
+          </button>
+        </div>
+        <pre className="set-mono rule-preview-body">{file.content}</pre>
+      </div>
+    </div>
+  );
+}
+
+function RulesPane({ client }: { readonly client: ApiClient }): ReactElement {
+  const [rules, setRules] = useState<RulesPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<RuleFile | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void client.getRules().then(
+      (d) => !cancelled && setRules(d),
+      (e) => !cancelled && setError(e instanceof Error ? e.message : '加载失败'),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+  if (rules === null) {
+    return <div className="set-soon">{error !== null ? `加载失败：${error}` : '加载中…'}</div>;
+  }
+  const showL0 =
+    rules.l0Prompts.template.exists ||
+    rules.l0Prompts.compiledByAgent.some((item) => item.compiled.length > 0 || item.error !== null);
+  return (
+    <div className="set-pane-body" data-testid="settings-rules">
+      <div className="set-card" data-testid="rules-consumption-legend">
+        <div className="set-card-t">
+          Consumption chain <span className="schip">Clowder parity</span>
+        </div>
+        <div className="set-row-s">actual prompt = 进入模型上下文；harness injected = CLI/宿主自动读取；reference = 控制台/流程索引；skill-on-demand = 按需 skill。</div>
+      </div>
+
+      <RuleSection title="共享规则源" testid="rules-shared" files={rules.sharedRules} onPreview={setPreview} />
+      <RuleSection title="Provider guides" testid="rules-provider-guides" files={rules.providerGuides} onPreview={setPreview} />
+
+      {showL0 && (
+        <div className="set-card" data-testid="rules-l0">
+          <div className="set-card-t">
+            L0 system prompt <ConsumptionBadge file={rules.l0Prompts.template} />
+          </div>
+          <RuleFileCard file={rules.l0Prompts.template} onPreview={setPreview} />
+          <div className="set-row-s">
+            模板路径：<span className="set-mono">{rules.l0Prompts.customization.templatePath}</span>
+          </div>
+          <div className="set-row-s">
+            编译器：<span className="set-mono">{rules.l0Prompts.customization.compileScript}</span>
+          </div>
+          <div className="set-row-s">
+            验证命令：<span className="set-mono">{rules.l0Prompts.customization.verifyCommand}</span>
+          </div>
+          {rules.l0Prompts.compiledByAgent.map((item) => (
+            <div key={item.agentId} className="rule-file">
+              <div className="set-card-t">
+                {item.displayName} <ConsumptionBadge file={{ consumption: item.consumption }} />
+                {item.error !== null && <span className="schip">compile failed</span>}
+              </div>
+              {item.error !== null ? (
+                <div className="set-row-s">{item.error}</div>
+              ) : (
+                <pre className="set-mono rule-preview-body">{item.compiled}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <SopDefinitionView sop={rules.sop} />
+      {preview !== null && <RulePreviewModal file={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }
@@ -1581,9 +1740,9 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
               <button type="button" className="theme-swatch on" data-testid="theme-choco">
                 <div
                   className="theme-swatch-bar"
-                  style={{ background: 'linear-gradient(150deg,#b9744a,#99572f)' }}
+                  style={{ background: 'linear-gradient(150deg,#b68b3e,#315f58)' }}
                 />
-                <div className="theme-swatch-t">暖可可 · Choco</div>
+                <div className="theme-swatch-t">Atelier · Chymia AI</div>
                 <div className="theme-swatch-s">当前主题</div>
               </button>
             </div>
@@ -1630,7 +1789,7 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
       pane = <SoonCard note="通知偏好尚未接入持久化后端。" />;
       break;
     case 'rules':
-      pane = <SopPane client={client} />;
+      pane = <RulesPane client={client} />;
       break;
   }
 
@@ -1644,7 +1803,7 @@ export function SettingsOverlay(props: SettingsOverlayProps): ReactElement {
     >
       <aside className="set-nav">
         <div className="set-nav-h">
-          设置<span>Choco</span>
+          设置<span>Chymia AI</span>
         </div>
         <div className="set-nav-list" role="tablist" aria-label="设置导航">
           {NAV.map((it) => (

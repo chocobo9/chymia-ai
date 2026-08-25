@@ -1,5 +1,5 @@
 // WorkspaceTasks — the 任务 tab of the WorkspacePanel, the operable 任务线 board
-// (毛线球). LIVE: loads the active thread's tasks (GET /api/tasks), creates
+// (任务). LIVE: loads the active thread's tasks (GET /api/tasks), creates
 // (POST), cycles status (PATCH) and deletes (DELETE); the task-store is also kept
 // in sync by socket task_created/_updated/_deleted (other clients / the agent /
 // 飞书). The open tasks are injected into the agent's turn context server-side,
@@ -14,6 +14,7 @@ import type { TaskItem, TaskStatus } from '@choco/shared';
 import type { ApiClient } from '../../lib/api.js';
 import { useChatStore } from '../../stores/chat-store.js';
 import { useTaskStore } from '../../stores/task-store.js';
+import { useTaskProgressStore } from '../../stores/task-progress-store.js';
 
 /** Board sections, in display order (matches Clowder's TaskBoardPanel). */
 const SECTIONS: readonly { readonly key: TaskStatus; readonly label: string; readonly icon: string }[] = [
@@ -82,7 +83,7 @@ function TaskCard({ task, onCycle, onDelete }: CardProps): ReactElement {
         <div className="tsk-detail">
           {task.why.length > 0 && <p className="tsk-why">{task.why}</p>}
           <p className="tsk-meta">
-            {formatRelativeTime(task.createdAt)} · {task.createdBy === 'user' ? '铲屎官' : task.createdBy}
+            {formatRelativeTime(task.createdAt)} · {task.createdBy === 'user' ? '用户' : task.createdBy}
           </p>
           <button type="button" className="tsk-del" onClick={() => onDelete(task)} data-testid="tsk-del">
             删除
@@ -160,6 +161,13 @@ function TaskComposer({ onCreate, onClose }: ComposerProps): ReactElement {
   );
 }
 
+/** Status label for a task-progress snapshot (an agent's live TodoWrite plan). */
+const PROGRESS_STATUS_LABEL: Readonly<Record<string, string>> = {
+  running: '进行中',
+  completed: '已完成',
+  interrupted: '已中断',
+};
+
 export interface WorkspaceTasksProps {
   readonly client: ApiClient;
 }
@@ -172,6 +180,9 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
   const setTasks = useTaskStore((s) => s.setTasks);
   const upsertTask = useTaskStore((s) => s.upsertTask);
   const removeTask = useTaskStore((s) => s.removeTask);
+  const progressSnapshots =
+    useTaskProgressStore((s) => (threadId !== null ? s.snapshotsByThread[threadId] : undefined)) ?? [];
+  const setProgressSnapshots = useTaskProgressStore((s) => s.setSnapshots);
 
   const [phase, setPhase] = useState<'idle' | 'loading' | 'error'>('idle');
   const [composerOpen, setComposerOpen] = useState(false);
@@ -196,6 +207,24 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
       cancelled = true;
     };
   }, [client, threadId, setTasks]);
+
+  // Initial fill of the thread's live task-progress snapshots on open / thread
+  // change; the socket task_progress listener keeps them fresh after.
+  useEffect(() => {
+    if (threadId === null) return;
+    let cancelled = false;
+    client
+      .getTaskProgress(threadId)
+      .then((snaps) => {
+        if (!cancelled) setProgressSnapshots(threadId, snaps);
+      })
+      .catch(() => {
+        /* progress is best-effort; the board still works without it */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, threadId, setProgressSnapshots]);
 
   const create = useCallback(
     async (title: string, why: string): Promise<void> => {
@@ -249,7 +278,7 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
   return (
     <div className="wsp-pad" data-testid="wsp-tasks">
       <div className="tsk-head">
-        <span className="tsk-head-t">毛线球 · {tasks.length === 0 ? '暂无任务' : `${tasks.length} 项`}</span>
+        <span className="tsk-head-t">任务 · {tasks.length === 0 ? '暂无任务' : `${tasks.length} 项`}</span>
         <button
           type="button"
           className="tsk-new"
@@ -262,6 +291,30 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
 
       {composerOpen && <TaskComposer onCreate={create} onClose={() => setComposerOpen(false)} />}
 
+      {progressSnapshots.length > 0 && (
+        <div className="tsk-progress" data-testid="tsk-progress">
+          <div className="wsp-sec-t">实时进度</div>
+          {progressSnapshots.map((snap) => (
+            <div key={snap.agentId as string} className="tprog-cat" data-testid="tprog-snapshot">
+              <div className="tprog-head">
+                <span className="tprog-agent">{snap.agentId as string}</span>
+                <span className={`tprog-status ${snap.status}`}>
+                  {PROGRESS_STATUS_LABEL[snap.status] ?? snap.status}
+                </span>
+              </div>
+              {snap.tasks.map((t) => (
+                <div key={t.id} className={`tprog-item ${t.status}`} data-testid="tprog-item">
+                  <span className="tprog-ic">
+                    {t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '◐' : '○'}
+                  </span>
+                  <span className="tprog-txt">{t.activeForm ?? t.subject}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
       {phase === 'loading' && <div className="mem-loading" data-testid="tsk-loading">加载中…</div>}
       {phase === 'error' && (
         <div className="mem-empty" role="alert" data-testid="tsk-load-error">任务加载失败。</div>
@@ -271,10 +324,10 @@ export function WorkspaceTasks(props: WorkspaceTasksProps): ReactElement {
         <div className="wsp-empty" data-testid="tsk-empty">
           <div className="wsp-empty-t">把长期事项挂在线上，不埋回聊天里</div>
           <div className="wsp-empty-s">
-            需要跨多轮对话跟踪的事项，铲屎官和 agent 都可以创建毛线球；打开的任务会被注入 agent 的上下文。
+            需要跨多轮对话跟踪的事项，用户和 agent 都可以创建任务；打开的任务会被注入 agent 的上下文。
           </div>
           <button type="button" className="tsk-btn" onClick={() => setComposerOpen(true)}>
-            创建第一颗毛线球
+            创建第一个任务
           </button>
         </div>
       ) : (

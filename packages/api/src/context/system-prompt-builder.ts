@@ -9,8 +9,16 @@
 // inject a config resolver (ResolveAgentConfig). The three exported functions stay
 // pure (same inputs → same output). See DEV report "deviations".
 
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AgentConfig, AgentId, ClientId, InvocationContext } from '@choco/shared';
 import type { ResolveAgentConfig } from './context-assembler.js';
+import { compileSystemPromptL0Blocks, L0_TEMPLATE_PATH } from './system-prompt-l0.js';
+
+const CONTEXT_DIR = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(CONTEXT_DIR, '..', '..', '..', '..');
+const FULL_L0_TEMPLATE_PATH = resolve(PROJECT_ROOT, L0_TEMPLATE_PATH);
 
 /** Human-readable provider labels by CLI client. Source: §4.1 (ClientId). */
 const PROVIDER_LABELS: Record<ClientId, string> = {
@@ -143,6 +151,37 @@ export function buildInvocationContext(
     if (top) lines.push(`最近活跃：@${top.catId}`);
   }
 
+  // F042: thread routing policy hint — a short per-invocation note so the agent
+  // knows the thread's review/architecture routing preference (avoid/prefer). Expired
+  // rules are skipped (same as the routing layer). Aligns Clowder buildInvocationContext.
+  if (context.routingPolicy?.v === 1 && context.routingPolicy.scopes) {
+    const toMention = (id: string): string =>
+      resolveConfig(id as AgentId)?.mentionPatterns[0] ?? `@${id}`;
+    const scopes = context.routingPolicy.scopes;
+    const parts: string[] = [];
+    for (const scope of ['review', 'architecture'] as const) {
+      const rule = scopes[scope];
+      if (!rule) continue;
+      if (typeof rule.expiresAt === 'number' && rule.expiresAt > 0 && rule.expiresAt < Date.now()) {
+        continue;
+      }
+      const segs: string[] = [];
+      const avoid = (Array.isArray(rule.avoidCats) ? rule.avoidCats : [])
+        .slice(0, 3)
+        .map((id) => toMention(String(id)));
+      const prefer = (Array.isArray(rule.preferCats) ? rule.preferCats : [])
+        .slice(0, 3)
+        .map((id) => toMention(String(id)));
+      if (avoid.length > 0) segs.push(`avoid ${avoid.join(', ')}`);
+      if (prefer.length > 0) segs.push(`prefer ${prefer.join(', ')}`);
+      const reason =
+        typeof rule.reason === 'string' ? rule.reason.replace(/[\r\n]+/g, ' ').trim() : '';
+      if (reason) segs.push(`(${reason})`);
+      if (segs.length > 0) parts.push(`${scope} ${segs.join(' ')}`);
+    }
+    if (parts.length > 0) lines.push(`Routing: ${parts.join('; ')}`);
+  }
+
   // SOP stage hint — 告示牌 (bulletin board, not a gate).
   if (context.sopStageHint) {
     lines.push(`SOP: ${context.sopStageHint}`);
@@ -156,6 +195,71 @@ function nameOf(id: AgentId, resolveConfig: ResolveAgentConfig): string {
   return config ? `${config.displayName}(@${id as string})` : `@${id as string}`;
 }
 
+/** Deps for the reviewer section: the full roster + an availability probe. */
+export interface ReviewerDeps {
+  readonly allAgentIds: readonly AgentId[];
+  readonly isAvailable: (id: AgentId) => boolean;
+}
+
+/**
+ * F032: build the reviewer section — which teammates can review this agent's work.
+ * family = clientId (cross-provider review = independent perspective); only agents
+ * with the 'peer-reviewer' role qualify. Cross-provider reviewers are preferred,
+ * same-provider is a fallback, unavailable ones are listed separately. Returns null
+ * when there are no reviewers. Aligns Clowder buildReviewerSection (family→clientId,
+ * lead / reviewPolicy simplified — this repo has neither).
+ */
+export function buildReviewerSection(
+  currentAgentId: AgentId,
+  deps: ReviewerDeps,
+  resolveConfig: ResolveAgentConfig,
+): string | null {
+  const current = resolveConfig(currentAgentId);
+  if (!current) return null;
+
+  const crossFamily: string[] = [];
+  const sameFamily: string[] = [];
+  const unavailable: string[] = [];
+
+  for (const id of deps.allAgentIds) {
+    if (id === currentAgentId) continue;
+    const config = resolveConfig(id);
+    if (!config) continue;
+    if (!config.roles?.includes('peer-reviewer')) continue;
+    const mention = config.mentionPatterns[0] ?? `@${id as string}`;
+    const isDifferentFamily = config.clientId !== current.clientId;
+    if (!deps.isAvailable(id)) {
+      unavailable.push(`- ${mention} (${config.displayName}, 不可用)`);
+      continue;
+    }
+    const line = isDifferentFamily ? `- ${mention} (${config.clientId})` : `- ${mention}`;
+    (isDifferentFamily ? crossFamily : sameFamily).push(line);
+  }
+
+  // Cross-provider reviewers preferred (independence); same-provider as fallback.
+  let available: string[];
+  let fallbackNote: string | null = null;
+  if (crossFamily.length > 0) {
+    available = crossFamily;
+  } else if (sameFamily.length > 0) {
+    available = sameFamily;
+    fallbackNote = '[注意] 无跨 provider reviewer，同 provider 作 fallback：';
+  } else {
+    available = [];
+  }
+
+  if (available.length === 0 && unavailable.length === 0) return null;
+
+  const lines: string[] = ['## 你的 Reviewers', ''];
+  if (available.length > 0) {
+    lines.push(fallbackNote ?? '可以找以下 agent review 你的产出：', ...available, '');
+  }
+  if (unavailable.length > 0) {
+    lines.push('[注意] 以下 reviewer 当前不可用：', ...unavailable, '');
+  }
+  return lines.join('\n').trimEnd();
+}
+
 /**
  * Build the full system prompt: static identity + invocation context.
  * Pure function — same inputs always produce the same output. Returns '' for an
@@ -164,9 +268,24 @@ function nameOf(id: AgentId, resolveConfig: ResolveAgentConfig): string {
 export function buildSystemPrompt(
   context: InvocationContext,
   resolveConfig: ResolveAgentConfig,
+  reviewerDeps?: ReviewerDeps,
 ): string {
   const staticPart = buildStaticIdentity(context.agentId, context.teammates, resolveConfig);
   if (!staticPart) return '';
+  const parts: string[] = [staticPart];
+  // F032: reviewer section between identity and dynamic context (Clowder order).
+  if (reviewerDeps) {
+    const reviewerSection = buildReviewerSection(context.agentId, reviewerDeps, resolveConfig);
+    if (reviewerSection) parts.push(reviewerSection);
+  }
   const dynamicPart = buildInvocationContext(context, resolveConfig);
-  return dynamicPart ? `${staticPart}\n\n${dynamicPart}` : staticPart;
+  if (!existsSync(FULL_L0_TEMPLATE_PATH)) {
+    if (dynamicPart) parts.push(dynamicPart);
+    return parts.join('\n\n');
+  }
+  return compileSystemPromptL0Blocks(readFileSync(FULL_L0_TEMPLATE_PATH, 'utf8'), {
+    identityBlock: parts.join('\n\n'),
+    teammateRoster: '(See identity block roster.)',
+    invocationContext: dynamicPart,
+  });
 }

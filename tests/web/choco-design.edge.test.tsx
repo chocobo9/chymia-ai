@@ -347,13 +347,16 @@ describe('agent_status frames → StatusBar dot + header chip', () => {
  * 3. @mention autocomplete driven through the real composer. (edge + adv)
  * ========================================================================== */
 describe('@mention autocomplete (live roster)', () => {
-  it('typing "@" surfaces suggestions from the LIVE roster (9 patterns, 3×3)', async () => {
+  it('typing "@" surfaces the default model mentions from the LIVE roster', async () => {
     await mountApp();
     await selectDefaultThread();
     await userEvent.type(screen.getByTestId('chat-input-textarea'), '@');
     const dropdown = await screen.findByTestId('mention-suggestions');
     expect(dropdown).toHaveClass('mentions');
-    expect(within(dropdown).getAllByTestId('mention-suggestion')).toHaveLength(9);
+    const patterns = within(dropdown)
+      .getAllByTestId('mention-suggestion')
+      .map((s) => s.getAttribute('data-pattern'));
+    expect(patterns).toEqual(['@claude', '@codex', '@gemini']);
   });
 
   it('"@cl" filters to the Claude latin patterns only (edge)', async () => {
@@ -366,16 +369,11 @@ describe('@mention autocomplete (live roster)', () => {
     expect(patterns).toEqual(['@claude']);
   });
 
-  it('a CJK alias "@橘" filters to Codex\'s "@橘猫" and excludes others (edge)', async () => {
+  it('cat-style aliases no longer trigger mention suggestions (edge)', async () => {
     await mountApp();
     await selectDefaultThread();
     await userEvent.type(screen.getByTestId('chat-input-textarea'), '@橘');
-    const patterns = screen
-      .getAllByTestId('mention-suggestion')
-      .map((s) => s.getAttribute('data-pattern'));
-    expect(patterns).toContain('@橘猫');
-    expect(patterns).not.toContain('@claude');
-    expect(patterns).not.toContain('@gemini');
+    expect(screen.queryByTestId('mention-suggestions')).not.toBeInTheDocument();
   });
 
   it('selecting a suggestion inserts the mention WITHOUT clobbering preceding text', async () => {
@@ -582,7 +580,8 @@ describe('accent / identity from the live roster', () => {
     const msg = await screen.findByTestId('agent-message');
     // accent flows to --ac (roster claude color.primary = #6366f1) and the name color.
     expect(msg).toHaveStyle({ '--ac': '#6366f1' });
-    const name = within(msg).getByText('Claude (Opus)');
+    const name = msg.querySelector('.agent-message__name');
+    expect(name).toHaveTextContent('Claude');
     expect(name).toHaveStyle({ color: 'rgb(99, 102, 241)' });
   });
 
@@ -590,7 +589,7 @@ describe('accent / identity from the live roster', () => {
     const RECOLORED: readonly AgentRosterEntry[] = [
       {
         id: 'claude-opus',
-        name: '布偶猫',
+        name: 'Claude',
         displayName: 'Athena (Sonnet)',
         clientId: 'anthropic',
         color: { primary: '#e11d48', secondary: '#fb7185' },

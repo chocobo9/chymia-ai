@@ -86,7 +86,7 @@ describe('Path A — buildArgs choke point rejects every invalid mode (adversari
     // building anything. We also prove no array (and thus no bad value) escapes.
     let captured: string[] | undefined;
     expect(() => {
-      captured = buildArgs(PROMPT, undefined, DEFAULT_MODEL, value as ClaudePermissionMode);
+      captured = buildArgs(undefined, DEFAULT_MODEL, value as ClaudePermissionMode);
     }).toThrow(/Invalid Claude permission mode/);
     expect(captured).toBeUndefined();
   });
@@ -94,7 +94,7 @@ describe('Path A — buildArgs choke point rejects every invalid mode (adversari
   it.each(INVALID_MODES)('error message names the rejected value + allow-list for %s', (_label, value) => {
     // The error must be diagnosable: it names the bad value (JSON-stringified) and the allow-list.
     try {
-      buildArgs(PROMPT, undefined, DEFAULT_MODEL, value as ClaudePermissionMode);
+      buildArgs(undefined, DEFAULT_MODEL, value as ClaudePermissionMode);
       throw new Error('expected buildArgs to throw');
     } catch (err) {
       const msg = (err as Error).message;
@@ -110,7 +110,6 @@ describe('Path A — buildArgs choke point rejects every invalid mode (adversari
     let captured: string[] | undefined;
     expect(() => {
       captured = buildArgs(
-        PROMPT,
         undefined,
         DEFAULT_MODEL,
         'plan --dangerously-skip-permissions' as ClaudePermissionMode,
@@ -128,7 +127,7 @@ describe('Path A — buildArgs choke point rejects every invalid mode (adversari
     // in the allow-list, so it is rejected. (Coalescing only happens upstream in the constructor.)
     let captured: string[] | undefined;
     expect(() => {
-      captured = buildArgs(PROMPT, undefined, DEFAULT_MODEL, value as ClaudePermissionMode);
+      captured = buildArgs(undefined, DEFAULT_MODEL, value as ClaudePermissionMode);
     }).toThrow(/Invalid Claude permission mode/);
     expect(captured).toBeUndefined();
   });
@@ -283,10 +282,10 @@ describe('Path C — instance invoke() emits only validated argv (integration, r
 
 describe('Positive control — every valid mode passes buildArgs once (happy path)', () => {
   it.each(PERMISSION_MODES)('valid mode %s is accepted and emitted exactly once', (mode) => {
-    const args = buildArgs(PROMPT, undefined, DEFAULT_MODEL, mode);
+    const args = buildArgs(undefined, DEFAULT_MODEL, mode);
     expect(args.filter((a) => a === CLAUDE_PERMISSION_MODE_FLAG)).toHaveLength(1);
     expect(valueAfter(args, CLAUDE_PERMISSION_MODE_FLAG)).toBe(mode);
-    expect(args[args.length - 1]).toBe(PROMPT);
+    expect(args).not.toContain(PROMPT); // prompt goes via stdin, not argv
   });
 
   it('the allow-list independently matches `claude --help` (6 modes, exact order)', () => {

@@ -28,7 +28,7 @@ import { replyScript, CLAUDE } from './helpers.js';
 function reviewerInput(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 'claude-review',
-    name: '审查布偶',
+    name: 'Review Agent',
     displayName: 'Claude (Reviewer)',
     clientId: 'anthropic',
     defaultModel: 'claude-opus-4-6',

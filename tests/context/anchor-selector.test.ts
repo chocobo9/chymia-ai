@@ -12,7 +12,7 @@ describe('anchor selection (unit, happy path)', () => {
       mentions: [CLAUDE],
       offsetMin: 0,
     }),
-    makeMessage({ agentId: CLAUDE, content: '布偶猫：收到，先写 schema。', offsetMin: 1 }),
+    makeMessage({ agentId: CLAUDE, content: 'Claude：收到，先写 schema。', offsetMin: 1 }),
     makeMessage({ agentId: null, content: '索引怎么建？', offsetMin: 2 }),
     makeMessage({
       agentId: CODEX,

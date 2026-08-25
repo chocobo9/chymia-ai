@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1400" viewBox="0 0 1920 1400" role="img" aria-labelledby="title desc">
+  <title id="title">Chymia current execution architecture</title>
+  <desc id="desc">A progressive architecture diagram showing one user task moving through Thread, Routing, Context Assembly, Coding Agent Runtime and real Coding Agent CLIs, with state, memory, events and local effects as supporting layers.</desc>
+  <defs>
+    <marker id="arrow-main" markerWidth="11" markerHeight="11" refX="10" refY="5.5" orient="auto"><path d="M0,0 L10,5.5 L0,11" fill="none" stroke="#1f3b73" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="arrow-gray" markerWidth="11" markerHeight="11" refX="10" refY="5.5" orient="auto"><path d="M0,0 L10,5.5 L0,11" fill="none" stroke="#495057" stroke-width="2"/></marker>
+    <marker id="arrow-teal" markerWidth="11" markerHeight="11" refX="10" refY="5.5" orient="auto"><path d="M0,0 L10,5.5 L0,11" fill="none" stroke="#0c8599" stroke-width="2"/></marker>
+    <marker id="arrow-purple" markerWidth="11" markerHeight="11" refX="10" refY="5.5" orient="auto"><path d="M0,0 L10,5.5 L0,11" fill="none" stroke="#7b2cbf" stroke-width="2"/></marker>
+    <marker id="arrow-green" markerWidth="11" markerHeight="11" refX="10" refY="5.5" orient="auto"><path d="M0,0 L10,5.5 L0,11" fill="none" stroke="#2b8a3e" stroke-width="2"/></marker>
+    <style>
+      text { font-family: "Segoe Print", "Comic Sans MS", "Microsoft YaHei", "PingFang SC", sans-serif; }
+      .title { font: 700 34px "Cascadia Mono", "Microsoft YaHei", sans-serif; fill:#1f3b73; }
+      .subtitle { font: 18px "Microsoft YaHei", sans-serif; fill:#495057; }
+      .lane { font: 700 17px "Cascadia Mono", "Microsoft YaHei", sans-serif; letter-spacing:.8px; }
+      .module-title { font-weight:700; }
+      .module-sub { font:15px "Microsoft YaHei", sans-serif; fill:#495057; }
+      .body { font:16px "Microsoft YaHei", sans-serif; fill:#343a40; }
+      .small { font:13px "Microsoft YaHei", sans-serif; }
+      .support-title { font-size:21px; font-weight:700; }
+      .wire { fill:none; stroke-linecap:round; stroke-linejoin:round; }
+      .dash { stroke-dasharray:8 8; }
+    </style>
+  </defs>
+  <rect width="1920" height="1080" fill="#fffefb"/>
+  <text x="60" y="70" class="title">CHYMIA · CURRENT EXECUTION ARCHITECTURE</text>
+  <text x="62" y="108" class="subtitle">一次 User Task 如何被组织成跨 Coding Agent CLI 的可控协作</text>
+  <rect x="1270" y="42" width="580" height="72" rx="18" fill="#f3f0ff" stroke="#7048e8" stroke-width="2.2"/>
+  <text x="1560" y="68" text-anchor="middle" font-size="15" font-weight="700" fill="#6741d9">CORE BOUNDARY</text>
+  <text x="1560" y="94" text-anchor="middle" font-size="16" fill="#6741d9">共享协作上下文  ≠  共享 Provider 私有 Session</text>
+
+  <text x="60" y="172" class="lane" fill="#1f3b73">PRIMARY FLOW · ONE TASK, ONE VISIBLE EXECUTION SPINE</text>
+  <rect x="45" y="184" width="1830" height="410" rx="28" fill="#f8f9ff" stroke="#91a7ff" stroke-width="2.2"/>
+
+  <g>
+      <rect x="70" y="245" width="190" height="250" rx="20" fill="#ebfbee" stroke="#2b8a3e" stroke-width="3"/>
+      <ellipse cx="107" cy="282" rx="19" ry="19" fill="#fff" stroke="#2b8a3e" stroke-width="2"/>
+      <text x="107" y="288" text-anchor="middle" font-size="16" font-weight="700" fill="#2b8a3e">01</text>
+      <text x="138" y="290" class="module-title" fill="#2b8a3e" font-size="23">User Task</text>
+      <text x="92" y="336" class="module-sub">Web / Feishu</text>
+      <text x="92" y="369" class="body">开发目标</text><text x="92" y="397" class="body">目标 Agent / @all</text><text x="92" y="425" class="body">附件与 Project</text>
+    </g><g>
+      <rect x="325" y="225" width="240" height="290" rx="20" fill="#e7f5ff" stroke="#1971c2" stroke-width="3"/>
+      <ellipse cx="362" cy="262" rx="19" ry="19" fill="#fff" stroke="#1971c2" stroke-width="2"/>
+      <text x="362" y="268" text-anchor="middle" font-size="16" font-weight="700" fill="#1971c2">02</text>
+      <text x="393" y="270" class="module-title" fill="#1971c2" font-size="23">Thread</text>
+      <text x="347" y="316" class="module-sub">协作事实入口</text>
+      <text x="347" y="349" class="body">建立同一开发目标</text><text x="347" y="377" class="body">持久化用户消息</text><text x="347" y="405" class="body">维护 participants</text><text x="347" y="433" class="body">所有入口复用同一路径</text>
+    </g><g>
+      <rect x="630" y="225" width="240" height="290" rx="20" fill="#fff4e6" stroke="#e67700" stroke-width="3"/>
+      <ellipse cx="667" cy="262" rx="19" ry="19" fill="#fff" stroke="#e67700" stroke-width="2"/>
+      <text x="667" y="268" text-anchor="middle" font-size="16" font-weight="700" fill="#e67700">03</text>
+      <text x="698" y="270" class="module-title" fill="#e67700" font-size="23">Routing</text>
+      <text x="652" y="316" class="module-sub">确定性协作策略</text>
+      <text x="652" y="349" class="body">解析 @mention / @all</text><text x="652" y="377" class="body">选择可用 Agent</text><text x="652" y="405" class="body">serial：前序结果交接</text><text x="652" y="433" class="body">parallel：同一起始快照</text>
+    </g><g>
+      <rect x="935" y="205" width="310" height="330" rx="20" fill="#e3fafc" stroke="#0c8599" stroke-width="3"/>
+      <ellipse cx="972" cy="242" rx="19" ry="19" fill="#fff" stroke="#0c8599" stroke-width="2"/>
+      <text x="972" y="248" text-anchor="middle" font-size="16" font-weight="700" fill="#0c8599">04</text>
+      <text x="1003" y="250" class="module-title" fill="#0c8599" font-size="21">Context Assembly</text>
+      <text x="957" y="296" class="module-sub">构造本次可见上下文</text>
+      <text x="957" y="329" class="body">Thread history</text><text x="957" y="357" class="body">Task snapshot</text><text x="957" y="385" class="body">Evidence recall</text><text x="957" y="413" class="body">smart window: burst / anchors / tombstone</text><text x="957" y="441" class="body">SOP / Skill / identity</text><text x="957" y="469" class="body">token budget → effectivePrompt</text>
+    </g><g>
+      <rect x="1300" y="205" width="320" height="330" rx="20" fill="#f3f0ff" stroke="#7b2cbf" stroke-width="3"/>
+      <ellipse cx="1337" cy="242" rx="19" ry="19" fill="#fff" stroke="#7b2cbf" stroke-width="2"/>
+      <text x="1337" y="248" text-anchor="middle" font-size="16" font-weight="700" fill="#7b2cbf">05</text>
+      <text x="1368" y="250" class="module-title" fill="#7b2cbf" font-size="19">Coding Agent Runtime</text>
+      <text x="1322" y="296" class="module-sub">一次可控 CLI activation</text>
+      <text x="1322" y="329" class="body">Invocation identity</text><text x="1322" y="357" class="body">Session resume + mutex</text><text x="1322" y="385" class="body">timeout / cancel / retry</text><text x="1322" y="413" class="body">Provider Adapter</text><text x="1322" y="441" class="body">normalize → Agent Events</text>
+    </g><g>
+      <rect x="1685" y="245" width="165" height="250" rx="20" fill="#f1f3f5" stroke="#495057" stroke-width="3"/>
+      <ellipse cx="1722" cy="282" rx="19" ry="19" fill="#fff" stroke="#495057" stroke-width="2"/>
+      <text x="1722" y="288" text-anchor="middle" font-size="16" font-weight="700" fill="#495057">06</text>
+      <text x="1753" y="290" class="module-title" fill="#495057" font-size="21">Real CLI</text>
+      <text x="1707" y="336" class="module-sub">true external</text>
+      <text x="1707" y="369" class="body">Claude</text><text x="1707" y="397" class="body">Codex</text><text x="1707" y="425" class="body">Gemini</text><text x="1707" y="453" class="body"></text><text x="1707" y="481" class="body">private loop / Session</text>
+    </g>
+
+  <path d="M260 370 L325 370" class="wire" stroke="#1f3b73" stroke-width="3" marker-end="url(#arrow-main)"/>
+  <path d="M565 370 L630 370" class="wire" stroke="#1f3b73" stroke-width="3" marker-end="url(#arrow-main)"/>
+  <path d="M870 370 L935 370" class="wire" stroke="#1f3b73" stroke-width="3" marker-end="url(#arrow-main)"/>
+  <path d="M1245 370 L1300 370" class="wire" stroke="#1f3b73" stroke-width="3" marker-end="url(#arrow-main)"/>
+  <path d="M1620 370 L1685 370" class="wire" stroke="#1f3b73" stroke-width="3" marker-end="url(#arrow-main)"/>
+  <text x="292" y="350" text-anchor="middle" class="small" fill="#1f3b73">normalize</text>
+  <text x="598" y="350" text-anchor="middle" class="small" fill="#1f3b73">select</text>
+  <text x="902" y="337" text-anchor="middle" class="small" fill="#1f3b73">build</text>
+  <text x="902" y="353" text-anchor="middle" class="small" fill="#1f3b73">snapshot</text>
+  <text x="1272" y="350" text-anchor="middle" class="small" fill="#1f3b73">invoke</text>
+  <text x="1652" y="337" text-anchor="middle" class="small" fill="#1f3b73">spawn /</text>
+  <text x="1652" y="353" text-anchor="middle" class="small" fill="#1f3b73">resume</text>
+
+  <text x="60" y="647" class="lane" fill="#5f3dc4">SUPPORT LAYER · STATE, RECALL, EFFECTS, OBSERVABILITY</text>
+  <rect x="45" y="662" width="1830" height="650" rx="28" fill="#ffffff" stroke="#d0bfff" stroke-width="2.2"/>
+
+  <rect x="70" y="740" width="190" height="190" rx="18" fill="#ebfbee" stroke="#2b8a3e" stroke-width="2.2"/>
+  <text x="165" y="778" text-anchor="middle" class="support-title" fill="#2b8a3e">Live View</text>
+  <text x="165" y="827" text-anchor="middle" class="body">streaming reply</text>
+  <text x="165" y="853" text-anchor="middle" class="body">agent status</text>
+  <text x="165" y="879" text-anchor="middle" class="body">tool progress</text>
+
+  <rect x="325" y="720" width="500" height="260" rx="18" fill="#f8f9fa" stroke="#495057" stroke-width="2.2"/>
+  <text x="352" y="762" class="support-title" fill="#343a40">Durable Collaboration State · SQLite</text>
+  <text x="352" y="818" class="body">Thread · Message · Task</text>
+  <text x="352" y="846" class="body">Session · Tool Event · Audit</text>
+  <text x="352" y="890" class="body">按 Thread 重建 Context</text>
+  <text x="352" y="918" class="body">实时 UI 不是事实来源</text>
+
+  <rect x="880" y="700" width="410" height="520" rx="22" fill="#f0fdfa" stroke="#0c8599" stroke-width="3"/>
+  <text x="1085" y="742" text-anchor="middle" font-size="23" font-weight="700" fill="#0c8599">MEMORY MODULE</text>
+  <text x="1085" y="780" text-anchor="middle" class="small" fill="#0c8599">跨调用可检索的共享 Evidence；不是 Provider Session</text>
+
+  <rect x="910" y="810" width="350" height="105" rx="15" fill="#e3fafc" stroke="#0c8599" stroke-width="2"/>
+  <text x="1085" y="844" text-anchor="middle" font-size="19" font-weight="700" fill="#0c8599">1 · STORE</text>
+  <text x="1085" y="878" text-anchor="middle" font-size="14" fill="#343a40">EvidenceItem · provenance</text>
+  <text x="1085" y="899" text-anchor="middle" font-size="14" fill="#343a40">entity / edge · optional vector</text>
+
+  <rect x="910" y="945" width="350" height="115" rx="15" fill="#e3fafc" stroke="#0c8599" stroke-width="2"/>
+  <text x="1085" y="979" text-anchor="middle" font-size="19" font-weight="700" fill="#0c8599">2 · RETRIEVE &amp; RANK</text>
+  <text x="1085" y="1015" text-anchor="middle" font-size="14" fill="#343a40">jieba + FTS5 / BM25 · vector KNN</text>
+  <text x="1085" y="1039" text-anchor="middle" font-size="14" fill="#343a40">RRF fusion · lexical fallback</text>
+
+  <rect x="910" y="1090" width="350" height="105" rx="15" fill="#e3fafc" stroke="#0c8599" stroke-width="2"/>
+  <text x="1085" y="1124" text-anchor="middle" font-size="19" font-weight="700" fill="#0c8599">3 · BOUNDED RECALL</text>
+  <text x="1085" y="1157" text-anchor="middle" font-size="14" fill="#343a40">query from current turn · hit limit</text>
+  <text x="1085" y="1178" text-anchor="middle" font-size="14" fill="#343a40">timeout · fail-open</text>
+
+  <path d="M1085 915 L1085 945" class="wire" stroke="#0c8599" stroke-width="2" marker-end="url(#arrow-teal)"/>
+  <path d="M1085 1060 L1085 1090" class="wire" stroke="#0c8599" stroke-width="2" marker-end="url(#arrow-teal)"/>
+
+  <rect x="1340" y="720" width="300" height="240" rx="18" fill="#f3f0ff" stroke="#7b2cbf" stroke-width="2.2"/>
+  <text x="1490" y="762" text-anchor="middle" class="support-title" fill="#7b2cbf">Unified Agent Events</text>
+  <text x="1490" y="812" text-anchor="middle" class="body">text · thinking</text>
+  <text x="1490" y="840" text-anchor="middle" class="body">tool_use · tool_result</text>
+  <text x="1490" y="868" text-anchor="middle" class="body">error · done</text>
+  <text x="1490" y="908" text-anchor="middle" class="body">→ UI projection</text>
+  <text x="1490" y="936" text-anchor="middle" class="body">→ tool / audit records</text>
+
+  <rect x="1685" y="740" width="165" height="220" rx="18" fill="#f1f3f5" stroke="#495057" stroke-width="2.2"/>
+  <text x="1767" y="782" text-anchor="middle" class="support-title" fill="#495057">Local Project</text>
+  <text x="1767" y="808" text-anchor="middle" class="support-title" fill="#495057">&amp; Tools</text>
+  <text x="1767" y="858" text-anchor="middle" class="body">source files</text>
+  <text x="1767" y="884" text-anchor="middle" class="body">shell / tests</text>
+  <text x="1767" y="910" text-anchor="middle" class="body">CLI-native tools</text>
+
+  <path d="M445 515 L445 720" class="wire dash" stroke="#495057" stroke-width="2" marker-end="url(#arrow-gray)"/>
+  <text x="458" y="626" class="small" fill="#495057">append facts</text>
+  <path d="M1260 1142 L1288 1142 L1288 570 L1150 535" class="wire" stroke="#0c8599" stroke-width="3" marker-end="url(#arrow-teal)"/>
+  <text x="1300" y="620" class="small" fill="#0c8599">inject evidence</text>
+  <path d="M1460 535 L1460 720" class="wire" stroke="#7b2cbf" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <text x="1473" y="628" class="small" fill="#7b2cbf">normalized stream</text>
+  <path d="M1767 495 L1767 740" class="wire" stroke="#495057" stroke-width="2" marker-end="url(#arrow-gray)"/>
+  <text x="1780" y="648" class="small" fill="#495057">real side effects</text>
+
+  <path d="M1340 910 L1340 1260 L260 1260 L260 860" class="wire dash" stroke="#2b8a3e" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="720" y="1282" text-anchor="middle" class="small" fill="#2b8a3e">Socket projection back to Web / Feishu</text>
+
+  <text x="960" y="1362" text-anchor="middle" class="subtitle">READING ORDER  →  主链回答“任务如何执行”；支撑层回答“上下文从哪里来、状态存在哪里、事件如何返回”。</text>
+</svg>

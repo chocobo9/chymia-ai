@@ -51,22 +51,22 @@ describe('ChatInput @mention keyboard navigation', () => {
     const ta = screen.getByTestId('chat-input-textarea') as HTMLTextAreaElement;
 
     await userEvent.type(ta, '@');
-    await userEvent.type(ta, '{ArrowDown}'); // index 0 (@claude) → 1 (@布偶)
+    await userEvent.type(ta, '{ArrowDown}'); // index 0 (@claude) -> 1 (@codex)
     await userEvent.type(ta, '{Enter}');
 
     expect(onSend).not.toHaveBeenCalled();
-    expect(ta.value).toBe('@布偶 ');
+    expect(ta.value).toBe('@codex ');
   });
 
   it('[edge] ArrowUp from the top wraps to the LAST suggestion', async () => {
     render(<ChatInput onSend={vi.fn()} />);
     const ta = screen.getByTestId('chat-input-textarea') as HTMLTextAreaElement;
 
-    await userEvent.type(ta, '@'); // 9 patterns; last is @小罗 (gemini's third)
+    await userEvent.type(ta, '@'); // 3 default handles; last is @gemini
     await userEvent.type(ta, '{ArrowUp}');
     await userEvent.type(ta, '{Enter}');
 
-    expect(ta.value).toBe('@小罗 ');
+    expect(ta.value).toBe('@gemini ');
   });
 
   it('[edge] the highlighted row carries aria-selected="true"; the rest are false', async () => {
@@ -159,8 +159,8 @@ describe('highlightCode', () => {
   });
 
   it('classifies a TS string literal', () => {
-    const tokens = highlightCode('const name = "布偶猫";', 'js');
-    expect(tokens.find((t) => t.cls === 'str')?.text).toBe('"布偶猫"');
+    const tokens = highlightCode('const name = "Claude";', 'js');
+    expect(tokens.find((t) => t.cls === 'str')?.text).toBe('"Claude"');
   });
 
   it('uses # for Python comments (not //)', () => {
@@ -324,7 +324,7 @@ describe('AgentMessage renders an Edit tool as a highlighted diff (not raw JSON)
   function editView(): AgentMessageView {
     return {
       agentId: CLAUDE,
-      displayName: 'Claude (Opus)',
+      displayName: 'Claude',
       text: '改好了，现在会打印 4 次。',
       thinking: '',
       toolBlocks: [

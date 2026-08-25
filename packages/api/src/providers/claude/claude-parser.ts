@@ -38,11 +38,33 @@ export interface ParserState {
    * （否则持久化/渲染会翻倍）。assistant 事件处理后重置为 false。
    */
   readonly streamedText: boolean;
+  /** F215 AC-B1: 本次 invoke 是否出现过 assistant 事件（用于 form A 检测）。 */
+  readonly sawAssistantEvent?: boolean;
+  /** F215 AC-B1: 最后一个 assistant 事件的 content[] 是否含非空 text block（含增量发出的 text）。 */
+  readonly lastAssistantHadTextBlock?: boolean;
+  /** F215 AC-B1: 最后一个 assistant 事件的 content[] 是否含 tool_use block。 */
+  readonly lastAssistantHadToolUseBlock?: boolean;
+  /** F215 AC-B1: 是否出现过 result/error（出现则不判 form A——错误优先）。 */
+  readonly sawResultError?: boolean;
 }
 
 /** 创建初始状态 */
 export function createClaudeParserState(): ParserState {
   return { streamedText: false };
+}
+
+/**
+ * F215 AC-B1: 判定一次 invoke 的最终 parser state 是否为 form A malformed tool-call
+ * ——出现过 assistant 事件，但最后一个 assistant 既无 text 也无 tool_use block，且整轮
+ * 无 result/error（thinking-only 炸毛）。纯函数，供 service 在收尾时判定 + 单测断言。
+ */
+export function isMalformedFormAState(state: ParserState): boolean {
+  return (
+    state.sawAssistantEvent === true &&
+    !state.lastAssistantHadToolUseBlock &&
+    !state.lastAssistantHadTextBlock &&
+    !state.sawResultError
+  );
 }
 
 /** 单次 transform 的结果：要 emit 的消息 + 新状态 */
@@ -142,47 +164,59 @@ function transformAssistant(
 ): ParseResult {
   const message = asRecord(event.message);
   const model = asString(message?.model) ?? state.model;
-  // 本轮 assistant 事件处理完即重置 streamedText（下一轮重新判定）。
-  const nextState: ParserState = { ...state, ...(model ? { model } : {}), streamedText: false };
-
   const content = asArray(message?.content);
-  if (!content) {
-    return { messages: [], state: nextState };
-  }
 
   const messages: AgentMessage[] = [];
-  for (const block of content) {
-    const blk = asRecord(block);
-    if (!blk) {
-      continue;
-    }
-    const blkType = asString(blk.type);
-    if (blkType === 'text') {
-      // 该轮文本若已通过 stream_event/text_delta 增量发出，assistant content[] 的整块 text
-      // 是同一文本的合并版，跳过以免与增量重复（--include-partial-messages 行为）。
-      if (state.streamedText) {
+  // F215 AC-B1: 记录本轮 assistant 的 content block 构成（form A 检测用）。判断看 raw block
+  // 是否存在，与 streamedText 跳过 push 无关——content[] 的整块 text 在增量模式下仍在，故用
+  // content block 判断不受 streaming 顺序影响（对齐 Clowder：不依赖 per-turn text 事件计数）。
+  let hadTextBlock = false;
+  let hadToolUseBlock = false;
+  if (content) {
+    for (const block of content) {
+      const blk = asRecord(block);
+      if (!blk) {
         continue;
       }
-      const text = asString(blk.text);
-      if (text && text.length > 0) {
-        messages.push(makeMessage(deps, 'text', { content: text }, model));
+      const blkType = asString(blk.type);
+      if (blkType === 'text') {
+        const text = asString(blk.text);
+        if (text && text.length > 0) {
+          hadTextBlock = true;
+          // 该轮文本若已通过 stream_event/text_delta 增量发出，content[] 的整块 text 是同一
+          // 文本的合并版，跳过以免与增量重复（--include-partial-messages 行为）。
+          if (!state.streamedText) {
+            messages.push(makeMessage(deps, 'text', { content: text }, model));
+          }
+        }
+      } else if (blkType === 'tool_use') {
+        hadToolUseBlock = true;
+        const toolInput = asRecord(blk.input) ?? {};
+        messages.push(
+          makeMessage(
+            deps,
+            'tool_use',
+            {
+              toolName: asString(blk.name),
+              toolUseId: asString(blk.id),
+              toolInput,
+            },
+            model,
+          ),
+        );
       }
-    } else if (blkType === 'tool_use') {
-      const toolInput = asRecord(blk.input) ?? {};
-      messages.push(
-        makeMessage(
-          deps,
-          'tool_use',
-          {
-            toolName: asString(blk.name),
-            toolUseId: asString(blk.id),
-            toolInput,
-          },
-          model,
-        ),
-      );
     }
   }
+
+  // 本轮 assistant 处理完即重置 streamedText（下一轮重新判定）。text 经增量发出也算有 text。
+  const nextState: ParserState = {
+    ...state,
+    ...(model ? { model } : {}),
+    streamedText: false,
+    sawAssistantEvent: true,
+    lastAssistantHadTextBlock: hadTextBlock || state.streamedText,
+    lastAssistantHadToolUseBlock: hadToolUseBlock,
+  };
   return { messages, state: nextState };
 }
 
@@ -209,7 +243,7 @@ function transformResult(
     asString(event.result) ??
     `claude error (${subtype})`;
   const errMsg = makeMessage(deps, 'error', { content, errorCode: subtype }, state.model);
-  return { messages: [errMsg], state };
+  return { messages: [errMsg], state: { ...state, sawResultError: true } };
 }
 
 /**
@@ -260,7 +294,7 @@ export function transformClaudeEvent(
         asString(evt.error) ??
         'claude cli error';
       const errMsg = makeMessage(deps, 'error', { content }, state.model);
-      return { messages: [errMsg], state };
+      return { messages: [errMsg], state: { ...state, sawResultError: true } };
     }
     default:
       return { messages: [], state };

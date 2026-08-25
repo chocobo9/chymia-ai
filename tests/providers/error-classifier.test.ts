@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isMissingSessionError,
   isPromptLimitError,
+  isContextWindowOverflowError,
   isTransientCliError,
   isTimeoutError,
 } from '@choco/api/providers/error-classifier';
@@ -32,6 +33,23 @@ describe('error-classifier (unit, happy path)', () => {
     it('does not match a transient error', () => {
       expect(isPromptLimitError('service temporarily unavailable')).toBe(false);
       expect(isPromptLimitError(null)).toBe(false);
+    });
+  });
+
+  describe('isContextWindowOverflowError', () => {
+    it('matches context-window overflow variants (distinct from prompt-limit)', () => {
+      expect(isContextWindowOverflowError('Claude ran out of room in the context')).toBe(true);
+      expect(isContextWindowOverflowError('context window exceeded for this session')).toBe(true);
+      expect(isContextWindowOverflowError('context_window: limit reached')).toBe(true);
+    });
+    it('does not match a transient error or empty input', () => {
+      expect(isContextWindowOverflowError('service temporarily unavailable')).toBe(false);
+      expect(isContextWindowOverflowError('')).toBe(false);
+      expect(isContextWindowOverflowError(undefined)).toBe(false);
+    });
+    it('"ran out of room" is NOT caught by isPromptLimitError (proves the gap it fills)', () => {
+      expect(isPromptLimitError('Claude ran out of room in the context')).toBe(false);
+      expect(isContextWindowOverflowError('Claude ran out of room in the context')).toBe(true);
     });
   });
 

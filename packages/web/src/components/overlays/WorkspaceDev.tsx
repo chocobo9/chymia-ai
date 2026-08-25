@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type {
   ApiClient,
   GitCommitEntry,
+  GitShowFile,
   GitStatusView,
   WorkspaceFilePreview,
   WorkspaceInfo,
@@ -23,6 +24,15 @@ import type {
   WorkspaceTreeEntry,
 } from '../../lib/api.js';
 import { parseUnifiedDiff } from '../../lib/parse-diff.js';
+
+/** Classify a file path as streamable media (→ rendered via GET /file/raw) or null. */
+function mediaKind(path: string): 'image' | 'video' | 'audio' | null {
+  const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif'].includes(ext)) return 'image';
+  if (['.mp4', '.webm', '.mov'].includes(ext)) return 'video';
+  if (['.mp3', '.wav', '.ogg', '.m4a'].includes(ext)) return 'audio';
+  return null;
+}
 
 type DevView = 'files' | 'changes' | 'git';
 
@@ -364,7 +374,20 @@ function DevFilesAligned({ client }: { client: ApiClient }): ReactElement {
               </button>
             </div>
           </div>
-          <pre className="wsp-term">{preview?.binary === true ? '(binary file)' : preview?.content ?? '加载中...'}</pre>
+          {(() => {
+            const kind = mediaKind(selected);
+            if (kind !== null) {
+              const src = client.workspaceRawUrl(selected);
+              if (kind === 'image') return <img className="dev-media" src={src} alt={selected} data-testid="dev-media-image" />;
+              if (kind === 'video') return <video className="dev-media" src={src} controls data-testid="dev-media-video" />;
+              return <audio src={src} controls data-testid="dev-media-audio" />;
+            }
+            return (
+              <pre className="wsp-term">
+                {preview?.binary === true ? '(binary file)' : preview?.content ?? '加载中...'}
+              </pre>
+            );
+          })()}
         </div>
       )}
     </div>
@@ -422,8 +445,10 @@ function DevChanges({ client }: { client: ApiClient }): ReactElement {
           <pre className="dev-diff-body">
             {fd.lines.map((l, i) => (
               <div key={i} className={`diffl ${l.type}`}>
-                {l.type === 'add' ? '+' : l.type === 'remove' ? '-' : ' '}
-                {l.content}
+                <span className="diffl-ln" data-testid="diffl-old">{l.type === 'meta' ? '' : l.oldLine ?? ''}</span>
+                <span className="diffl-ln" data-testid="diffl-new">{l.type === 'meta' ? '' : l.newLine ?? ''}</span>
+                <span className="diffl-sign">{l.type === 'add' ? '+' : l.type === 'remove' ? '-' : ' '}</span>
+                <span className="diffl-txt">{l.content}</span>
               </div>
             ))}
           </pre>
@@ -449,6 +474,18 @@ function DevGit({ client }: { client: ApiClient }): ReactElement {
   const [status, setStatus] = useState<GitStatusView | null>(null);
   const [commits, setCommits] = useState<readonly GitCommitEntry[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [filesByHash, setFilesByHash] = useState<Record<string, readonly GitShowFile[]>>({});
+
+  const toggleCommit = (hash: string): void => {
+    setExpanded((prev) => (prev === hash ? null : hash));
+    if (filesByHash[hash] === undefined) {
+      client
+        .getGitShow(hash)
+        .then((r) => setFilesByHash((prev) => ({ ...prev, [hash]: r.files })))
+        .catch(() => setFilesByHash((prev) => ({ ...prev, [hash]: [] })));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -493,14 +530,38 @@ function DevGit({ client }: { client: ApiClient }): ReactElement {
         </div>
       )}
       {(commits ?? []).map((c) => (
-        <div key={c.hash} className="git-row" data-testid="git-commit">
-          <span className="git-hash">{c.short}</span>
-          <span className="git-msg">
-            {c.subject}
-            <span className="git-meta">
-              {c.author} · {relativeDate(c.date)}
+        <div key={c.hash} className="git-commit-wrap">
+          <button
+            type="button"
+            className="git-row"
+            data-testid="git-commit"
+            aria-expanded={expanded === c.hash}
+            onClick={() => toggleCommit(c.hash)}
+          >
+            <span className="git-hash">{c.short}</span>
+            <span className="git-msg">
+              {c.subject}
+              <span className="git-meta">
+                {c.author} · {relativeDate(c.date)}
+              </span>
             </span>
-          </span>
+          </button>
+          {expanded === c.hash && (
+            <div className="git-show-files" data-testid="git-show-files">
+              {filesByHash[c.hash] === undefined ? (
+                <div className="mem-empty">加载中…</div>
+              ) : filesByHash[c.hash].length === 0 ? (
+                <div className="mem-empty">（无文件变更）</div>
+              ) : (
+                filesByHash[c.hash].map((f) => (
+                  <div key={f.path} className="git-show-file" data-testid="git-show-file">
+                    <code>{f.path}</code>
+                    <span className="git-show-stat">{f.summary}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       ))}
       {(commits ?? []).length === 0 && <div className="mem-empty">还没有提交记录。</div>}

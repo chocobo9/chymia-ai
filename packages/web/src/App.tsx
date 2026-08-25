@@ -34,6 +34,7 @@ import { NotifInbox, deriveNotifItems } from './components/overlays/NotifInbox.j
 import { WorkspacePanel } from './components/overlays/WorkspacePanel.js';
 import { SettingsOverlay } from './components/overlays/SettingsOverlay.js';
 import { TrustGate } from './components/overlays/TrustGate.js';
+import { readScopeLock, writeScopeLock } from './lib/scope-persist.js';
 
 /** Which exclusive overlay surface (if any) is currently open. */
 type OverlaySurface = 'notif' | 'workspace' | 'settings' | null;
@@ -66,9 +67,10 @@ export function App(props: AppProps = {}): ReactElement {
   const activeThreadId = useChatStore((s) => s.activeThreadId);
 
   const [error, setError] = useState<string | null>(null);
-  // Busy/in-flight: true from send until the turn's POST resolves or rejects.
-  // Drives the composer's 停止-vs-send swap (停止 shows ONLY while busy).
-  const [sending, setSending] = useState(false);
+  // Per-thread busy/in-flight: true from send until the turn's POST resolves or
+  // rejects. Drives the composer's 停止-vs-send swap. Per-thread so switching
+  // threads doesn't leak one thread's sending state into another.
+  const [sendingByThread, setSendingByThread] = useState<Record<string, boolean>>({});
   const [overlay, setOverlay] = useState<OverlaySurface>(null);
   const [resolvedNotifs, setResolvedNotifs] = useState<ReadonlySet<string>>(new Set());
   // Workspace-trust gate (VSCode-style). `checked` flips once GET /api/trust
@@ -83,7 +85,7 @@ export function App(props: AppProps = {}): ReactElement {
   // Per-thread locked target agent (roster id). Absent = 全体 (broadcast/default
   // route). Persists across messages so a 1:1 conversation needs no re-@ — owned
   // here (not in ChatInput) so switching threads restores that thread's target.
-  const [lockByThread, setLockByThread] = useState<Record<string, string>>({});
+  const [lockByThread, setLockByThread] = useState<Record<string, string>>(readScopeLock);
 
   const onError = useCallback((message: string) => setError(message), []);
   const { cancel } = useSocket({
@@ -246,7 +248,7 @@ export function App(props: AppProps = {}): ReactElement {
       // streams in via agent_event; on POST resolve we swap the temp message for
       // the real persisted one (deduped) and reconcile the replies.
       const tempId = addOptimisticUserMessage(threadId, content, Date.now());
-      setSending(true);
+      setSendingByThread((prev) => ({ ...prev, [threadId]: true }));
       try {
         // POST resolves only after the turn completes (G8); the transcript fills
         // from agent_event frames meanwhile. Reconcile final state from result.
@@ -258,7 +260,7 @@ export function App(props: AppProps = {}): ReactElement {
         removeMessage(threadId, tempId);
         setError(err instanceof Error ? err.message : 'send failed');
       } finally {
-        setSending(false);
+        setSendingByThread((prev) => ({ ...prev, [threadId]: false }));
       }
     },
     [
@@ -326,11 +328,11 @@ export function App(props: AppProps = {}): ReactElement {
     (agentId: string | null) => {
       if (activeThreadId === null) return;
       setLockByThread((prev) => {
-        if (agentId === null) {
-          const { [activeThreadId]: _dropped, ...rest } = prev;
-          return rest;
-        }
-        return { ...prev, [activeThreadId]: agentId };
+        const next = agentId === null
+          ? (() => { const { [activeThreadId]: _dropped, ...rest } = prev; return rest; })()
+          : { ...prev, [activeThreadId]: agentId };
+        writeScopeLock(next);
+        return next;
       });
     },
     [activeThreadId],
@@ -363,7 +365,7 @@ export function App(props: AppProps = {}): ReactElement {
         <div className="brand">
           <div className="brand-mark">C</div>
           <div className="brand-name">
-            Choco<span>multi-agent coding</span>
+            Chymia AI<span>personal alchemy workshop</span>
           </div>
         </div>
         <div className="header-spacer" />
@@ -446,7 +448,8 @@ export function App(props: AppProps = {}): ReactElement {
           <div className="app__composer">
             <ChatInput
               onSend={(content) => void sendMessage(content)}
-              busy={sending}
+              busy={activeThreadId !== null && (sendingByThread[activeThreadId] === true)}
+              threadId={activeThreadId}
               onCancel={handleStop}
               lockedAgentId={lockedAgentId}
               onLockChange={handleLockChange}

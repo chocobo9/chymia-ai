@@ -1,4 +1,4 @@
-// task-routes — /api/tasks CRUD for the 任务线 (毛线球) board.
+// task-routes — /api/tasks CRUD for the 任务线 (任务) board.
 //
 // 对齐 Clowder reference/.../routes/tasks.ts (POST/GET/PATCH/DELETE + socket
 // broadcast). choco port: persists via SqliteTaskStore (services.taskStore) and
@@ -87,6 +87,18 @@ export function registerTaskRoutes(app: FastifyInstance, services: AppServices):
     }
     const tasks = await taskStore.listByThread(threadId);
     return reply.send({ tasks });
+  });
+
+  // GET /api/tasks/progress?threadId=... → a thread's LIVE per-agent task-progress
+  // snapshots (each agent's latest TodoWrite plan). Static path registered before
+  // /api/tasks/:id so it never matches the param route.
+  app.get('/api/tasks/progress', async (request, reply) => {
+    const { threadId } = request.query as { threadId?: string };
+    if (threadId === undefined || threadId.length === 0) {
+      return reply.code(400).send({ error: 'missing_threadId' });
+    }
+    const snapshots = services.taskProgressStore.listByThread(threadId);
+    return reply.send({ snapshots });
   });
 
   // GET /api/tasks/:id → single task / 404

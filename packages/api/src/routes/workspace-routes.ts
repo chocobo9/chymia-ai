@@ -11,6 +11,7 @@
 // host file. The OS launch itself is an injected seam (OsOpener) using execFile
 // with array args (no shell), and is only reachable on the local single-user API.
 
+import { createReadStream } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
@@ -21,6 +22,7 @@ import { defaultOsOpener, type OsOpener } from '@choco/api/infrastructure/os-ope
 import {
   isSafeWorkspaceFile,
   looksBinary,
+  mediaMimeForPath,
   mimeForPath,
   safeUploadFilename,
   sha256Hex,
@@ -29,6 +31,8 @@ import {
 
 /** Default cap on a previewed file's size — HTML viz files are small; guards huge reads. */
 const DEFAULT_MAX_PREVIEW_BYTES = 2 * 1024 * 1024; // 2 MiB
+/** Cap on a streamed media file (image/audio/video preview). */
+const MAX_RAW_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MiB
 
 /** Options for {@link registerWorkspaceRoutes}. */
 export interface WorkspaceRoutesOptions {
@@ -137,6 +141,41 @@ export function registerWorkspaceRoutes(
     } catch {
       return reply.code(404).send({ error: 'file_not_found' });
     }
+  });
+
+  // GET /api/workspace/file/raw?path=… — stream a workspace MEDIA file (image /
+  // audio / video) with its real content-type, so the preview can render an <img>/
+  // <video> instead of the binary placeholder. Same fileRoot sandbox + sensitive
+  // denylist as GET /file; media-only (text/binary non-media → 400) and size-capped.
+  // Aligned to Clowder workspace.ts GET /api/workspace/file/raw.
+  app.get('/api/workspace/file/raw', async (request, reply) => {
+    const query = FileQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.code(400).send({ error: 'invalid_query', issues: query.error.issues });
+    }
+
+    const resolved = resolvePathInRoot(fileRoot, query.data.path);
+    if (resolved === null) return reply.code(403).send({ error: 'path_outside_root' });
+    if (!isSafeWorkspaceFile(fileRoot, resolved)) return reply.code(403).send({ error: 'sensitive_path' });
+
+    const mime = mediaMimeForPath(resolved);
+    if (mime === null) return reply.code(400).send({ error: 'not_media' });
+
+    let fileStat;
+    try {
+      fileStat = await stat(resolved);
+    } catch {
+      return reply.code(404).send({ error: 'file_not_found' });
+    }
+    if (fileStat.isDirectory()) return reply.code(400).send({ error: 'is_directory' });
+    if (fileStat.size > MAX_RAW_MEDIA_BYTES) {
+      return reply.code(413).send({ error: 'file_too_large', maxBytes: MAX_RAW_MEDIA_BYTES });
+    }
+
+    reply.header('Content-Type', mime);
+    reply.header('Content-Length', fileStat.size);
+    reply.header('Cache-Control', 'private, max-age=60');
+    return reply.send(createReadStream(resolved));
   });
 
   // POST /api/workspace/upload - JSON/base64 upload for the browser Workspace panel.

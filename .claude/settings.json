@@ -10,6 +10,15 @@
           }
         ]
       }
-    ]
+    ],
+    "Stop": [
+      { "matcher": "",
+        "hooks": [
+          { "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/scope_gate.py\"",
+            "timeout": 10 } ] } ]
+  },
+  "permissions": {
+    "allow": ["mcp__choco__*"]
   }
 }

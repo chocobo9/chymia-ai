@@ -100,6 +100,35 @@ export function mimeForPath(path: string, binary = false): string {
   return MIME_BY_EXTENSION.get(extname(path).toLowerCase()) ?? 'text/plain';
 }
 
+/**
+ * Media (image/audio/video) MIME types the raw-streaming endpoint will serve. SVG
+ * is deliberately EXCLUDED — it is text and can carry inline <script>, so it stays
+ * on the text-preview path rather than being streamed with an image/* content-type.
+ */
+const MEDIA_MIME_BY_EXTENSION = new Map<string, string>([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.gif', 'image/gif'],
+  ['.webp', 'image/webp'],
+  ['.bmp', 'image/bmp'],
+  ['.ico', 'image/x-icon'],
+  ['.avif', 'image/avif'],
+  ['.mp4', 'video/mp4'],
+  ['.webm', 'video/webm'],
+  ['.mov', 'video/quicktime'],
+  ['.mp3', 'audio/mpeg'],
+  ['.wav', 'audio/wav'],
+  ['.ogg', 'audio/ogg'],
+  ['.m4a', 'audio/mp4'],
+]);
+
+/** The image/audio/video MIME for a path, or null when it is not a streamable
+ * media file (the raw endpoint serves media only; everything else stays text). */
+export function mediaMimeForPath(path: string): string | null {
+  return MEDIA_MIME_BY_EXTENSION.get(extname(path).toLowerCase()) ?? null;
+}
+
 export function isSearchableTextPath(path: string): boolean {
   return TEXT_EXTENSIONS.has(extname(path).toLowerCase());
 }

@@ -43,8 +43,17 @@ function buildNoticeApp(
     'claude-opus': new FakeAgentService(scripts['claude-opus'] ?? []),
     'codex-gpt': new FakeAgentService(scripts['codex-gpt'] ?? []),
     'gemini-pro': new FakeAgentService(scripts['gemini-pro'] ?? []),
+    // F215 relay cat (claude-opus-relay): a new roster member. These notice tests
+    // focus on the original 3 agents' alternatives logic; the relay cat is a system
+    //接班 target, not a user-facing notice alternative, so it is marked UNavailable
+    // here (and given a Fake so it never real-spawns even if routed).
+    'claude-opus-relay': new FakeAgentService(scripts['claude-opus-relay'] ?? []),
   };
-  const app = buildApp({ db, agentServices: fakes, agentAvailability: availability });
+  const app = buildApp({
+    db,
+    agentServices: fakes,
+    agentAvailability: { 'claude-opus-relay': false, ...availability },
+  });
   cleanups.push(app.close);
   return { app, fakes };
 }
@@ -78,7 +87,7 @@ describe('§C unavailable-agent notice — text + alternatives', () => {
     expect(notice?.origin).toBe('system');
     expect(notice?.agentId).toBe(CODEX);
     // Names the unavailable agent (its displayName) + the CLI-detection reason.
-    expect(notice?.content).toContain('Codex (GPT)');
+    expect(notice?.content).toContain('Codex');
     expect(notice?.content).toContain('未检测到 CLI');
     // Lists the actually-available alternative — claude's primary @mention.
     expect(notice?.content).toContain('@claude');
@@ -97,7 +106,7 @@ describe('§C unavailable-agent notice — text + alternatives', () => {
     const { replies } = await postMessage(app, 'thread-notice-alt', '@codex 你来实现这个脚本');
     const notice = replies.find((r) => r.origin === 'system');
     expect(notice).toBeDefined();
-    expect(notice?.content).toContain('Codex (GPT)');
+    expect(notice?.content).toContain('Codex');
     expect(notice?.content).toContain('@gemini');
     expect(notice?.content).not.toContain('@claude');
   });
@@ -121,8 +130,8 @@ describe('§C unavailable-agent notice — text + alternatives', () => {
     const { replies } = await postMessage(app, 'thread-notice-both', '@codex @gemini 你们俩谁先来');
     const notice = replies.find((r) => r.origin === 'system');
     expect(notice).toBeDefined();
-    expect(notice?.content).toContain('Codex (GPT)');
-    expect(notice?.content).toContain('Gemini (Pro)');
+    expect(notice?.content).toContain('Codex');
+    expect(notice?.content).toContain('Gemini');
     expect(notice?.content).toContain('@claude'); // the only available alternative
   });
 });
@@ -137,7 +146,7 @@ describe('§C notice — persisted + returned in replies + NOT spawning', () => 
     const systemMsg = history.find((m) => m.origin === 'system');
     expect(systemMsg).toBeDefined();
     expect(systemMsg?.agentId).toBe(CODEX);
-    expect(systemMsg?.content).toContain('Codex (GPT)');
+    expect(systemMsg?.content).toContain('Codex');
     // The user message is also persisted (the turn was not dropped).
     expect(history.some((m) => m.origin === 'user')).toBe(true);
   });
@@ -169,7 +178,7 @@ describe('§C notice — persisted + returned in replies + NOT spawning', () => 
     // Replies include BOTH the system notice (for codex) and claude's reply.
     const notice = replies.find((r) => r.origin === 'system');
     const claudeReply = replies.find((r) => r.origin === 'stream' && r.agentId === CLAUDE);
-    expect(notice?.content).toContain('Codex (GPT)');
+    expect(notice?.content).toContain('Codex');
     expect(claudeReply?.content).toBe('我来定架构并实现。');
   });
 
@@ -208,7 +217,7 @@ describe('§C platform ingress (M13/M14 adapters) also relays the notice', () =>
     const result = await app.submitPlatformMessage(incoming);
     const notice = result.replies.find((r) => r.origin === 'system');
     expect(notice).toBeDefined();
-    expect(notice?.content).toContain('Codex (GPT)');
+    expect(notice?.content).toContain('Codex');
     expect(notice?.content).toContain('@claude');
   });
 });
@@ -267,7 +276,7 @@ describe('§C notice is BROADCAST live as a system_info agent_event', () => {
     const systemInfo = received.find((m) => m.type === 'system_info');
     expect(systemInfo).toBeDefined();
     expect(systemInfo?.agentId).toBe(CODEX as AgentId);
-    expect(systemInfo?.content).toContain('Codex (GPT)');
+    expect(systemInfo?.content).toContain('Codex');
     expect(systemInfo?.content).toContain('@claude');
   });
 });

@@ -11,8 +11,9 @@
 // MUST NOT leak, win32/posix cross-branch, env-override paths, the real e2e).
 // Real inputs only (real agent ids, real @mention, real callback ids).
 
-import { readFileSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { buildApp, type BuildAppOverrides, type BuiltApp } from '@choco/api/app-factory';
@@ -20,11 +21,12 @@ import {
   buildClaudeMcpConfig,
   buildClaudeMcpConfigObject,
   defaultMcpBundlePath,
+  MCP_CODEX_CONFIG_ARGS_KEY,
   type ClaudeMcpConfigObject,
 } from '@choco/api/providers/mcp-config';
 import { buildArgs, MCP_CONFIG_ENV_KEY } from '@choco/api/providers/claude/claude-service';
 import { FakeAgentService } from '../invocation/fake-agent-service.js';
-import { replyScript, CLAUDE, CODEX } from './helpers.js';
+import { replyScript, CLAUDE, CODEX, GEMINI } from './helpers.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -207,11 +209,50 @@ describe('MCP producer wiring via buildApp', () => {
   });
 });
 
+describe('MCP producer wiring — codex (per-invocation --config) + gemini (settings.json)', () => {
+  it('sets MCP_CODEX_CONFIG_ARGS for codex (openai + mcpSupport), NOT the claude JSON', async () => {
+    const fake = new FakeAgentService([replyScript(CODEX, '收到，调用 evidence_upsert。')]);
+    const app = appWith({ 'codex-gpt': fake });
+    cleanups.push(app.close);
+
+    await postMention(app, 'thread-codex-mcp-args', '@codex');
+
+    expect(fake.calls).toHaveLength(1);
+    const env = fake.calls[0]?.options?.callbackEnv;
+    // codex gets its OWN serialized --config list...
+    const raw = env?.[MCP_CODEX_CONFIG_ARGS_KEY];
+    expect(raw).toBeDefined();
+    const codexArgs = JSON.parse(raw as string) as string[];
+    expect(codexArgs).toContain('--config');
+    expect(codexArgs).toContain('mcp_servers.choco.command="node"');
+    // ...and NEVER the claude `--mcp-config` JSON (formats are not interchangeable).
+    expect(env?.[MCP_CONFIG_ENV_KEY]).toBeUndefined();
+  });
+
+  it('writes <workspace>/.gemini/settings.json with the choco server (google + mcpSupport)', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'choco-gem-wire-'));
+    cleanups.push(async () => rmSync(workspace, { recursive: true, force: true }));
+
+    const fake = new FakeAgentService([replyScript(GEMINI, '我给两个替代方案。')]);
+    // defaultWorkspace flows into the per-turn workingDirectory the producer writes into.
+    const app = appWith({ 'gemini-pro': fake }, { defaultWorkspace: workspace });
+    cleanups.push(app.close);
+
+    await postMention(app, 'thread-gemini-mcp-file', '@gemini');
+
+    expect(fake.calls).toHaveLength(1);
+    const settings = JSON.parse(readFileSync(join(workspace, '.gemini', 'settings.json'), 'utf-8'));
+    expect(settings.mcpServers.choco.command).toBe('node');
+    expect(settings.mcpServers.choco.env['CHOCO_API_URL']).toBeDefined();
+    // gemini gets MCP via the file, NOT via callbackEnv MCP_CONFIG_JSON.
+    expect(fake.calls[0]?.options?.callbackEnv?.[MCP_CONFIG_ENV_KEY]).toBeUndefined();
+  });
+});
+
 describe('claude buildArgs MCP hook', () => {
   it('emits --mcp-config <value> when callbackEnv carries MCP_CONFIG_JSON', () => {
     const mcpValue = 'D:/tmp/choco-mcp/mcp-config.json';
     const args = buildArgs(
-      '@claude 记录 evidence',
       { callbackEnv: { [MCP_CONFIG_ENV_KEY]: mcpValue } },
       'claude-opus-4-6',
       'bypassPermissions',

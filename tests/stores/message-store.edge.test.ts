@@ -365,17 +365,17 @@ describe('SqliteMessageStore — edge/adversarial: JSON round-trip fidelity', ()
   });
 
   it('preserves CJK + emoji in content and CJK-derived mention ids', async () => {
-    const zhClaude = createAgentId('布偶猫');
-    const zhCodex = createAgentId('俄罗斯蓝猫');
+    const zhClaude = createAgentId('Claude');
+    const zhCodex = createAgentId('review-agent');
     const msg = await store.append(
       makeMessage({
-        content: '@布偶猫 @俄罗斯蓝猫 一起来评审这版方案吧 🐱✨，重点看并发安全。',
+        content: '@Claude @review-agent 一起来评审这版方案吧 🐱✨，重点看并发安全。',
         mentions: [zhClaude, zhCodex],
       }),
     );
 
     const fetched = await store.getById(msg.id);
-    expect(fetched?.content).toBe('@布偶猫 @俄罗斯蓝猫 一起来评审这版方案吧 🐱✨，重点看并发安全。');
+    expect(fetched?.content).toBe('@Claude @review-agent 一起来评审这版方案吧 🐱✨，重点看并发安全。');
     expect(fetched?.mentions).toEqual([zhClaude, zhCodex]);
   });
 

@@ -25,6 +25,8 @@ export interface CliProbeEnv {
   readonly PATH?: string;
   /** Windows executable extensions (e.g. `.COM;.EXE;.BAT;.CMD`). win32 only. */
   readonly PATHEXT?: string;
+  /** Windows per-user app install root; agy installs under `%LOCALAPPDATA%\agy\bin`. */
+  readonly LOCALAPPDATA?: string;
 }
 
 /** Options for {@link isCliAvailable} — injectable seams for tests. */
@@ -69,6 +71,17 @@ function commandCandidates(command: string, platform: NodeJS.Platform, pathext: 
   return [command, ...exts.map((ext) => `${command}${ext}`)];
 }
 
+function fallbackPathCandidates(
+  command: string,
+  platform: NodeJS.Platform,
+  env: CliProbeEnv,
+): string[] {
+  if (platform !== 'win32' || command.toLowerCase() !== 'agy') return [];
+  const localAppData = env.LOCALAPPDATA;
+  if (localAppData === undefined || localAppData.length === 0) return [];
+  return [join(localAppData, 'agy', 'bin', 'agy.exe')];
+}
+
 /**
  * Resolve whether a CLI `command` is installed/runnable on this system — a
  * `which`-style PATH resolution (NOT a spawn). An absolute or path-bearing
@@ -78,7 +91,17 @@ function commandCandidates(command: string, platform: NodeJS.Platform, pathext: 
  * Returns false for an empty command. Pure w.r.t. the injected seams.
  */
 export function isCliAvailable(command: string, options: CliAvailabilityOptions = {}): boolean {
-  if (command.length === 0) return false;
+  return resolveCliCommand(command, options) !== undefined;
+}
+
+/**
+ * Resolve a CLI command to the concrete executable path that should be spawned.
+ * For normal PATH hits this returns the PATH candidate; for known off-PATH installs
+ * (currently Windows `agy`) this returns the fallback executable path. Undefined
+ * means unavailable.
+ */
+export function resolveCliCommand(command: string, options: CliAvailabilityOptions = {}): string | undefined {
+  if (command.length === 0) return undefined;
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   const exists = options.exists ?? defaultExists;
@@ -88,16 +111,20 @@ export function isCliAvailable(command: string, options: CliAvailabilityOptions 
 
   // A path-bearing command (absolute, or containing a separator) bypasses PATH.
   if (isAbsolute(command) || command.includes('/') || command.includes('\\')) {
-    return candidateNames.some((name) => exists(name));
+    return candidateNames.find((name) => exists(name));
   }
 
   const pathDirs = (env.PATH ?? '').split(delimiter).filter((d) => d.length > 0);
   for (const dir of pathDirs) {
     for (const name of candidateNames) {
-      if (exists(join(dir, name))) return true;
+      const candidate = join(dir, name);
+      if (exists(candidate)) return candidate;
     }
   }
-  return false;
+  for (const candidate of fallbackPathCandidates(command, platform, env)) {
+    if (exists(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 /**

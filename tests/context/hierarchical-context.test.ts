@@ -92,7 +92,7 @@ describe('buildHierarchicalContext (happy path)', () => {
   it('uses the plain recent-history window below the cold-mention threshold', async () => {
     const small = [
       makeMessage({ agentId: null, content: '@claude 写一个 TODO API。', offsetMin: 0 }),
-      makeMessage({ agentId: CLAUDE, content: '布偶猫：好的，我来写。', offsetMin: 1 }),
+      makeMessage({ agentId: CLAUDE, content: 'Claude：好的，我来写。', offsetMin: 1 }),
     ];
     const result = await buildHierarchicalContext({
       messages: small,

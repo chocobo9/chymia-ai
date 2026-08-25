@@ -43,14 +43,14 @@ const OPENAI_LOGGED_OUT: ProviderAuthStatus = {
   supportsLogin: true,
 };
 
-/** gemini: available, but no scriptable login (implicit OAuth) → no button, a note. */
+/** google/agy: available, but no scriptable login (implicit OAuth) → no button, a note. */
 const GOOGLE_IMPLICIT: ProviderAuthStatus = {
   clientId: 'google',
-  cli: 'gemini',
+  cli: 'agy',
   available: true,
   loggedIn: null,
   supportsLogin: false,
-  detail: 'Gemini 用 Google 账号 OAuth，无 CLI 登录子命令。',
+  detail: 'Gemini 现由 Antigravity `agy` 后端驱动，使用 Google OAuth，但无 CLI 登录子命令。',
 };
 
 /** anthropic CLI not installed on this machine → "未安装", no button. */
@@ -62,7 +62,7 @@ const ANTHROPIC_UNAVAILABLE: ProviderAuthStatus = {
   supportsLogin: true,
 };
 
-/** A realistic 3-provider snapshot: claude logged in, codex logged out, gemini implicit. */
+/** A realistic 3-provider snapshot: claude logged in, codex logged out, google/agy implicit. */
 const MIXED: readonly ProviderAuthStatus[] = [ANTHROPIC_LOGGED_IN, OPENAI_LOGGED_OUT, GOOGLE_IMPLICIT];
 
 function makeClient(): ApiClient {

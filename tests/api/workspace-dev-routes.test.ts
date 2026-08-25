@@ -47,7 +47,7 @@ const fakeGit: GitRunner = (args) => {
     return Promise.resolve({ stdout: 'main\n', stderr: '', code: 0 });
   }
   if (sub.startsWith('log')) {
-    const line = ['abc123def456', '铲屎官', '2026-06-05T10:00:00+08:00', '修任务 tab'].join(NUL);
+    const line = ['abc123def456', '用户', '2026-06-05T10:00:00+08:00', '修任务 tab'].join(NUL);
     return Promise.resolve({ stdout: `${line}\n`, stderr: '', code: 0 });
   }
   if (sub.startsWith('diff')) {
@@ -56,6 +56,17 @@ const fakeGit: GitRunner = (args) => {
         'diff --git a/src/index.ts b/src/index.ts\n' +
         '--- a/src/index.ts\n+++ b/src/index.ts\n' +
         '@@ -1 +1 @@\n-export const x = 1;\n+export const x = 2;\n',
+      stderr: '',
+      code: 0,
+    });
+  }
+  if (sub.startsWith('show')) {
+    // `git show --stat <hash>`: commit header, blank, message, blank, the stat block.
+    return Promise.resolve({
+      stdout:
+        'commit abc123def456\nAuthor: 铲屎官 <x@y.z>\nDate:   Fri Jun 5 18:00:00 2026\n\n' +
+        '    修任务 tab\n\n' +
+        ' src/index.ts | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n',
       stderr: '',
       code: 0,
     });
@@ -104,7 +115,7 @@ describe('GET /api/workspace/git-log + git-status (Git)', () => {
     expect(res.statusCode).toBe(200);
     const { commits } = res.json<{ commits: { hash: string; short: string; author: string; subject: string }[] }>();
     expect(commits).toHaveLength(1);
-    expect(commits[0]).toMatchObject({ hash: 'abc123def456', short: 'abc123de', author: '铲屎官', subject: '修任务 tab' });
+    expect(commits[0]).toMatchObject({ hash: 'abc123def456', short: 'abc123de', author: '用户', subject: '修任务 tab' });
   });
 
   it('git-status classifies staged / unstaged / untracked + reports the branch', async () => {
@@ -121,6 +132,23 @@ describe('GET /api/workspace/git-log + git-status (Git)', () => {
     expect(body.unstaged.map((f) => f.path)).toContain('src/index.ts');
     expect(body.staged.map((f) => f.path)).toContain('added.ts');
     expect(body.untracked.map((f) => f.path)).toContain('new.txt');
+  });
+});
+
+describe('GET /api/workspace/git-show (提交详情下钻)', () => {
+  it('parses `git show --stat` into the commit changed-file list', async () => {
+    const app = makeApp(makeWorkspace());
+    const res = await app.api.inject({ method: 'GET', url: '/api/workspace/git-show?hash=abc123def456' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ hash: string; files: { path: string; summary: string }[]; gitAvailable: boolean }>();
+    expect(body.gitAvailable).toBe(true);
+    expect(body.files).toEqual([{ path: 'src/index.ts', summary: '2 +-' }]);
+  });
+
+  it('[security] rejects a non-hex hash (400) — no flag/path can be smuggled into git', async () => {
+    const app = makeApp(makeWorkspace());
+    const res = await app.api.inject({ method: 'GET', url: '/api/workspace/git-show?hash=--upload-pack' });
+    expect(res.statusCode).toBe(400);
   });
 });
 
