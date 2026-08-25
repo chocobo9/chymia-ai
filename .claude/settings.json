@@ -11,5 +11,8 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": ["mcp__choco__*"]
   }
 }
